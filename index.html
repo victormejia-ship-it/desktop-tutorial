@@ -3488,10 +3488,11 @@ function abrirDocumentoPoliza(id){
    UNA sola plantilla para las dos caras (costo/cliente): el payload lleva
    `lado` y ella decide título y columnas. Es más chico que mantener dos
    archivos casi iguales, y evita que se desalineen entre sí. */
-const EMPRESA_COTIZACION = {
-  nombre: 'Plato Express',
-  direccion: 'Hidalgo 402 Col. Centro, San Pedro Garza García, N. L. C.P. 66200'
-};
+/* Antes decía "Plato Express" con la dirección de la Hoja de datos original.
+   Cambiado el 21-ago-2026 a pedido de Victor: el documento impreso de
+   Cotizaciones debe verse como el de Pólizas —logo, tipografía, colores y
+   pie de Forguard—, no con una identidad propia. Mismos datos de contacto
+   que ya usa el módulo de pólizas (TEL_OFICINA/OFICINAS, arriba). */
 
 function armarPayloadCotizacion(q, lado){
   const c = calcularCotizacion(q);
@@ -3502,7 +3503,10 @@ function armarPayloadCotizacion(q, lado){
   return {
     meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
     lado: l,
-    empresa: EMPRESA_COTIZACION,
+    /* Mismo contacto que imprime la póliza: una oficina, un teléfono. El
+       correo es el de quien está en sesión —si hay— porque la cotización no
+       captura uno propio, a diferencia del vendedor de una póliza. */
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
     folio: q.folio || '',
     fecha: fechaDocumento(q.fecha),
     realizo: q.realizo || '',
