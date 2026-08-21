@@ -431,6 +431,12 @@ button.mes{cursor:pointer;}
 /* La cotización de una póliza llega a 34 renglones de ocho columnas: 860 px no
    alcanzan y la tabla se volvía ilegible a fuerza de comprimir. */
 .modal.enorme{max-width:1180px;}
+/* Vista previa del documento de cotización: un iframe a la plantilla real
+   —los MISMOS datos, el mismo cálculo—, no una segunda maqueta que se pueda
+   desalinear. Alto fijo con scroll propio del iframe: el documento mide
+   11in y no tiene por qué caber completo sin desplazarse. */
+.modal.doc-previa{max-width:900px;}
+.iframe-previa{width:100%; height:78vh; border:0; border-radius:10px; background:#E9EBEE; display:block;}
 @keyframes sube{ from{opacity:0; transform:translateY(16px) scale(.99);} to{opacity:1; transform:none;} }
 .modal-cabeza{padding:19px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; position:sticky; top:0; background:#fff; z-index:2;}
 .modal-cabeza h3{font-size:16px; font-weight:700; color:var(--navy); flex:1;}
@@ -2275,12 +2281,31 @@ function cotizacionesDeSitio(sitioId){ return datos.cotizaciones.filter(q => q.s
    es su lugar dentro de las que ya llevan ese mismo día. Es solo una
    sugerencia — el campo sigue siendo texto libre, por si hace falta otra
    convención o corregirlo a mano. */
+/* Folio por default: SERV-ddmmaa-NN. El consecutivo es GLOBAL — cuántas
+   cotizaciones ya existen, no cuántas del mismo día — a pedido explícito de
+   Victor (21-ago-2026): "conforme a las cotizaciones creadas". Sigue siendo
+   solo una sugerencia inicial: el campo del formulario es texto libre y se
+   puede corregir a mano. */
+/* Quién capturó la última cotización, para no volver a teclearlo cada vez.
+   En modo servidor manda el nombre de la sesión —siempre correcto y no hace
+   falta recordar nada—; en modo local no hay cuentas, así que es lo único
+   que dice quién es quién. Sigue siendo editable en el formulario: esto solo
+   rellena la sugerencia. */
+const LLAVE_REALIZO = 'forguard_forpass_realizo_v1';
+function realizoSugerido(){
+  const deSesion = sesion.nombre || nombreDe(sesion);
+  if(deSesion) return deSesion;
+  try{ return localStorage.getItem(LLAVE_REALIZO) || ''; }catch(e){ return ''; }
+}
+function recordarRealizo(nombre){
+  if(HAY_NUBE) return;   /* con sesión real no hace falta ni tiene caso */
+  try{ localStorage.setItem(LLAVE_REALIZO, nombre); }catch(e){}
+}
+
 function generarFolioCotizacion(fechaISO){
   const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
   const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
-  const marca = '-' + ddmmaa + '-';
-  const delMismoDia = datos.cotizaciones.filter(q => q.folio.includes(marca)).length;
-  return 'SERV-' + ddmmaa + '-' + String(delMismoDia + 1).padStart(2,'0');
+  return 'SERV-' + ddmmaa + '-' + String(datos.cotizaciones.length + 1).padStart(2,'0');
 }
 
 /* Numera las partidas como en el documento: consecutivas con la misma
@@ -3551,20 +3576,40 @@ const LLAVE_DOC_COTIZACION = 'forguard.documento.cotizacion';
 /* Mismo molde que abrirDocumentoPoliza(): SIN 'noopener' (la pestaña nueva
    necesita heredar el sessionStorage) y con ?v=Date.now() para que Pages
    nunca sirva una copia vieja de la plantilla. */
-function abrirDocumentoCotizacion(id, lado){
+/* Deja el documento listo en sessionStorage para que la plantilla lo lea,
+   sea que la vaya a abrir en pestaña nueva o dentro de un iframe de vista
+   previa — un solo lugar que arma el payload y avisa si algo salió mal. */
+function prepararDocumentoCotizacion(id, lado){
   const q = cotizacionPorId(id);
-  if(!q) return;
-  let payload;
+  if(!q) return null;
   try{
-    payload = armarPayloadCotizacion(q, lado);
+    const payload = armarPayloadCotizacion(q, lado);
     sessionStorage.setItem(LLAVE_DOC_COTIZACION, JSON.stringify(payload));
+    return payload;
   }catch(e){
     aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
-    return;
+    return null;
   }
+}
+
+function abrirDocumentoCotizacion(id, lado){
+  if(!prepararDocumentoCotizacion(id, lado)) return;
   const w = window.open('docs/plantilla_cotizacion.html?v=' + Date.now(), '_blank');
   if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
-  return payload;
+}
+
+/* Vista previa SIN pestaña nueva: el mismo documento, dentro de un iframe en
+   un modal. Sirve donde el navegador bloquea ventanas emergentes —o donde,
+   como en un artifact, no hay una segunda página que abrir— y de paso deja
+   ver el documento sin perder de vista el tablero. El botón "Guardar como
+   PDF" de la propia plantilla sigue funcionando adentro: window.print()
+   desde dentro de un iframe imprime SOLO ese iframe. */
+function modalPreviaCotizacion(id, lado){
+  if(!prepararDocumentoCotizacion(id, lado)) return;
+  const cuerpo = '<iframe class="iframe-previa" src="docs/plantilla_cotizacion.html?v=' + Date.now() + '" title="Vista previa del documento"></iframe>';
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>';
+  abrirModal('Vista previa · ' + (lado === 'cliente' ? 'Cotización cliente' : 'Costo interno'), cuerpo, pie);
+  $('modal').classList.add('doc-previa');
 }
 
 /* Gemelos de sitiosDe() / sitioPorId(): join en memoria, sin consulta. */
@@ -4390,8 +4435,10 @@ function vistaCotizacion(){
      +     (c.vencida && !['aprobada','rechazada','cancelada'].includes(cot.estatus) ? ' · <b style="color:var(--error)">Vencida</b>' : '')
      +   '</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="vista-previa-cotizacion" '
+     +     'title="Ver el documento del lado que estás viendo, sin salir del tablero">' + ICONO.credencial + 'Vista previa</button>'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-cotizacion" '
-     +     'title="Abre el documento imprimible del lado que estás viendo">' + ICONO.imprimir + 'Imprimir</button>'
+     +     'title="Abre el documento imprimible en una pestaña nueva">' + ICONO.imprimir + 'Imprimir</button>'
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-cotizacion">' + ICONO.lapiz + 'Editar</button>'
           : '')
@@ -5461,7 +5508,7 @@ function abrirModal(titulo, cuerpo, pie){
 }
 function cerrarModal(){
   $('telon').classList.remove('abierto');
-  $('modal').classList.remove('ancho', 'enorme');
+  $('modal').classList.remove('ancho', 'enorme', 'doc-previa');
   /* Se reemplaza el contenedor por uno limpio en vez de solo vaciarlo: así se
      van también los listeners que algún modal le haya colgado, y no se
      acumulan cada vez que se abre. */
@@ -7066,7 +7113,7 @@ function modalCotizacion(id){
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Fecha</label><input type="date" id="qFecha" value="' + esc(q ? q.fecha : hoyISO()) + '"></div>'
     +     '<div class="campo"><label>Realizó</label>'
-    +       '<input type="text" id="qRealizo" value="' + esc(q ? q.realizo : (sesion.nombre || nombreDe(sesion) || '')) + '"></div>'
+    +       '<input type="text" id="qRealizo" value="' + esc(q ? q.realizo : realizoSugerido()) + '"></div>'
     +   '</div>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Tipo de mantenimiento</label>'
@@ -7294,6 +7341,7 @@ function modalCotizacion(id){
   cerrarModalActual = ()=>{
     const cab = leerCabecera();
     if(!cab.sitioId){ aviso('Elige un sitio.', true); return; }
+    if(cab.realizo) recordarRealizo(cab.realizo);
     const limpio = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : nuevoId(), partidas: partidasTmp }));
     if(q){ Object.assign(q, limpio); }
     else{ datos.cotizaciones.push(limpio); }
@@ -8286,6 +8334,7 @@ $('vista').addEventListener('click', ev=>{
     /* Imprimir es solo lectura y ya se ve todo en pantalla: sin exigirPermiso,
        igual que imprimir-poliza. */
     else if(a === 'imprimir-cotizacion') abrirDocumentoCotizacion(estado.cotizacionId, estado.ladoCotizacion);
+    else if(a === 'vista-previa-cotizacion') modalPreviaCotizacion(estado.cotizacionId, estado.ladoCotizacion);
     else if(a === 'borrar-cotizacion'){
       if(!exigirAdmin('eliminar una cotización')) return;
       const cot = cotizacionPorId(estado.cotizacionId);
