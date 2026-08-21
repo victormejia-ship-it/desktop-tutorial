@@ -878,6 +878,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
   <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="true">Forpass</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
+    <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
   </nav>
   <div class="nube-zona">
     <span class="correo-sesion" id="nombreSesion"></span>
@@ -1336,7 +1337,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]} };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[] };
 
 function cargar(){
   try{
@@ -1354,7 +1355,8 @@ function cargar(){
         polizas:  (Array.isArray(d.polizas) ? d.polizas : []).map(normalizarPoliza),
         catalogo: (Array.isArray(d.catalogo) ? d.catalogo : []).map(normalizarEquipo),
         segmentos: normalizarSegmentos(d.segmentos),
-        parametros: normalizarListaParametros(d.parametros) };
+        parametros: normalizarListaParametros(d.parametros),
+        cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1636,9 +1638,9 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]} };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[] };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -1924,9 +1926,9 @@ async function bajarDeLaNube(){
      documento por equipo: así son 48 equipos por 1 lectura en vez de 48. Se
      edita poco y se lee en cada carga, así que el ahorro es todo. El costo es
      que dos admins editándola a la vez se pisan, y eso está anotado en la vista. */
-  const [cl, si, po, eq, sg, pr] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
-    leerSegmentos(), leerParametros()
+    leerSegmentos(), leerParametros(), listarNube('cotizaciones')
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -1940,7 +1942,7 @@ async function bajarDeLaNube(){
   if(cola.length || vaciando) return 'ok';
   datos = { v:1, clientes: cl.map(normalizarCliente), sitios: si.map(normalizarSitio),
             polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo),
-            segmentos: sg, parametros: pr };
+            segmentos: sg, parametros: pr, cotizaciones: co.map(normalizarCotizacion) };
   guardarLocal();
   return 'ok';
 }
@@ -2165,6 +2167,194 @@ function bloqueParametros(modulo, titulo){
          : '')
      + '</div>';
 }
+
+/* ===================== COTIZACIONES DE SERVICIO =====================
+   Tercer módulo, independiente de Forpass y Pólizas: cotizar un trabajo de
+   mantenimiento (correctivo, preventivo, revisión…) en un sitio ya dado de
+   alta. Reusa la MISMA colección de clientes y sitios — sin catálogo aparte,
+   igual que decidió el proyecto para pólizas ("un solo `clientes`, cada
+   módulo filtra el suyo"): aquí el "comedor" del formato original es un
+   sitio, y la "razón social" que factura es un dato del sitio (se captura
+   como parámetro personalizado, no aquí — ver Admin → Segmentos y parámetros).
+
+   Cada cotización es UN documento con DOS caras, igual que el Excel de
+   origen (hojas COTI y "Cot. Cliente"):
+     · costo   — lo que cuesta hacer el trabajo, para saber qué cargarle al
+                 sitio o al cliente.
+     · cliente — lo que se le cobra al cliente final: costo + margen, más
+                 instalación/mano de obra si aplica.
+   calcularCotizacion() es el ÚNICO lugar que hace esta cuenta — nunca se
+   guarda un total, igual que en pólizas y en Forpass.
+
+   Modelo: cotizaciones: { id, folio, fecha, realizo, clienteId, sitioId,
+     tipoMtto, cargoA, solicitud, vigenciaDias, noReporte, fechaReporte,
+     departamento, margen, instalacion:{incluir,porcentaje,fijo},
+     ordenCompra, tipoPago, tiempoEntrega, notas, estatus,
+     partidas:[{id, seccion, cantidad, um, concepto, precioCosto,
+                precioClienteManual}] }
+
+   El margen y la fórmula de instalación son POR COTIZACIÓN, a propósito
+   (decisión de Victor, 21-ago-2026): cada trabajo puede negociarse distinto,
+   así que no hay un % fijo de la app — 15 y 20%+$750 son solo los valores de
+   arranque al crear una nueva. */
+const IVA_COTIZACION = 0.16;
+
+/* Sugeridos de la "Hoja de datos" original. Son solo sugerencias en un campo
+   de texto libre —como la zona—, así que un tipo o una solicitud nueva no
+   necesitan tocar código. */
+const TIPOS_MTTO_SUGERIDOS = ['CORRECTIVO','EQUIPO','IMAGEN','INFRAESTRUCTURA','POLIZA','PREVENTIVO','REVISION'];
+const SOLICITUD_SUGERIDA = ['COTI. INICIAL','RECOTIZACION 1','RECOTIZACION 2','RECOTIZACION 3'];
+const TIPO_PAGO_SUGERIDO = ['Crédito','Contado'];
+
+const ESTATUS_COTIZACION = ['borrador','enviada','aprobada','rechazada','cancelada'];
+const ETIQUETA_ESTATUS_COTIZACION = {
+  borrador:'Borrador', enviada:'Enviada', aprobada:'Aprobada', rechazada:'Rechazada', cancelada:'Cancelada'
+};
+
+/* Como Number(v)||def, pero sin pisar un 0 capturado a propósito: Number(0)
+   es falsy, así que `0 || 15` da 15 y un margen en cero se volvería 15 solo. */
+function numDef(v, def){
+  return (v !== undefined && v !== null && v !== '' && !isNaN(Number(v))) ? Number(v) : def;
+}
+
+function normalizarPartidaCotizacion(x){
+  return {
+    id: (x && x.id ? String(x.id) : '').trim() || nuevoId(),
+    seccion: (x && x.seccion ? String(x.seccion) : '').trim(),
+    cantidad: Math.max(0, numDef(x && x.cantidad, 0)),
+    um: (x && x.um ? String(x.um) : '').trim(),
+    concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
+    precioCosto: Math.max(0, numDef(x && x.precioCosto, 0)),
+    /* null = "sin precio propio": el precio al cliente sale de costo × margen.
+       Un número aquí es una excepción capturada a mano para ESE renglón, tal
+       cual pasaba en el Excel, donde varias filas traían el precio tecleado
+       aparte del cálculo. */
+    precioClienteManual: (x && x.precioClienteManual !== null && x.precioClienteManual !== undefined && x.precioClienteManual !== '')
+      ? Math.max(0, numDef(x.precioClienteManual, 0)) : null
+  };
+}
+
+function normalizarCotizacion(q){
+  const partidasCrudas = (Array.isArray(q && q.partidas) ? q.partidas : []).map(normalizarPartidaCotizacion);
+  /* Un renglón sin concepto es basura de una captura a medias: se tira. */
+  const partidas = partidasCrudas.filter(x => x.concepto);
+  const inst = (q && q.instalacion) || {};
+  return {
+    id: (q && q.id) || nuevoId(),
+    folio: (q && q.folio ? String(q.folio) : '').trim(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(q && q.fecha) ? q.fecha : hoyISO(),
+    realizo: (q && q.realizo ? String(q.realizo) : '').trim(),
+    clienteId: (q && q.clienteId) || '',
+    sitioId: (q && q.sitioId) || '',
+    tipoMtto: (q && q.tipoMtto ? String(q.tipoMtto) : '').trim(),
+    cargoA: (q && q.cargoA === 'comedor') ? 'comedor' : 'cliente',
+    solicitud: (q && q.solicitud ? String(q.solicitud) : '').trim() || SOLICITUD_SUGERIDA[0],
+    vigenciaDias: Math.max(0, parseInt(q && q.vigenciaDias, 10) || 14),
+    noReporte: (q && q.noReporte ? String(q.noReporte) : '').trim(),
+    fechaReporte: /^\d{4}-\d{2}-\d{2}$/.test(q && q.fechaReporte) ? q.fechaReporte : '',
+    departamento: (q && q.departamento ? String(q.departamento) : '').trim() || 'DEPARTAMENTO DE MANTENIMIENTO',
+    margen: Math.max(0, numDef(q && q.margen, 15)),
+    instalacion: {
+      incluir: !!inst.incluir,
+      porcentaje: Math.max(0, numDef(inst.porcentaje, 20)),
+      fijo: Math.max(0, numDef(inst.fijo, 750))
+    },
+    ordenCompra: (q && q.ordenCompra ? String(q.ordenCompra) : '').trim() || 'PENDIENTE',
+    tipoPago: (q && q.tipoPago ? String(q.tipoPago) : '').trim() || 'Crédito',
+    tiempoEntrega: (q && q.tiempoEntrega ? String(q.tiempoEntrega) : '').trim() || 'TE: 3 A 4 SEMANAS DIAS HABILES',
+    notas: (q && q.notas ? String(q.notas) : '').trim() || 'PRECIOS SUJETOS A CAMBIO SIN PREVIO AVISO',
+    estatus: ESTATUS_COTIZACION.includes(q && q.estatus) ? q.estatus : 'borrador',
+    partidas
+  };
+}
+
+function cotizacionPorId(id){ return datos.cotizaciones.find(q => q.id === id); }
+function cotizacionesDeSitio(sitioId){ return datos.cotizaciones.filter(q => q.sitioId === sitioId); }
+
+/* El folio por omisión al crear una cotización nueva: SERV-DDMMAA-NN, donde NN
+   es su lugar dentro de las que ya llevan ese mismo día. Es solo una
+   sugerencia — el campo sigue siendo texto libre, por si hace falta otra
+   convención o corregirlo a mano. */
+function generarFolioCotizacion(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  const marca = '-' + ddmmaa + '-';
+  const delMismoDia = datos.cotizaciones.filter(q => q.folio.includes(marca)).length;
+  return 'SERV-' + ddmmaa + '-' + String(delMismoDia + 1).padStart(2,'0');
+}
+
+/* Numera las partidas como en el documento: consecutivas con la misma
+   sección comparten grupo (1.1, 1.2…); sin sección, número simple (2, 3…).
+   Se calcula aquí y nunca se guarda — es de exhibición, como las letras de
+   columna del generador de Excel. */
+function numerarPartidasCotizacion(partidas){
+  let grupo = 0, sub = 0, seccionActual = null;
+  const numeradas = partidas.map(x=>{
+    if(x.seccion){
+      if(x.seccion !== seccionActual){ grupo++; sub = 0; seccionActual = x.seccion; }
+      sub++;
+      return Object.assign({}, x, { numPart: grupo + '.' + sub });
+    }
+    grupo++; sub = 0; seccionActual = null;
+    return Object.assign({}, x, { numPart: String(grupo) });
+  });
+  return { numeradas, ultimoGrupo: grupo };
+}
+
+/* El único lugar que calcula el dinero de una cotización, en sus dos caras.
+   Nunca se guarda un total: se recalcula siempre de partidas + margen +
+   instalación, igual que calcular() en Forpass y calcularPoliza() en
+   Pólizas. */
+function calcularCotizacion(q){
+  const { numeradas, ultimoGrupo } = numerarPartidasCotizacion(q.partidas);
+
+  const filas = numeradas.map(x=>{
+    const importeCosto = x.cantidad * x.precioCosto;
+    const precioCliente = x.precioClienteManual != null ? x.precioClienteManual : x.precioCosto * (1 + q.margen / 100);
+    const importeCliente = x.cantidad * precioCliente;
+    return Object.assign({}, x, { importeCosto, precioCliente, importeCliente });
+  });
+
+  const subtotalPartidasCosto = filas.reduce((s,x)=> s + x.importeCosto, 0);
+  const subtotalPartidasCliente = filas.reduce((s,x)=> s + x.importeCliente, 0);
+
+  /* Misma fórmula que F50 de COTI: 20% del subtotal de partidas + un fijo. Se
+     marca con el mismo margen para pasar al lado del cliente — nunca se
+     prorratea entre renglones, para no repetir el #DIV/0 del Excel cuando no
+     hay ninguna partida capturada todavía. */
+  const instalacionCosto = subtotalPartidasCosto * (q.instalacion.porcentaje / 100) + q.instalacion.fijo;
+  const instalacionCliente = instalacionCosto * (1 + q.margen / 100);
+  const instalacionNumPart = String(ultimoGrupo + 1);
+  const incluyeInstalacion = q.instalacion.incluir;
+
+  const subtotalCosto = subtotalPartidasCosto + (incluyeInstalacion ? instalacionCosto : 0);
+  const subtotalCliente = subtotalPartidasCliente + (incluyeInstalacion ? instalacionCliente : 0);
+
+  const ivaCosto = subtotalCosto * IVA_COTIZACION;
+  const ivaCliente = subtotalCliente * IVA_COTIZACION;
+
+  const fechaVence = sumarDias(q.fecha, q.vigenciaDias);
+  const diasVigencia = diasEntre(hoyISO(), fechaVence);
+
+  return {
+    filas,
+    instalacionCosto, instalacionCliente, instalacionNumPart, incluyeInstalacion,
+    subtotalPartidasCosto, subtotalPartidasCliente,
+    subtotalCosto, subtotalCliente,
+    ivaCosto, ivaCliente,
+    totalCosto: subtotalCosto + ivaCosto,
+    totalCliente: subtotalCliente + ivaCliente,
+    fechaVence, diasVigencia,
+    vencida: diasVigencia < 0
+  };
+}
+
+function guardarCotizacion(q, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'cotizaciones', id:q.id, obj:q });
+  anotar(accion || 'editó', 'cotización', q.folio || 'sin folio', detalle);
+}
+
 /* ===================== VIGILANCIA DEL RESPALDO =====================
    El respaldo automático deja en sistema/respaldo la fecha de la última copia.
    Aquí se lee para poder avisar si se quedó viejo: si un día deja de correr,
@@ -2235,6 +2425,9 @@ function avisoRespaldo(){
 function subirTodo(){
   datos.clientes.forEach(c => encolar({ tipo:'poner', coleccion:'clientes', id:c.id, obj:c }));
   datos.sitios.forEach(s => encolar({ tipo:'poner', coleccion:'sitios', id:s.id, obj:s }));
+  /* Las cotizaciones no tienen congelado por rol: cualquiera que edite puede
+     subir las suyas, igual que clientes y sitios. */
+  datos.cotizaciones.forEach(q => encolar({ tipo:'poner', coleccion:'cotizaciones', id:q.id, obj:q }));
   /* `puedeCat` y no `admin`: ese nombre ya lo ocupa la caché del panel. */
   const puedeCat = esAdmin();
   let fuera = 0;
@@ -2594,6 +2787,14 @@ function sumarMeses(iso, n){
   return a + '-' + String(m+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
 }
 function diasEntre(isoA, isoB){ return Math.round((aUTC(isoB) - aUTC(isoA)) / 86400000); }
+/* Sumar días es aritmética de UTC pura, sin la trampa de sumarMeses (que
+   tiene que decidir qué hacer con el 31 al pasar a un mes de 30): un día
+   siempre dura lo mismo, así que Date.UTC no se desincroniza con la zona
+   horaria. Sirve para la vigencia de una cotización, que se cuenta en días. */
+function sumarDias(iso, n){
+  const d = new Date(aUTC(iso) + n * 86400000);
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+}
 /* Meses completos transcurridos entre dos fechas (como DATEDIF "m" de Excel). */
 function mesesTranscurridos(isoIni, isoFin){
   const a = partes(isoIni), b = partes(isoFin);
@@ -3283,6 +3484,85 @@ function abrirDocumentoPoliza(id){
   return payload;
 }
 
+/* --------------------- Documento imprimible de cotización ---------------------
+   UNA sola plantilla para las dos caras (costo/cliente): el payload lleva
+   `lado` y ella decide título y columnas. Es más chico que mantener dos
+   archivos casi iguales, y evita que se desalineen entre sí. */
+const EMPRESA_COTIZACION = {
+  nombre: 'Plato Express',
+  direccion: 'Hidalgo 402 Col. Centro, San Pedro Garza García, N. L. C.P. 66200'
+};
+
+function armarPayloadCotizacion(q, lado){
+  const c = calcularCotizacion(q);
+  const s = sitioPorId(q.sitioId);
+  const cli = clientePorId(q.clienteId);
+  const l = lado === 'cliente' ? 'cliente' : 'costo';
+
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    lado: l,
+    empresa: EMPRESA_COTIZACION,
+    folio: q.folio || '',
+    fecha: fechaDocumento(q.fecha),
+    realizo: q.realizo || '',
+    departamento: q.departamento || '',
+    comedor: s ? s.nombre : '',
+    cliente: cli ? cli.nombre : '',
+    zona: s ? s.zona : '',
+    tipoMtto: q.tipoMtto || '',
+    cargoA: q.cargoA === 'comedor' ? 'Comedor' : 'Cliente',
+    solicitud: q.solicitud || '',
+    vigenciaDias: q.vigenciaDias,
+    fechaVence: fechaDocumento(c.fechaVence),
+    noReporte: q.noReporte || 'NA',
+    fechaReporte: q.fechaReporte ? fechaDocumento(q.fechaReporte) : 'NA',
+    ordenCompra: q.ordenCompra || '',
+    tipoPago: q.tipoPago || '',
+    tiempoEntrega: q.tiempoEntrega || '',
+    notas: q.notas || '',
+    renglones: c.filas.map(x => ({
+      numPart: x.numPart,
+      seccion: x.seccion || '',
+      cantidad: numero(x.cantidad),
+      um: x.um || '',
+      concepto: x.concepto,
+      precio: dineroCent(l === 'costo' ? x.precioCosto : x.precioCliente),
+      importe: dineroCent(l === 'costo' ? x.importeCosto : x.importeCliente)
+    })),
+    instalacion: c.incluyeInstalacion ? {
+      numPart: c.instalacionNumPart,
+      importe: dineroCent(l === 'costo' ? c.instalacionCosto : c.instalacionCliente)
+    } : null,
+    totales: {
+      subtotal: dineroCent(l === 'costo' ? c.subtotalCosto : c.subtotalCliente),
+      iva: dineroCent(l === 'costo' ? c.ivaCosto : c.ivaCliente),
+      total: dineroCent(l === 'costo' ? c.totalCosto : c.totalCliente)
+    }
+  };
+}
+
+const LLAVE_DOC_COTIZACION = 'forguard.documento.cotizacion';
+
+/* Mismo molde que abrirDocumentoPoliza(): SIN 'noopener' (la pestaña nueva
+   necesita heredar el sessionStorage) y con ?v=Date.now() para que Pages
+   nunca sirva una copia vieja de la plantilla. */
+function abrirDocumentoCotizacion(id, lado){
+  const q = cotizacionPorId(id);
+  if(!q) return;
+  let payload;
+  try{
+    payload = armarPayloadCotizacion(q, lado);
+    sessionStorage.setItem(LLAVE_DOC_COTIZACION, JSON.stringify(payload));
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return;
+  }
+  const w = window.open('docs/plantilla_cotizacion.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+  return payload;
+}
+
 /* Gemelos de sitiosDe() / sitioPorId(): join en memoria, sin consulta. */
 function polizasDe(clienteId){ return datos.polizas.filter(p => p.clienteId === clienteId); }
 function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
@@ -3291,7 +3571,8 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
 /* "modulo" decide QUÉ producto se está viendo; "vista" decide en qué pantalla de
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
-const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null,
+const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null,
+                 ladoCotizacion:'costo',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
@@ -3301,7 +3582,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['forpass', 'polizas'];
+const MODULOS = ['forpass', 'polizas', 'cotizaciones'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -3313,7 +3594,11 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
 
 /* La pantalla de arranque de cada módulo. Una sola función para que el logo, el
    selector y el arranque no se desincronicen. */
-function inicioDelModulo(){ return estado.modulo === 'polizas' ? 'polizas' : 'clientes'; }
+function inicioDelModulo(){
+  return estado.modulo === 'polizas' ? 'polizas'
+       : estado.modulo === 'cotizaciones' ? 'cotizaciones'
+       : 'clientes';
+}
 
 /* Salto de la póliza a su kiosco en Forpass, y de regreso. Es la única razón
    por la que los dos módulos comparten la colección de clientes: cuando la misma
@@ -3360,11 +3645,26 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function irACotizaciones(){
+  animarTarjetas = true;
+  estado.vista = 'cotizaciones';
+  estado.cotizacionId = null;
+  estado.busca = '';
+  render();
+}
+function entrarCotizacion(id){
+  animarTarjetas = true;
+  estado.vista = 'cotizacion'; estado.cotizacionId = id;
+  estado.ladoCotizacion = 'costo';
+  render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 
@@ -3955,6 +4255,203 @@ function vistaPolizas(){
   return h;
 }
 
+/* ------------------------- Cotizaciones de servicio ------------------------- */
+function botonRegresarCotizaciones(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-cotizaciones">'
+       + ICONO.atras + 'Regresar a cotizaciones</button></div>';
+}
+
+function resumirCotizaciones(lista){
+  const r = { total:lista.length, montoCliente:0, borradores:0, vencidas:0 };
+  lista.forEach(q=>{
+    const c = calcularCotizacion(q);
+    if(!['rechazada','cancelada'].includes(q.estatus)) r.montoCliente += c.totalCliente;
+    if(q.estatus === 'borrador') r.borradores++;
+    if(c.vencida && ['borrador','enviada'].includes(q.estatus)) r.vencidas++;
+  });
+  return r;
+}
+
+function vistaCotizaciones(){
+  const r = resumirCotizaciones(datos.cotizaciones);
+  let h = '';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Cotizaciones de servicio</h2>'
+     +   '<p>' + numero(r.total) + ' ' + plural(r.total,'cotización','cotizaciones')
+     +   ' · ' + dineroCent(r.montoCliente) + ' cotizado al cliente</p>'
+     + '</div><div class="acciones">'
+     +   (datos.sitios.length && puedeEditar()
+          ? '<button type="button" class="btn btn-primario" data-accion="nueva-cotizacion">' + ICONO.mas + 'Nueva cotización</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Cotizaciones', numero(r.total), plural(r.total,'trabajo cotizado','trabajos cotizados'))
+     + tarjetaKpi('Cotizado al cliente', dineroCent(r.montoCliente), 'Sin contar rechazadas ni canceladas')
+     + tarjetaKpi('Borradores', numero(r.borradores), 'Todavía sin enviar', r.borradores ? 'k-alerta' : '')
+     + tarjetaKpi('Vencidas', numero(r.vencidas), 'Pasó su vigencia sin resolver', r.vencidas ? 'k-error' : '')
+     + '</div>';
+
+  if(!datos.sitios.length){
+    h += vistaVacia('credencial', 'Primero hace falta un sitio',
+          'Una cotización cuelga de un sitio ya dado de alta: da de alta el cliente y su sitio en el módulo de Forpass antes de cotizar.',
+          '', '');
+    return h;
+  }
+
+  if(!datos.cotizaciones.length){
+    h += vistaVacia('credencial', 'Todavía no hay cotizaciones',
+          'Cotiza un trabajo: elige el sitio, agrega los conceptos con su costo, y aquí mismo ves lo que le corresponde cobrar al cliente.',
+          puedeEditar() ? 'nueva-cotizacion' : '', 'Nueva cotización');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaCotizacion" placeholder="Buscar por folio, sitio o cliente…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroCotizacion">'
+     +     '<option value="todos">Todas</option>'
+     +     ESTATUS_COTIZACION.map(e=>'<option value="' + e + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[e]) + '</option>').join('')
+     +     '<option value="vencidas">Vencidas</option>'
+     +   '</select>'
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.cotizaciones.filter(cot=>{
+    const s = sitioPorId(cot.sitioId), cli = clientePorId(cot.clienteId);
+    if(q && !((cot.folio||'').toLowerCase().includes(q)
+           || (s && s.nombre.toLowerCase().includes(q))
+           || (cli && cli.nombre.toLowerCase().includes(q)))) return false;
+    if(estado.filtro === 'vencidas') return calcularCotizacion(cot).vencida;
+    if(estado.filtro !== 'todos') return cot.estatus === estado.filtro;
+    return true;
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ninguna cotización coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenadas = lista.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || b.folio.localeCompare(a.folio));
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenadas.map((cot,i)=>{
+    const c = calcularCotizacion(cot);
+    const s = sitioPorId(cot.sitioId), cli = clientePorId(cot.clienteId);
+    const abierta = !['aprobada','rechazada','cancelada'].includes(cot.estatus);
+    const vencidaAbierta = c.vencida && abierta;
+
+    let tono = 'neutro', tonoInsignia = 'neutro';
+    if(vencidaAbierta){ tono = 'error'; tonoInsignia = 'error'; }
+    else if(cot.estatus === 'borrador'){ tono = 'alerta'; tonoInsignia = 'alerta'; }
+    else if(cot.estatus === 'enviada'){ tono = 'alerta'; tonoInsignia = 'info'; }
+    else if(cot.estatus === 'aprobada'){ tono = 'ok'; tonoInsignia = 'ok'; }
+
+    return '<div class="tarjeta tarjeta-clic t-' + tono + '" data-cotizacion="' + esc(cot.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     (cli ? avatarCliente(cli) : '<div class="t-avatar">' + esc(iniciales(s ? s.nombre : cot.folio)) + '</div>')
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(s ? s.nombre : 'Sin sitio') + '</div>'
+         +       '<div class="t-sub">' + esc(cli ? cli.nombre : '—') + (cot.folio ? ' · ' + esc(cot.folio) : '') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="t-chips">'
+         +     '<span class="insignia i-' + tonoInsignia + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[cot.estatus]) + '</span>'
+         +     (vencidaAbierta ? '<span class="insignia i-error">Vencida</span>' : '')
+         +   '</div>'
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Al cliente</div><div class="d-valor">' + dineroCent(c.totalCliente) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Costo</div><div class="d-valor chico">' + dineroCent(c.totalCosto) + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">' + esc(cot.tipoMtto || 'Sin tipo') + ' · ' + fmtFecha(cot.fecha) + '</span></div>'
+         + '</div>';
+  }).join('') + '</div>';
+
+  return h;
+}
+
+/* Detalle de una cotización, con el alternador Costo interno / Cotización
+   cliente: son las dos caras del MISMO documento, calculadas siempre por
+   calcularCotizacion() — nunca dos tablas guardadas por separado. */
+function vistaCotizacion(){
+  const cot = cotizacionPorId(estado.cotizacionId);
+  if(!cot){ estado.vista = 'cotizaciones'; return vistaCotizaciones(); }
+  const c = calcularCotizacion(cot);
+  const s = sitioPorId(cot.sitioId);
+  const cli = clientePorId(cot.clienteId);
+  const lado = estado.ladoCotizacion === 'cliente' ? 'cliente' : 'costo';
+
+  let h = botonRegresarCotizaciones();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(s ? s.nombre : 'Sin sitio') + '</h2>'
+     +   '<p>' + esc(cli ? cli.nombre : 'Sin cliente') + (cot.folio ? ' · ' + esc(cot.folio) : '')
+     +     ' · <b>' + esc(ETIQUETA_ESTATUS_COTIZACION[cot.estatus]) + '</b>'
+     +     (c.vencida && !['aprobada','rechazada','cancelada'].includes(cot.estatus) ? ' · <b style="color:var(--error)">Vencida</b>' : '')
+     +   '</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-cotizacion" '
+     +     'title="Abre el documento imprimible del lado que estás viendo">' + ICONO.imprimir + 'Imprimir</button>'
+     +   (puedeEditar()
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-cotizacion">' + ICONO.lapiz + 'Editar</button>'
+          : '')
+     +   (esAdmin()
+          ? '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-cotizacion" title="Eliminar cotización">' + ICONO.basura + '</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="bloque"><div class="rodillo" style="overflow:visible"><div class="resumen">'
+     +   '<div><div class="d-label">Tipo de mantenimiento</div><div class="d-valor chico">' + esc(cot.tipoMtto || '—') + '</div></div>'
+     +   '<div><div class="d-label">Cargo a</div><div class="d-valor chico">' + (cot.cargoA === 'comedor' ? 'Comedor' : 'Cliente') + '</div></div>'
+     +   '<div><div class="d-label">Solicitud</div><div class="d-valor chico">' + esc(cot.solicitud) + '</div></div>'
+     +   '<div><div class="d-label">Fecha</div><div class="d-valor chico">' + fmtFecha(cot.fecha) + '</div></div>'
+     +   '<div><div class="d-label">Vigencia</div><div class="d-valor chico">' + cot.vigenciaDias + ' días · vence ' + fmtFecha(c.fechaVence) + '</div></div>'
+     +   '<div><div class="d-label">Realizó</div><div class="d-valor chico">' + esc(cot.realizo || '—') + '</div></div>'
+     +   '<div><div class="d-label">No. de reporte</div><div class="d-valor chico">' + esc(cot.noReporte || 'NA') + '</div></div>'
+     +   '<div><div class="d-label">Orden de compra</div><div class="d-valor chico">' + esc(cot.ordenCompra) + '</div></div>'
+     +   '<div><div class="d-label">Tipo de pago</div><div class="d-valor chico">' + esc(cot.tipoPago) + '</div></div>'
+     + '</div></div></div>';
+
+  h += '<div class="lado-cotizacion" role="tablist" aria-label="Lado de la cotización" style="display:flex; gap:8px; margin:16px 0">'
+     +   '<button type="button" class="btn ' + (lado==='costo' ? 'btn-primario' : 'btn-suave') + ' btn-mini" data-lado-cotizacion="costo" '
+     +     'aria-selected="' + (lado==='costo') + '">Costo interno</button>'
+     +   '<button type="button" class="btn ' + (lado==='cliente' ? 'btn-primario' : 'btn-suave') + ' btn-mini" data-lado-cotizacion="cliente" '
+     +     'aria-selected="' + (lado==='cliente') + '">Cotización cliente</button>'
+     + '</div>';
+
+  const filas = c.filas;
+  h += '<div class="bloque"><div class="rodillo"><table class="tabla">'
+     + '<thead><tr><th></th><th>Concepto</th><th>Cant.</th><th>U.M.</th><th>Precio</th><th>Importe</th></tr></thead><tbody>'
+     + (filas.length ? filas.map(x=>{
+         const precio = lado === 'costo' ? x.precioCosto : x.precioCliente;
+         const importe = lado === 'costo' ? x.importeCosto : x.importeCliente;
+         return '<tr>' + (x.seccion ? '<td colspan="6" style="font-weight:700; background:var(--bg)">' + esc(x.seccion) + '</td></tr><tr>' : '')
+           + '<td class="pista">' + esc(x.numPart) + '</td>'
+           + '<td>' + esc(x.concepto) + '</td>'
+           + '<td>' + numero(x.cantidad) + '</td>'
+           + '<td>' + esc(x.um || '—') + '</td>'
+           + '<td>' + dineroCent(precio) + '</td>'
+           + '<td>' + dineroCent(importe) + '</td>'
+           + '</tr>';
+       }).join('') : '<tr><td colspan="6"><span class="pista">Todavía no hay conceptos capturados.</span></td></tr>')
+     + (c.incluyeInstalacion
+         ? '<tr><td class="pista">' + esc(c.instalacionNumPart) + '</td><td>Instalación / mano de obra</td><td>—</td><td>SERV</td>'
+           + '<td>' + dineroCent(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td>'
+           + '<td>' + dineroCent(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td></tr>'
+         : '')
+     + '</tbody></table></div>'
+     + '<div class="resumen" style="max-width:280px; margin-left:auto; margin-top:12px">'
+     +   '<div><div class="d-label">Subtotal</div><div class="d-valor">' + dineroCent(lado==='costo' ? c.subtotalCosto : c.subtotalCliente) + '</div></div>'
+     +   '<div><div class="d-label">IVA 16%</div><div class="d-valor">' + dineroCent(lado==='costo' ? c.ivaCosto : c.ivaCliente) + '</div></div>'
+     +   '<div><div class="d-label">Total</div><div class="d-valor" style="font-size:19px">' + dineroCent(lado==='costo' ? c.totalCosto : c.totalCliente) + '</div></div>'
+     + '</div>'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="pista" style="white-space:pre-wrap">' + esc(cot.tiempoEntrega) + (cot.notas ? '\n' + cot.notas : '') + '</div></div>';
+
+  return h;
+}
+
 /* Detalle de una póliza. ESTE es el único lugar donde se pintan las partidas:
    en la lista serían miles de renglones de HTML en cada render(). */
 function vistaPoliza(){
@@ -4514,15 +5011,23 @@ function render(){
      que los dos: es de la app entera, no de un producto, y se llega a él desde
      cualquiera de los dos módulos. */
   $('vista').innerHTML =
-      estado.vista === 'admin'    ? vistaAdmin()
-    : estado.modulo === 'polizas' ? (estado.vista === 'poliza' ? vistaPoliza()
+      estado.vista === 'admin'         ? vistaAdmin()
+    : estado.modulo === 'polizas'      ? (estado.vista === 'poliza' ? vistaPoliza()
                                     : estado.vista === 'precios' ? vistaPrecios()
                                     : estado.vista === 'agenda'  ? vistaAgenda()
                                     : vistaPolizas())
+    : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
 
   const be = $('buscaEquipo');
   if(be) be.addEventListener('input', ()=>{ estado.busca = be.value; renderConservandoFoco(be, 'buscaEquipo'); });
+  const bc = $('buscaCotizacion');
+  if(bc){
+    bc.addEventListener('input', ()=>{ estado.busca = bc.value; renderConservandoFoco(bc, 'buscaCotizacion'); });
+    const fc = $('filtroCotizacion');
+    fc.value = estado.filtro;
+    fc.addEventListener('change', ()=>{ estado.filtro = fc.value; render(); });
+  }
   const bp = $('buscaPoliza');
   if(bp){
     bp.addEventListener('input', ()=>{ estado.busca = bp.value; renderConservandoFoco(bp, 'buscaPoliza'); });
@@ -4577,7 +5082,7 @@ function pintarCabecera(){
      del módulo queda deshabilitado: sin esto sería un botón que no hace nada y
      además estorbaría en el recorrido del teclado. */
   const inicio = $('btnInicio');
-  const destino = estado.modulo === 'polizas' ? 'Pólizas' : 'Clientes';
+  const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones' : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
   inicio.disabled = enPortada;
   inicio.title = enPortada ? '' : 'Volver a ' + destino;
@@ -6501,6 +7006,243 @@ function modalPoliza(id){
   };
 }
 
+/* ------------------------- Modal: cotización de servicio ------------------------- */
+function modalCotizacion(id){
+  const q = id ? cotizacionPorId(id) : null;
+  if(!datos.sitios.length){
+    aviso('Primero da de alta un cliente y su sitio: la cotización cuelga de uno.', true);
+    return;
+  }
+
+  /* Copia de trabajo: se toca esto y no el registro, para que Cancelar
+     cancele de verdad — mismo molde que partidasTmp en modalPoliza. */
+  let partidasTmp = (q ? q.partidas : []).map(x => Object.assign({}, x));
+
+  const sitiosOrd = datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const opcSitios = sitiosOrd.map(s=>{
+    const cli = clientePorId(s.clienteId);
+    return '<option value="' + esc(s.id) + '"' + (s.id === (q ? q.sitioId : '') ? ' selected' : '') + '>'
+      + esc(s.nombre) + (cli ? ' — ' + esc(cli.nombre) : '') + '</option>';
+  }).join('');
+
+  const opcDatalist = (idLista, valores) => '<datalist id="' + idLista + '">'
+    + valores.map(v => '<option value="' + esc(v) + '">').join('') + '</datalist>';
+
+  const cuerpo =
+      '<div class="seccion"><h4>Datos generales</h4>'
+    +   '<div class="campo"><label>Sitio *</label><select id="qSitio">' + opcSitios + '</select>'
+    +     '<div class="pista">Es el "comedor" del formato: de aquí se toman el cliente y la zona.</div></div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Folio</label>'
+    +       '<input type="text" id="qFolio" value="' + esc(q ? q.folio : generarFolioCotizacion(hoyISO())) + '"></div>'
+    +     '<div class="campo"><label>Estatus</label><select id="qEstatus">'
+    +       ESTATUS_COTIZACION.map(e => '<option value="' + e + '"' + ((q ? q.estatus : 'borrador') === e ? ' selected' : '') + '>'
+              + esc(ETIQUETA_ESTATUS_COTIZACION[e]) + '</option>').join('')
+    +     '</select></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Fecha</label><input type="date" id="qFecha" value="' + esc(q ? q.fecha : hoyISO()) + '"></div>'
+    +     '<div class="campo"><label>Realizó</label>'
+    +       '<input type="text" id="qRealizo" value="' + esc(q ? q.realizo : (sesion.nombre || nombreDe(sesion) || '')) + '"></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Tipo de mantenimiento</label>'
+    +       '<input type="text" id="qTipoMtto" list="listaTiposMtto" value="' + esc(q ? q.tipoMtto : '') + '">'
+    +       opcDatalist('listaTiposMtto', TIPOS_MTTO_SUGERIDOS)
+    +     '</div>'
+    +     '<div class="campo"><label>Cargo a</label><select id="qCargoA">'
+    +       '<option value="cliente"' + (!q || q.cargoA === 'cliente' ? ' selected' : '') + '>Cliente</option>'
+    +       '<option value="comedor"' + (q && q.cargoA === 'comedor' ? ' selected' : '') + '>Comedor</option>'
+    +     '</select></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Solicitud</label>'
+    +       '<input type="text" id="qSolicitud" list="listaSolicitud" value="' + esc(q ? q.solicitud : SOLICITUD_SUGERIDA[0]) + '">'
+    +       opcDatalist('listaSolicitud', SOLICITUD_SUGERIDA)
+    +     '</div>'
+    +     '<div class="campo"><label>Vigencia (días)</label>'
+    +       '<input type="number" id="qVigencia" min="0" step="1" value="' + (q ? q.vigenciaDias : 14) + '"></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>No. de reporte (opcional)</label>'
+    +       '<input type="text" id="qNoReporte" placeholder="NA" value="' + esc(q ? q.noReporte : '') + '"></div>'
+    +     '<div class="campo"><label>Fecha de reporte (opcional)</label>'
+    +       '<input type="date" id="qFechaReporte" value="' + esc(q ? q.fechaReporte : '') + '"></div>'
+    +   '</div>'
+    +   '<div class="campo"><label>Departamento</label>'
+    +     '<input type="text" id="qDepartamento" value="' + esc(q ? q.departamento : 'DEPARTAMENTO DE MANTENIMIENTO') + '"></div>'
+    + '</div>'
+
+    + '<div class="seccion"><h4>Margen e instalación</h4>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Margen sobre costo (%)</label>'
+    +       '<input type="number" id="qMargen" min="0" step="0.01" value="' + (q ? q.margen : 15) + '"></div>'
+    +   '</div>'
+    +   '<label class="casilla"><input type="checkbox" id="qInstIncluir"' + (q && q.instalacion.incluir ? ' checked' : '') + '> '
+    +     'Incluir instalación / mano de obra</label>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>% sobre el subtotal de conceptos</label>'
+    +       '<input type="number" id="qInstPorcentaje" min="0" step="0.01" value="' + (q ? q.instalacion.porcentaje : 20) + '"></div>'
+    +     '<div class="campo"><label>Fijo (MX$)</label>'
+    +       '<input type="text" id="qInstFijo" inputmode="decimal" value="' + numero(q ? q.instalacion.fijo : 750) + '"></div>'
+    +   '</div>'
+    +   '<div class="pista">Mismo cálculo que el formato: % del subtotal de conceptos, más el fijo. Se marca con el mismo margen para el lado del cliente.</div>'
+    + '</div>'
+
+    + '<div class="seccion"><h4>Conceptos</h4>'
+    +   '<div id="listaPartidasCot"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRenglonCot" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>'
+    + '</div>'
+
+    + '<div class="seccion"><h4>Resumen</h4><div class="resumen" id="resumenCotizacion"></div></div>'
+
+    + '<div class="seccion"><h4>Para el cliente</h4>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Orden de compra</label>'
+    +       '<input type="text" id="qOrdenCompra" value="' + esc(q ? q.ordenCompra : 'PENDIENTE') + '"></div>'
+    +     '<div class="campo"><label>Tipo de pago</label>'
+    +       '<input type="text" id="qTipoPago" list="listaTipoPago" value="' + esc(q ? q.tipoPago : 'Crédito') + '">'
+    +       opcDatalist('listaTipoPago', TIPO_PAGO_SUGERIDO)
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="campo"><label>Tiempo de entrega</label>'
+    +     '<input type="text" id="qTiempoEntrega" value="' + esc(q ? q.tiempoEntrega : 'TE: 3 A 4 SEMANAS DIAS HABILES') + '"></div>'
+    +   '<div class="campo"><label>Notas</label>'
+    +     '<textarea id="qNotas">' + esc(q ? q.notas : 'PRECIOS SUJETOS A CAMBIO SIN PREVIO AVISO') + '</textarea></div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (q ? 'Guardar cambios' : 'Crear cotización') + '</button>';
+
+  abrirModal(q ? 'Editar cotización' : 'Nueva cotización', cuerpo, pie);
+  $('modal').classList.add('enorme');
+
+  function leerCabecera(){
+    return {
+      sitioId: $('qSitio').value,
+      clienteId: (sitioPorId($('qSitio').value) || {}).clienteId || '',
+      folio: $('qFolio').value.trim(),
+      estatus: $('qEstatus').value,
+      fecha: $('qFecha').value || hoyISO(),
+      realizo: $('qRealizo').value.trim(),
+      tipoMtto: $('qTipoMtto').value.trim(),
+      cargoA: $('qCargoA').value,
+      solicitud: $('qSolicitud').value.trim(),
+      vigenciaDias: parseInt($('qVigencia').value,10) || 0,
+      noReporte: $('qNoReporte').value.trim(),
+      fechaReporte: $('qFechaReporte').value,
+      departamento: $('qDepartamento').value.trim(),
+      margen: parseFloat($('qMargen').value) || 0,
+      instalacion: {
+        incluir: $('qInstIncluir').checked,
+        porcentaje: parseFloat($('qInstPorcentaje').value) || 0,
+        fijo: aNumero($('qInstFijo').value)
+      },
+      ordenCompra: $('qOrdenCompra').value.trim(),
+      tipoPago: $('qTipoPago').value.trim(),
+      tiempoEntrega: $('qTiempoEntrega').value.trim(),
+      notas: $('qNotas').value.trim()
+    };
+  }
+
+  /* Pinta la tabla completa. Solo al agregar o quitar un renglón — al teclear
+     no, o se pierde el cursor. Mismo molde que pintarPartidas() en
+     modalPoliza. */
+  function pintarPartidas(){
+    if(!partidasTmp.length){
+      $('listaPartidasCot').innerHTML = '<div class="pista">Todavía no hay conceptos. Agrega el primero.</div>';
+      refrescarResumen();
+      return;
+    }
+    const filas = partidasTmp.map((x,i)=>
+        '<tr data-idx="' + i + '">'
+      + '<td class="mini"><input type="text" data-campo="seccion" value="' + esc(x.seccion) + '" placeholder="—" title="Sección (opcional)"></td>'
+      + '<td class="mini"><input type="number" min="0" step="1" data-campo="cantidad" value="' + x.cantidad + '"></td>'
+      + '<td class="mini"><input type="text" data-campo="um" value="' + esc(x.um) + '" placeholder="PZA"></td>'
+      + '<td><input type="text" data-campo="concepto" value="' + esc(x.concepto) + '" placeholder="Concepto"></td>'
+      + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioCosto" value="' + numero(x.precioCosto) + '"></td>'
+      + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioClienteManual" value="' + (x.precioClienteManual != null ? numero(x.precioClienteManual) : '') + '" placeholder="auto"></td>'
+      + '<td class="acc"><button type="button" class="icono-mini" data-quitar-renglon-cot="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
+      + '</tr>').join('');
+    $('listaPartidasCot').innerHTML =
+        '<div class="rodillo"><table class="tabla-renglones">'
+      + '<thead><tr><th>Sección</th><th>Cant.</th><th>U.M.</th><th>Concepto</th><th>Costo unit.</th><th>Precio cliente</th><th></th></tr></thead>'
+      + '<tbody>' + filas + '</tbody></table></div>'
+      + '<div class="pista" style="margin-top:6px">Deja «Precio cliente» vacío para que salga solo (costo × margen). Escríbelo solo si ESE renglón lleva un precio distinto.</div>';
+    refrescarResumen();
+  }
+
+  /* Preview en vivo de las dos caras, con lo que hay en el formulario en este
+     momento — sin guardar nada todavía. */
+  function refrescarResumen(){
+    const cab = leerCabecera();
+    const previo = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : 'tmp', partidas: partidasTmp }));
+    const c = calcularCotizacion(previo);
+    $('resumenCotizacion').innerHTML =
+        '<div><div class="d-label">Subtotal costo</div><div class="d-valor chico">' + dineroCent(c.subtotalCosto) + '</div></div>'
+      + '<div><div class="d-label">Total costo</div><div class="d-valor">' + dineroCent(c.totalCosto) + '</div></div>'
+      + '<div><div class="d-label">Subtotal cliente</div><div class="d-valor chico">' + dineroCent(c.subtotalCliente) + '</div></div>'
+      + '<div><div class="d-label">Total cliente</div><div class="d-valor" style="color:var(--ok)">' + dineroCent(c.totalCliente) + '</div></div>';
+  }
+
+  /* Listeners delegados en #listaPartidasCot: van UNA SOLA VEZ, fuera de
+     pintarPartidas(), o se acumulan y una tecla dispara N veces. */
+  $('listaPartidasCot').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo]');
+    if(!campo) return;
+    const x = partidasTmp[+campo.closest('[data-idx]').dataset.idx];
+    const k = campo.dataset.campo;
+    if(k === 'cantidad') x.cantidad = Math.max(0, parseFloat(campo.value) || 0);
+    else if(k === 'precioCosto'){ formatearMiles(campo); x.precioCosto = aNumero(campo.value); }
+    else if(k === 'precioClienteManual'){
+      formatearMiles(campo);
+      x.precioClienteManual = campo.value.trim() === '' ? null : aNumero(campo.value);
+    }
+    else x[k] = campo.value;
+    refrescarResumen();
+  });
+  $('listaPartidasCot').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-renglon-cot]');
+    if(!quitar) return;
+    partidasTmp.splice(+quitar.dataset.quitarRenglonCot, 1);
+    pintarPartidas();
+  });
+  $('btnAgregarRenglonCot').addEventListener('click', ()=>{
+    partidasTmp.push(normalizarPartidaCotizacion({}));
+    pintarPartidas();
+    const fila = $('listaPartidasCot').querySelector('tr[data-idx="' + (partidasTmp.length-1) + '"]');
+    const campo = fila && fila.querySelector('[data-campo="concepto"]');
+    if(campo) campo.focus();
+  });
+
+  /* Cualquier cambio en la cabecera puede mover el resumen (margen,
+     instalación, vigencia no, pero no cuesta nada recalcular siempre). */
+  ['qMargen','qInstIncluir','qInstPorcentaje','qInstFijo'].forEach(cid=>{
+    $(cid).addEventListener('input', refrescarResumen);
+  });
+  $('qInstFijo').addEventListener('input', ()=> formatearMiles($('qInstFijo')));
+
+  pintarPartidas();
+
+  cerrarModalActual = ()=>{
+    const cab = leerCabecera();
+    if(!cab.sitioId){ aviso('Elige un sitio.', true); return; }
+    const limpio = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : nuevoId(), partidas: partidasTmp }));
+    if(q){ Object.assign(q, limpio); }
+    else{ datos.cotizaciones.push(limpio); }
+
+    const c = calcularCotizacion(limpio);
+    guardarCotizacion(q || limpio, q ? 'editó' : 'creó',
+      limpio.partidas.length + ' ' + plural(limpio.partidas.length,'concepto','conceptos') + ' · ' + dineroCent(c.totalCliente) + ' al cliente');
+
+    cerrarModal();
+    estado.modulo = 'cotizaciones'; guardarModulo();
+    estado.vista = 'cotizacion'; estado.cotizacionId = limpio.id;
+    render();
+    aviso(q ? 'Cotización actualizada.' : 'Cotización creada.');
+  };
+}
+
 /* ==================== IMPORTAR PÓLIZAS DESDE UN JSON ====================
    Las cotizaciones viejas viven en PDF de Canva. El lector de
    scripts/lector-pdf/ las convierte a JSON con la forma de una póliza; esto
@@ -7471,6 +8213,26 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-clientes') irAClientes();
     else if(a === 'ir-polizas') irAPolizas();
     else if(a === 'nueva-poliza'){ if(exigirPermiso()) modalPoliza(null); }
+    else if(a === 'ir-cotizaciones') irACotizaciones();
+    else if(a === 'nueva-cotizacion'){ if(exigirPermiso()) modalCotizacion(null); }
+    else if(a === 'editar-cotizacion'){ if(exigirPermiso()) modalCotizacion(estado.cotizacionId); }
+    /* Imprimir es solo lectura y ya se ve todo en pantalla: sin exigirPermiso,
+       igual que imprimir-poliza. */
+    else if(a === 'imprimir-cotizacion') abrirDocumentoCotizacion(estado.cotizacionId, estado.ladoCotizacion);
+    else if(a === 'borrar-cotizacion'){
+      if(!exigirAdmin('eliminar una cotización')) return;
+      const cot = cotizacionPorId(estado.cotizacionId);
+      if(!cot) return;
+      confirmar('Eliminar cotización',
+        'Se va a eliminar la cotización <b>' + esc(cot.folio || 'sin folio') + '</b>. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.cotizaciones = datos.cotizaciones.filter(x => x.id !== cot.id);
+          borrarRegistro('cotizaciones', cot.id);
+          anotar('eliminó', 'cotización', cot.folio || 'sin folio');
+          estado.vista = 'cotizaciones'; estado.cotizacionId = null;
+          render(); aviso('Cotización eliminada.');
+        });
+    }
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-agenda') irAAgenda(false);
@@ -7689,6 +8451,12 @@ $('vista').addEventListener('click', ev=>{
 
   const tarP = t.closest('[data-poliza]');
   if(tarP){ entrarPoliza(tarP.dataset.poliza); return; }
+
+  const tarQ = t.closest('[data-cotizacion]');
+  if(tarQ){ entrarCotizacion(tarQ.dataset.cotizacion); return; }
+
+  const lado = t.closest('[data-lado-cotizacion]');
+  if(lado){ estado.ladoCotizacion = lado.dataset.ladoCotizacion; render(); return; }
 });
 
 /* Abrir una tarjeta con Enter o barra espaciadora. */
@@ -7698,7 +8466,9 @@ $('vista').addEventListener('keydown', ev=>{
   const tar = ev.target.closest('[data-cliente]');
   if(tar){ ev.preventDefault(); entrarCliente(tar.dataset.cliente); return; }
   const tarP = ev.target.closest('[data-poliza]');
-  if(tarP){ ev.preventDefault(); entrarPoliza(tarP.dataset.poliza); }
+  if(tarP){ ev.preventDefault(); entrarPoliza(tarP.dataset.poliza); return; }
+  const tarQ = ev.target.closest('[data-cotizacion]');
+  if(tarQ){ ev.preventDefault(); entrarCotizacion(tarQ.dataset.cotizacion); }
 });
 
 function entrarCliente(id){
@@ -7722,7 +8492,8 @@ function selloFecha(){ return hoyISO().replace(/-/g,''); }
 function descargarRespaldo(){
   const blob = new Blob([JSON.stringify({ v:1, generado:new Date().toISOString(),
                           clientes:datos.clientes, sitios:datos.sitios, polizas:datos.polizas,
-                          catalogo:datos.catalogo, segmentos:datos.segmentos, parametros:datos.parametros }, null, 2)],
+                          catalogo:datos.catalogo, segmentos:datos.segmentos, parametros:datos.parametros,
+                          cotizaciones:datos.cotizaciones }, null, 2)],
                         { type:'application/json' });
   descargar(blob, 'Respaldo_Control_Forpass_' + selloFecha() + '.json');
   aviso('Respaldo descargado.');
@@ -7754,8 +8525,9 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   polizas:dPolizas.map(normalizarPoliza),
                   catalogo:(Array.isArray(d.catalogo) ? d.catalogo : datos.catalogo).map(normalizarEquipo),
                   segmentos: d.segmentos !== undefined ? normalizarSegmentos(d.segmentos) : datos.segmentos,
-                  parametros: d.parametros !== undefined ? normalizarListaParametros(d.parametros) : datos.parametros };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null;
+                  parametros: d.parametros !== undefined ? normalizarListaParametros(d.parametros) : datos.parametros,
+                  cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : datos.cotizaciones).map(normalizarCotizacion) };
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
@@ -8418,7 +9190,7 @@ function salirSilencioso(tambienLosDatos){
   if(tambienLosDatos){
     datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
     sincronizado = false;
   }
 }
@@ -8505,7 +9277,9 @@ $('btnSalir').addEventListener('click', ()=>{
    estos botones necesitan su propio listener. */
 $('btnInicio').addEventListener('click', ()=>{
   if(estado.vista === inicioDelModulo()) return;
-  if(estado.modulo === 'polizas') irAPolizas(); else irAClientes();
+  if(estado.modulo === 'polizas') irAPolizas();
+  else if(estado.modulo === 'cotizaciones') irACotizaciones();
+  else irAClientes();
 });
 
 /* El selector de módulo: delegado en el <nav>, que también está fuera de #vista. */

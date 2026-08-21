@@ -9,10 +9,18 @@ generador de Excel van embebidos en el archivo. Se conecta a **tu propio**
 proyecto de Firebase (no al de Forguard) para guardarlo en la nube con
 cuentas y permisos.
 
-Esta copia agrega, sobre la base original, un panel de **Admin → Segmentos y
-parámetros** para dar de alta segmentos (zonas sugeridas) y campos
-personalizados de clientes/sitios sin tocar código — ver el detalle al final
-de [docs/CONECTAR-SERVIDOR.md](docs/CONECTAR-SERVIDOR.md).
+Esta copia agrega, sobre la base original:
+
+- **Admin → Segmentos y parámetros**: dar de alta segmentos (zonas sugeridas)
+  y campos personalizados de clientes/sitios sin tocar código — ver el
+  detalle al final de [docs/CONECTAR-SERVIDOR.md](docs/CONECTAR-SERVIDOR.md).
+- **Módulo Cotizaciones**: cotizar un trabajo de mantenimiento (correctivo,
+  preventivo, revisión…) sobre un sitio ya dado de alta, con dos caras del
+  mismo documento — el **costo interno** (para saber qué cargarle al sitio o
+  al cliente) y la **cotización cliente** (costo + margen, con instalación /
+  mano de obra opcional) — más un documento imprimible para cada lado. El
+  margen y la fórmula de instalación son editables por cotización, no un
+  valor fijo de la app.
 
 ## Cómo se usa
 

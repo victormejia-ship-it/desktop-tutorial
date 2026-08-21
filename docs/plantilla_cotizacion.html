@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Cotización de servicio</title>
+
+<!--
+  ==========================================================================
+  PLANTILLA · Cotización de servicio (costo interno / cliente)
+  ==========================================================================
+  El tablero deja aquí el documento YA RESUELTO, en sessionStorage, antes de
+  abrir esta pestaña (ver armarPayloadCotizacion() y abrirDocumentoCotizacion()
+  en index.html). Esta plantilla FORMATEA Y CONCATENA: no multiplica, no suma
+  y no decide qué lado mostrar más allá de leer `lado` del payload — todo el
+  dinero ya viene calculado por calcularCotizacion(), la única función que
+  hace esa cuenta. Si aquí se volviera a calcular, habría dos lugares
+  haciendo la misma cuenta y el riesgo de que se desalineen.
+
+  A diferencia de la plantilla de pólizas (réplica medida de un PDF de
+  Forguard), esta es un documento de flujo normal con @page estándar: no hay
+  PDF de referencia de Plato Express contra el cual calibrar posiciones
+  absolutas, así que se optó por un diseño limpio y profesional en vez de
+  fingir una réplica que no existe.
+  ==========================================================================
+-->
+
+<style>
+  :root{
+    --navy:#13294B; --acento:#2E7D6B; --texto:#26313f; --gris:#6b7686;
+    --linea:#e2e6ee; --fondo-grupo:#f3f5f9;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:#eef0f4; color:var(--texto);
+    font-family:Arial,Helvetica,sans-serif; font-size:12.5px; line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  .aviso-impresion{
+    position:sticky; top:0; z-index:5; background:#1b2a3d; color:#fff;
+    padding:10px 16px; display:flex; gap:8px 16px; align-items:center;
+    justify-content:center; flex-wrap:wrap;
+  }
+  .aviso-impresion button{
+    font:inherit; font-weight:700; color:#0b241c; background:var(--acento);
+    background:#54C682; border:none; border-radius:8px; padding:7px 16px; cursor:pointer;
+  }
+  .aviso-impresion button:hover{ background:#7EE2A8; }
+  .aviso-impresion .pista{ color:#b9c3d6; font-size:12px; }
+
+  .page{
+    width:8.5in; min-height:11in; margin:22px auto; background:#fff;
+    box-shadow:0 6px 24px rgba(20,30,50,.15); padding:0.55in 0.6in;
+  }
+
+  .membrete{ display:flex; justify-content:space-between; align-items:flex-start; gap:20px;
+             border-bottom:3px solid var(--navy); padding-bottom:12px; margin-bottom:16px; }
+  .membrete h1{ margin:0; font-size:19px; color:var(--navy); letter-spacing:.2px; }
+  .membrete .direccion{ font-size:11px; color:var(--gris); margin-top:3px; max-width:320px; }
+  .titulo-doc{ text-align:right; }
+  .titulo-doc .etiqueta{ font-size:15px; font-weight:700; color:var(--navy); }
+  .titulo-doc .folio{ font-size:12px; color:var(--gris); margin-top:2px; }
+
+  .datos{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px 22px; margin-bottom:18px; }
+  .datos .campo .et{ font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--gris); }
+  .datos .campo .val{ font-size:12.5px; font-weight:600; }
+
+  table.conceptos{ width:100%; border-collapse:collapse; margin-bottom:6px; }
+  table.conceptos th{
+    background:var(--navy); color:#fff; font-size:10px; text-transform:uppercase;
+    letter-spacing:.03em; text-align:left; padding:7px 8px;
+  }
+  table.conceptos th.num, table.conceptos td.num{ text-align:right; white-space:nowrap; }
+  table.conceptos td{ padding:6px 8px; border-bottom:1px solid var(--linea); font-size:12px; vertical-align:top; }
+  table.conceptos tr.grupo td{ background:var(--fondo-grupo); font-weight:700; text-transform:uppercase; font-size:10.5px; letter-spacing:.02em; }
+  table.conceptos tr.instalacion td{ font-weight:700; border-top:2px solid var(--linea); }
+
+  .totales{ display:flex; justify-content:flex-end; margin:10px 0 18px; }
+  .totales table{ border-collapse:collapse; min-width:260px; }
+  .totales td{ padding:4px 10px; font-size:12.5px; }
+  .totales td.et{ color:var(--gris); text-align:right; }
+  .totales td.val{ text-align:right; font-weight:600; min-width:110px; }
+  .totales tr.gran td{ border-top:2px solid var(--navy); font-size:15px; font-weight:800; color:var(--navy); padding-top:8px; }
+
+  .notas{ font-size:11px; color:var(--gris); border-top:1px solid var(--linea); padding-top:10px; white-space:pre-wrap; }
+  .pie-doc{ margin-top:22px; font-size:10px; color:#a3adbd; text-align:center; }
+
+  .error-doc{ max-width:520px; margin:80px auto; text-align:center; font-size:15px; color:#7a2c28; }
+
+  @media print{
+    body{ background:#fff; }
+    .page{ margin:0; box-shadow:none; width:auto; min-height:0; padding:0.5in 0.55in; }
+    @page{ size:letter; margin:0; }
+    .aviso-impresion{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="aviso-impresion" id="avisoImpresion">
+  <button type="button" onclick="window.print()">Guardar como PDF</button>
+  <span class="pista">si sale una impresora, cambia el destino a «Guardar como PDF»</span>
+</div>
+<div id="doc"></div>
+
+<script>
+/* ==================== DATOS ====================
+   Si no hay datos NO se pinta un caso demo: una hoja que dice «Sin datos» vale
+   más que un documento de aspecto perfecto con cifras inventadas que alguien
+   podría mandar sin darse cuenta. Mismo principio que la plantilla de pólizas. */
+const LLAVE_DOC = 'forguard.documento.cotizacion';
+
+function leerPayload(){
+  let crudo = null;
+  try{ crudo = sessionStorage.getItem(LLAVE_DOC); }
+  catch(e){ return { error:'El navegador no dejó leer los datos de la pestaña.' }; }
+  if(!crudo) return { error:'No llegaron datos del tablero. Abre este documento con el botón Imprimir de la cotización, no directamente.' };
+  let d;
+  try{ d = JSON.parse(crudo); }
+  catch(e){ return { error:'Los datos llegaron dañados y no se pudieron leer.' }; }
+  if(!d || !Array.isArray(d.renglones) || !d.totales)
+    return { error:'Los datos llegaron incompletos.' };
+  return { doc:d };
+}
+
+const LEIDO = leerPayload();
+const COT = LEIDO.doc || null;
+
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function pintarError(msg){
+  document.getElementById('avisoImpresion').remove();
+  document.getElementById('doc').innerHTML =
+    '<div class="error-doc"><h2>Sin datos</h2><p>' + esc(msg) + '</p>'
+  + '<p>Vuelve al tablero, entra a la cotización y usa su botón <b>Imprimir</b>.</p></div>';
+}
+
+if(!COT){
+  pintarError(LEIDO.error || 'No se pudo leer el documento.');
+}else{
+  const esCliente = COT.lado === 'cliente';
+  const tituloEtiqueta = esCliente ? 'Cotización de servicio' : 'Costo interno de servicio';
+
+  const datosGenerales = [
+    ['Comedor', COT.comedor || '—'],
+    ['Cliente', COT.cliente || '—'],
+    ['Zona', COT.zona || '—'],
+    ['Tipo de mantenimiento', COT.tipoMtto || '—'],
+    ['Fecha', COT.fecha || '—'],
+    ['Vigencia', COT.vigenciaDias + ' días · vence ' + COT.fechaVence],
+    ['Cargo a', COT.cargoA || '—'],
+    ['Solicitud', COT.solicitud || '—'],
+    ['No. de reporte', COT.noReporte || 'NA'],
+    ['Realizó', COT.realizo || '—'],
+    ['Departamento', COT.departamento || '—'],
+    ['Fecha de reporte', COT.fechaReporte || 'NA']
+  ];
+  if(esCliente){
+    datosGenerales.push(['Orden de compra', COT.ordenCompra || '—']);
+    datosGenerales.push(['Tipo de pago', COT.tipoPago || '—']);
+  }
+
+  const filasConceptos = COT.renglones.map(x=>{
+    const grupo = x.seccion
+      ? '<tr class="grupo"><td colspan="6">' + esc(x.seccion) + '</td></tr>'
+      : '';
+    return grupo
+      + '<tr>'
+      +   '<td class="num">' + esc(x.numPart) + '</td>'
+      +   '<td>' + esc(x.concepto) + '</td>'
+      +   '<td class="num">' + esc(x.cantidad) + '</td>'
+      +   '<td>' + esc(x.um) + '</td>'
+      +   '<td class="num">' + esc(x.precio) + '</td>'
+      +   '<td class="num">' + esc(x.importe) + '</td>'
+      + '</tr>';
+  }).join('');
+
+  const filaInstalacion = COT.instalacion
+    ? '<tr class="instalacion"><td class="num">' + esc(COT.instalacion.numPart) + '</td>'
+      + '<td colspan="3">Instalación / mano de obra</td>'
+      + '<td></td><td class="num">' + esc(COT.instalacion.importe) + '</td></tr>'
+    : '';
+
+  document.getElementById('doc').innerHTML =
+      '<div class="page">'
+    +   '<div class="membrete">'
+    +     '<div><h1>' + esc(COT.empresa.nombre) + '</h1>'
+    +       '<div class="direccion">' + esc(COT.empresa.direccion) + '</div></div>'
+    +     '<div class="titulo-doc"><div class="etiqueta">' + esc(tituloEtiqueta) + '</div>'
+    +       '<div class="folio">Folio ' + esc(COT.folio || 'sin folio') + '</div></div>'
+    +   '</div>'
+
+    +   '<div class="datos">' + datosGenerales.map(([et,val])=>
+          '<div class="campo"><div class="et">' + esc(et) + '</div><div class="val">' + esc(val) + '</div></div>'
+        ).join('') + '</div>'
+
+    +   '<table class="conceptos">'
+    +     '<thead><tr><th class="num">#</th><th>Concepto</th><th class="num">Cant.</th><th>U.M.</th>'
+    +       '<th class="num">Precio</th><th class="num">Importe</th></tr></thead>'
+    +     '<tbody>' + (filasConceptos || '<tr><td colspan="6">Sin conceptos capturados.</td></tr>') + filaInstalacion + '</tbody>'
+    +   '</table>'
+
+    +   '<div class="totales"><table>'
+    +     '<tr><td class="et">Subtotal</td><td class="val">' + esc(COT.totales.subtotal) + '</td></tr>'
+    +     '<tr><td class="et">IVA 16%</td><td class="val">' + esc(COT.totales.iva) + '</td></tr>'
+    +     '<tr class="gran"><td class="et">Total</td><td class="val">' + esc(COT.totales.total) + '</td></tr>'
+    +   '</table></div>'
+
+    +   '<div class="notas">' + esc(COT.tiempoEntrega || '') + (COT.notas ? '\n' + COT.notas : '') + '</div>'
+
+    +   '<div class="pie-doc">Documento generado el ' + esc(new Date(COT.meta.generado).toLocaleString('es-MX')) + '</div>'
+    + '</div>';
+
+  document.title = tituloEtiqueta + ' · ' + (COT.folio || '');
+}
+</script>
+</body>
+</html>
