@@ -1,5 +1,29 @@
 # Conectar el tablero a un servidor
 
+> **Actualizado 21-ago-2026**: esta copia ya quedó conectada al Firebase real
+> de Forguard (`control-de-forpass`) — decisión explícita de Victor, para
+> compartir la misma base de datos que usa el equipo en la app original en
+> vez de una aparte. `CONFIG_NUBE` en `index.html` ya tiene esos datos.
+>
+> El resto de esta guía (pasos 1-4, crear un proyecto NUEVO) ya **no aplica** a
+> esta copia — se deja abajo solo como referencia para el día que alguien
+> necesite levantar una instancia separada de verdad.
+>
+> **Lo que sigue pendiente, y requiere acceso al proyecto de Google Cloud (no
+> solo una cuenta Owner dentro de la app):**
+> 1. Pegar el contenido completo de
+>    [config/firestore.rules](../config/firestore.rules) en la consola real de
+>    Firebase (Firestore Database → Reglas) — agrega los bloques de
+>    `segmentos`, `parametros` y `cotizaciones` que no existían antes. Sin
+>    esto, esas tres pantallas van a dar "permiso denegado" aunque el resto de
+>    la app funcione normal.
+> 2. Agregar el dominio donde quede publicada esta copia (GitHub Pages u otro)
+>    a los **referrers permitidos** de la `apiKey`, en Google Cloud →
+>    Credenciales. Sin esto el login rebota con *"Requests from referer … are
+>    blocked"*. Firestore no lo necesita —va con `Bearer`—, solo el login.
+
+---
+
 Hoy la información se guarda **en el navegador** de cada computadora. Siguiendo
 estos pasos se guarda en un servidor: todos ven lo mismo, hay cuentas con
 permisos, y queda historial de quién cambió qué.
@@ -15,9 +39,9 @@ Lo demás ya está programado y esperando estos datos.
 
 1. Entra a **https://console.firebase.google.com** con tu cuenta de Google.
 2. **Crear un proyecto** → nombre: el que quieras para tu copia (por ejemplo
-   `Control Forpass`) → Continuar. **Tiene que ser un proyecto nuevo y propio**:
-   no uses el `control-de-forpass` de Forguard aunque tengas cuenta ahí — esta
-   copia necesita su propia base de datos, separada de la original.
+   `Control Forpass`) → Continuar. **Tiene que ser un proyecto nuevo y propio**,
+   separado de `control-de-forpass` — solo si decides levantar una instancia
+   aparte más adelante.
 3. Cuando pregunte por Google Analytics, **desactívalo** (no hace falta).
 4. Espera a que termine y entra al proyecto.
 
