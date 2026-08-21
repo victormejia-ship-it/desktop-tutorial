@@ -1,0 +1,222 @@
+rules_version = '2';
+
+/* ===========================================================================
+   Reglas de seguridad de Control de Forpass
+
+   Esto es lo que de verdad protege la información: aunque alguien copie la
+   página o los datos de configuración, sin una cuenta con permiso concedido
+   aquí no puede leer ni escribir nada.
+
+   Cómo se pegan: consola de Firebase → Firestore Database → pestaña Reglas →
+   borra lo que haya, pega todo esto, y dale a Publicar.
+
+   Permisos:
+     owner   → todo, y es el único que puede nombrar o tocar a otro owner
+     admin   → todo lo demás, incluido administrar cuentas
+     analyst → agrega y modifica clientes, sitios y pagos
+     viewer  → solo lee
+   =========================================================================== */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function perfil() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+    /* Tiene acceso quien está autenticado, tiene ficha de usuario y no está bloqueado. */
+    function conAcceso() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+        && perfil().activo == true;
+    }
+    function rol() { return perfil().rol; }
+    function esOwner()   { return conAcceso() && rol() == 'owner'; }
+    function esAdmin()   { return conAcceso() && rol() in ['owner', 'admin']; }
+    function puedeEditar() { return conAcceso() && rol() in ['owner', 'admin', 'analyst']; }
+
+    /* --- Información del tablero --- */
+    /* --- Clientes ---
+       Crear y corregir es el trabajo del día: lo hace cualquiera que pueda
+       editar. BORRAR es de Admin para arriba (decidido el 19-ago-2026): un
+       cliente se lleva de golpe sus sitios con su historial de pagos y sus OC, y
+       —como la colección de clientes es UNA sola para los dos módulos— también
+       deja huérfana su póliza de mantenimiento. No hay deshacer. */
+    match /clientes/{id} {
+      allow read:   if conAcceso();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+    /* --- Sitios ---
+       El encargado —quién de Forguard lleva la cuenta— lo asigna solo un Admin.
+       Ese candado vivía únicamente en la interfaz: con su token, un Analyst
+       podía reasignarse sitios por REST y el servidor lo aceptaba. Ahora el
+       campo está congelado para quien no es Admin, con get() en las dos puntas
+       por la lección del descuento: los sitios viejos pueden no traer el campo,
+       y un campo ausente leído con punto es un ERROR que rechaza también lo
+       legítimo. Crear exige encargado vacío: nadie se asigna al capturar. */
+    match /sitios/{id} {
+      allow read:  if conAcceso();
+      allow create: if esAdmin()
+                    || (puedeEditar() && request.resource.data.get('encargado', '') == '');
+      allow update: if esAdmin()
+                    || (puedeEditar()
+                        && request.resource.data.get('encargado', '') == resource.data.get('encargado', ''));
+      /* Igual que el cliente: borrar un sitio se lleva su historial de pagos y
+         sus órdenes de compra. Capturar y corregir, cualquiera; eliminar, Admin. */
+      allow delete: if esAdmin();
+    }
+
+    /* --- Pólizas de mantenimiento preventivo ---
+       La cotización y la póliza activa son el MISMO documento en distintos
+       momentos, separados por su campo 'estatus':
+
+         cotizacion → enviada → activa
+                          ↘ perdida        (el cliente no la tomó)
+                             activa → cancelada
+
+       Aquí sí hay reglas por campo, y no por gusto: el precio con el que se
+       cerró una póliza NO se puede tocar después. Sin esto el congelado sería
+       una convención de la interfaz, y una convención no es un candado.
+
+       Quién puede qué:
+         · Todos con acceso    → leer
+         · Analyst  → capturar y mover cotizaciones entre 'cotizacion' y
+                      'enviada'. Sobre una póliza ya cerrada puede seguir
+                      capturando cobranza y servicios ejecutados, pero NO puede
+                      cambiar el estatus ni tocar las partidas.
+         · Owner/Admin → todo, incluido cerrar, reabrir y corregir precios.
+
+       Las tres cláusulas del update, en orden:
+         1. Admin y Owner pasan siempre.
+         2. Mientras la póliza entra Y sale en 'cotizacion' o 'enviada', se
+            edita libre. Exigir las dos puntas es lo que impide cerrarla.
+         3. Para cualquier otro estatus: se puede guardar SI el estatus no
+            cambió Y las partidas salieron idénticas a como entraron.
+
+       Por qué la cláusula 3 compara también el DESCUENTO: es un precio. Vive al
+       nivel de la póliza y no dentro de `partidas`, así que comparando solo
+       partidas un analyst podía bajarle 30% a una póliza ya cerrada sin tocar un
+       solo renglón — pasaba la cláusula 3 y nadie se enteraba. Congelar los
+       precios sin congelar el descuento es no congelar nada.
+
+       Por qué la cláusula 3 compara también el estatus y no solo las partidas:
+       comparando solo partidas, el candado se brincaba en dos pasos —el analyst
+       pasaba 'activa' a 'cotizacion' dejando partidas igual (le pasaba la 3), y
+       ya en 'cotizacion' la 2 le dejaba editar precios a gusto.
+
+       Por qué la cláusula 3 congela también la VIGENCIA, la FACTURACIÓN y la
+       FECHA DE CIERRE, medido el 18-ago-2026 con un Analyst real: ninguna de las
+       tres es un precio, pero las tres son el acuerdo. `fechaInicio` manda el
+       calendario —los meses de servicio son desfases desde ahí— así que moverla
+       corre TODOS los servicios de TODOS los renglones a la vez, sin error y sin
+       aviso: es la misma firma del bug que ya costó una vez. `facturacion`
+       convierte doce cobros en uno. Y `fechaCierre` es la marca que la pantalla
+       enseña como «precios congelados»: borrarla no descongela nada en el
+       servidor, nada más hace que la interfaz mienta. Siguen libres `vendedor`,
+       `sitioNombre`, `folio`, `notas` y las fechas de cotización y envío, que son
+       correcciones de texto que un capturista hace con razón.
+
+       Por qué el descuento se lee con get(campo, 0) y no con punto: Firestore NO
+       trata un campo ausente como vacío — tirar de él es un ERROR de evaluación,
+       y un error en una regla es un rechazo. El descuento se agregó el 14-ago y
+       ninguna de las pólizas que ya existían lo tenía guardado, así que la
+       cláusula 3 reventaba y un Analyst NO podía capturar una OC ni marcar un
+       servicio en una póliza cerrada: 403 al reescribir el documento sin cambiar
+       un solo valor. Medido el 18-ago-2026 con una cuenta Analyst real, que es la
+       primera vez que estas cláusulas se ejercieron.
+
+       La lección, para el siguiente campo que se agregue al nivel de la póliza:
+       aquí un error de evaluación estorba a quien SÍ tiene permiso. En la cláusula
+       2, en el create y en /usuarios un error deniega a quien no debía pasar, y
+       ahí fallar cerrado es lo correcto — por eso solo esta cláusula necesita
+       get(). Cualquier campo nuevo que se compare en la cláusula 3 va con get(). */
+    match /polizas/{id} {
+      allow read: if conAcceso();
+
+      /* Una póliza nace como cotización. Nadie estrena uno de estos ya cerrado:
+         si no, el candado del update se brinca borrando y volviendo a crear. */
+      allow create: if esAdmin()
+                    || (puedeEditar()
+                        && request.resource.data.estatus in ['cotizacion', 'enviada']);
+
+      allow update: if esAdmin()
+                    || (puedeEditar()
+                        && resource.data.estatus in ['cotizacion', 'enviada']
+                        && request.resource.data.estatus in ['cotizacion', 'enviada'])
+                    || (puedeEditar()
+                        && request.resource.data.estatus == resource.data.estatus
+                        && request.resource.data.partidas == resource.data.partidas
+                        && request.resource.data.get('descuento', 0) == resource.data.get('descuento', 0)
+                        && request.resource.data.get('fechaInicio', '') == resource.data.get('fechaInicio', '')
+                        && request.resource.data.get('facturacion', '') == resource.data.get('facturacion', '')
+                        && request.resource.data.get('fechaCierre', '') == resource.data.get('fechaCierre', ''));
+
+      /* Borrar una póliza cerrada es la forma más burda de saltarse todo lo de
+         arriba, así que también es de Owner y Admin. */
+      allow delete: if esAdmin();
+    }
+
+    /* --- Lista de precios de equipos ---
+       Un solo documento, catalogo/lista, con el arreglo de equipos adentro. Va
+       en un documento y no en uno por equipo para que sean 48 equipos por UNA
+       lectura y no por 48: se lee en cada carga de página y se edita muy poco.
+
+       Cualquiera con acceso la lee —el vendedor la necesita para cotizar— y solo
+       Owner o Admin la cambia. Este candado SÍ es de servidor, no como el de
+       cerrar pólizas: aquí basta el rol, sin comparar campos. --- */
+    match /catalogo/{doc} {
+      allow read:  if conAcceso();
+      allow write: if esAdmin();
+    }
+
+    /* --- Historial: cualquiera con acceso lo escribe, solo admin lo lee,
+           y nadie lo puede modificar ni borrar. --- */
+    match /bitacora/{id} {
+      allow read:   if esAdmin();
+      allow create: if conAcceso();
+      allow update, delete: if false;
+    }
+
+    /* --- Cuentas y permisos ---
+       · Cada quien puede leer su propia ficha (así la página sabe su rol).
+       · Solo admin y owner ven todas.
+       · Un admin NO puede crear, modificar ni borrar a un owner: eso es
+         exclusivo del owner. Así nadie te puede degradar ni bloquear.
+       · Cada quien puede actualizar únicamente su propio 'ultimoAcceso' y su
+         propio 'telefono'. El teléfono se agregó porque las cotizaciones de
+         póliza imprimen el celular del vendedor, y ese dato lo tiene que poder
+         poner cada quien sin molestar a un administrador. Sigue sin poder
+         tocarse 'rol' ni 'activo': nadie se puede ascender ni desbloquear. --- */
+    match /usuarios/{uid} {
+      allow read: if esAdmin() || (request.auth != null && request.auth.uid == uid);
+
+      allow create: if esOwner()
+                    || (esAdmin() && request.resource.data.rol != 'owner');
+
+      allow update: if esOwner()
+                    || (esAdmin()
+                        && resource.data.rol != 'owner'
+                        && request.resource.data.rol != 'owner')
+                    || (request.auth != null && request.auth.uid == uid
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcceso', 'telefono']));
+
+      allow delete: if esOwner() || (esAdmin() && resource.data.rol != 'owner');
+    }
+
+    /* --- Marcas del sistema ---
+       Aquí el respaldo automático deja la fecha de la última copia, para que el
+       tablero pueda avisar si se quedó viejo. Cualquiera con acceso la lee;
+       nadie la escribe desde la página. El robot del respaldo sí puede, porque
+       entra con cuenta de servicio y esas se saltan estas reglas. --- */
+    match /sistema/{doc} {
+      allow read:  if conAcceso();
+      allow write: if false;
+    }
+
+    /* Todo lo que no esté listado arriba queda cerrado. */
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}
