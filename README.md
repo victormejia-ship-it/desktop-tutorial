@@ -5,20 +5,13 @@ con su mensualidad, vigencia y estatus de pago. Además de pólizas de
 mantenimiento preventivo como segundo módulo.
 
 Es una sola página (`index.html`), sin servidor: las fuentes, el logo y el
-generador de Excel van embebidos en el archivo. Se conecta al **mismo
-proyecto de Firebase que ya usa el equipo de Forguard** (`control-de-forpass`)
-— decisión explícita de Victor (21-ago-2026): esta copia comparte la base de
-datos real, no una aparte. Eso significa que lo que se capture aquí es lo
-mismo que ve el resto del equipo en la app original, y viceversa.
-
-**Antes de que el login funcione en un dominio nuevo**, alguien con acceso al
-proyecto de Google Cloud (no solo una cuenta Owner dentro de la app) tiene
-que:
-1. Pegar las reglas de [config/firestore.rules](config/firestore.rules) en la
-   consola de Firebase (agrega `segmentos`, `parametros` y `cotizaciones` a lo
-   que ya había — sin esto esas tres pantallas dan "permiso denegado").
-2. Agregar el dominio donde quede publicada esta copia a los referrers
-   permitidos de la `apiKey`, en Google Cloud → Credenciales.
+generador de Excel van embebidos en el archivo. Se conecta a un **proyecto de
+Firebase propio de Victor** (`forguard-soft-services`) — decisión explícita
+(21-ago-2026), después de intentar compartir el proyecto real de Forguard y
+topar con que publicar reglas y editar credenciales requería permisos de
+Google Cloud de un tercero. Esta copia es independiente: no comparte datos
+con la app original de Forguard, y Victor es Owner del proyecto sin depender
+de nadie más.
 
 Esta copia agrega, sobre la base original:
 
@@ -56,13 +49,12 @@ lleno o vacío:
 computadora que la captura. Para moverla: **Respaldo JSON** descarga todo y
 **Restaurar** lo abre en otra máquina.
 
-**Modo servidor** — ya configurado con el Firebase real de Forguard: pide
-correo y contraseña, guarda en el servidor compartido, todos ven lo mismo,
-hay cuatro permisos (Owner, Admin, Analyst, Viewer) y queda historial de
-quién cambió qué. Las reglas de seguridad están en
-[config/firestore.rules](config/firestore.rules) — hay que confirmar que la
-versión pegada en la consola real ya incluye los bloques nuevos de
-`segmentos`, `parametros` y `cotizaciones`.
+**Modo servidor** — ya configurado con el proyecto propio de Firebase
+(`forguard-soft-services`): pide correo y contraseña, guarda en el servidor,
+todos ven lo mismo, hay cuatro permisos (Owner, Admin, Analyst, Viewer) y
+queda historial de quién cambió qué. Las reglas de seguridad están en
+[config/firestore.rules](config/firestore.rules) — se publican con
+`firebase deploy --only firestore:rules --project forguard-soft-services`.
 
 En los dos modos, **Descargar Excel** genera un `.xlsx` con el formato de
 *Control de Kioskos Forpass*, con las columnas calculadas como fórmulas vivas.

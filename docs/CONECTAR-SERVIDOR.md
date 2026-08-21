@@ -1,26 +1,24 @@
 # Conectar el tablero a un servidor
 
-> **Actualizado 21-ago-2026**: esta copia ya quedó conectada al Firebase real
-> de Forguard (`control-de-forpass`) — decisión explícita de Victor, para
-> compartir la misma base de datos que usa el equipo en la app original en
-> vez de una aparte. `CONFIG_NUBE` en `index.html` ya tiene esos datos.
+> **Actualizado 21-ago-2026**: esta copia se conecta a un proyecto de Firebase
+> **propio de Victor** (`forguard-soft-services`), no al proyecto real
+> compartido de Forguard — se intentó primero compartir la base de datos real,
+> pero publicar reglas y editar credenciales requería que alguien más
+> otorgara permisos de Google Cloud, así que se decidió tener un proyecto
+> 100% propio, sin depender de nadie. `CONFIG_NUBE` en `index.html` ya tiene
+> esos datos (apiKey/projectId de `forguard-soft-services`).
 >
-> El resto de esta guía (pasos 1-4, crear un proyecto NUEVO) ya **no aplica** a
-> esta copia — se deja abajo solo como referencia para el día que alguien
-> necesite levantar una instancia separada de verdad.
->
-> **Lo que sigue pendiente, y requiere acceso al proyecto de Google Cloud (no
-> solo una cuenta Owner dentro de la app):**
-> 1. Pegar el contenido completo de
->    [config/firestore.rules](../config/firestore.rules) en la consola real de
->    Firebase (Firestore Database → Reglas) — agrega los bloques de
->    `segmentos`, `parametros` y `cotizaciones` que no existían antes. Sin
->    esto, esas tres pantallas van a dar "permiso denegado" aunque el resto de
->    la app funcione normal.
-> 2. Agregar el dominio donde quede publicada esta copia (GitHub Pages u otro)
->    a los **referrers permitidos** de la `apiKey`, en Google Cloud →
->    Credenciales. Sin esto el login rebota con *"Requests from referer … are
->    blocked"*. Firestore no lo necesita —va con `Bearer`—, solo el login.
+> Los pasos 1-4 de abajo (crear el proyecto, base de datos, login, copiar
+> config) **ya están hechos**. Lo que sigue pendiente, y como es un proyecto
+> propio, Victor puede hacerlo él mismo sin pedirle permiso a nadie:
+> 1. Paso 5 — publicar las reglas de [config/firestore.rules](../config/firestore.rules)
+>    (incluye los bloques de `segmentos`, `parametros` y `cotizaciones`).
+> 2. Paso 6 — crear la cuenta de Owner (la de Victor).
+> 3. Agregar el dominio de GitHub Pages
+>    (`https://victormejia-ship-it.github.io/*`) a los **referrers
+>    permitidos** de la `apiKey`, en Google Cloud → Credenciales del proyecto
+>    `forguard-soft-services`. Sin esto el login rebota con *"Requests from
+>    referer … are blocked"*.
 
 ---
 
