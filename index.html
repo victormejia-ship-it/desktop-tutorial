@@ -4286,7 +4286,7 @@ function vistaCotizaciones(){
      +   '<p>' + numero(r.total) + ' ' + plural(r.total,'cotización','cotizaciones')
      +   ' · ' + dineroCent(r.montoCliente) + ' cotizado al cliente</p>'
      + '</div><div class="acciones">'
-     +   (datos.sitios.length && puedeEditar()
+     +   (puedeEditar()
           ? '<button type="button" class="btn btn-primario" data-accion="nueva-cotizacion">' + ICONO.mas + 'Nueva cotización</button>'
           : '')
      + '</div></div>';
@@ -4298,16 +4298,12 @@ function vistaCotizaciones(){
      + tarjetaKpi('Vencidas', numero(r.vencidas), 'Pasó su vigencia sin resolver', r.vencidas ? 'k-error' : '')
      + '</div>';
 
-  if(!datos.sitios.length){
-    h += vistaVacia('credencial', 'Primero hace falta un sitio',
-          'Una cotización cuelga de un sitio ya dado de alta: da de alta el cliente y su sitio en el módulo de Forpass antes de cotizar.',
-          '', '');
-    return h;
-  }
-
+  /* Ya no exige un sitio de antemano: el modal de la cotización lo da de
+     alta en línea si hace falta (mismo remedio que "Cliente nuevo" en
+     modalPoliza), así que este estado vacío ya no es un callejón sin salida. */
   if(!datos.cotizaciones.length){
     h += vistaVacia('credencial', 'Todavía no hay cotizaciones',
-          'Cotiza un trabajo: elige el sitio, agrega los conceptos con su costo, y aquí mismo ves lo que le corresponde cobrar al cliente.',
+          'Cotiza un trabajo: si el cliente y el sitio no existen aún, se dan de alta ahí mismo. Agrega los conceptos con su costo y ve lo que le corresponde cobrar al cliente.',
           puedeEditar() ? 'nueva-cotizacion' : '', 'Nueva cotización');
     return h;
   }
@@ -7013,29 +7009,52 @@ function modalPoliza(id){
 /* ------------------------- Modal: cotización de servicio ------------------------- */
 function modalCotizacion(id){
   const q = id ? cotizacionPorId(id) : null;
-  if(!datos.sitios.length){
-    aviso('Primero da de alta un cliente y su sitio: la cotización cuelga de uno.', true);
-    return;
-  }
 
   /* Copia de trabajo: se toca esto y no el registro, para que Cancelar
      cancele de verdad — mismo molde que partidasTmp en modalPoliza. */
   let partidasTmp = (q ? q.partidas : []).map(x => Object.assign({}, x));
 
-  const sitiosOrd = datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
-  const opcSitios = sitiosOrd.map(s=>{
-    const cli = clientePorId(s.clienteId);
-    return '<option value="' + esc(s.id) + '"' + (s.id === (q ? q.sitioId : '') ? ' selected' : '') + '>'
-      + esc(s.nombre) + (cli ? ' — ' + esc(cli.nombre) : '') + '</option>';
-  }).join('');
+  const sitiosOrd = () => datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const opcSitiosHTML = sel => (sitiosOrd().length
+    ? sitiosOrd().map(s=>{
+        const cli = clientePorId(s.clienteId);
+        return '<option value="' + esc(s.id) + '"' + (s.id === sel ? ' selected' : '') + '>'
+          + esc(s.nombre) + (cli ? ' — ' + esc(cli.nombre) : '') + '</option>';
+      }).join('')
+    : '<option value="">— Todavía no hay sitios: crea uno abajo —</option>');
 
   const opcDatalist = (idLista, valores) => '<datalist id="' + idLista + '">'
     + valores.map(v => '<option value="' + esc(v) + '">').join('') + '</datalist>';
 
+  /* Sin sitios el candado bloqueaba el módulo entero: había que ir a Forpass,
+     dar de alta cliente y sitio, y volver — rompiendo la captura de la
+     cotización que se quería hacer. Mismo remedio que "Cliente nuevo" en
+     modalPoliza: alta en línea, sin salir de aquí. Si ya no hay ninguno,
+     arranca abierta. */
+  const sinSitios = !datos.sitios.length;
+
   const cuerpo =
       '<div class="seccion"><h4>Datos generales</h4>'
-    +   '<div class="campo"><label>Sitio *</label><select id="qSitio">' + opcSitios + '</select>'
-    +     '<div class="pista">Es el "comedor" del formato: de aquí se toman el cliente y la zona.</div></div>'
+    +   '<div class="campo"><label>Sitio *</label>'
+    +     '<div class="cliente-zona">'
+    +       '<select id="qSitio">' + opcSitiosHTML(q ? q.sitioId : '') + '</select>'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevo" '
+    +         'title="Dar de alta un cliente y su sitio sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +     '</div>'
+    +     '<div class="pista">Es el "comedor" del formato: de aquí se toman el cliente y la zona.</div>'
+    +     '<div id="zonaSitioNuevo" class="cliente-nuevo"' + (sinSitios ? '' : ' hidden') + '>'
+    +       '<div class="campo"><label>Cliente *</label>'
+    +         '<input type="text" id="nsCliente" list="listaClientesNS" placeholder="Ej. Whirlpool" autocomplete="off">'
+    +         opcDatalist('listaClientesNS', datos.clientes.map(c=>c.nombre))
+    +         '<div class="pista">Si ya existe con ese nombre, se reusa; si no, se crea.</div></div>'
+    +       '<div class="campo"><label>Nombre del sitio *</label>'
+    +         '<input type="text" id="nsSitio" placeholder="Ej. WHIRLPOOL BSC" autocomplete="off"></div>'
+    +       '<div class="cliente-nuevo-botones">'
+    +         (sinSitios ? '' : '<button type="button" class="btn btn-suave btn-mini" id="nsCancelar">Cancelar</button>')
+    +         '<button type="button" class="btn btn-primario btn-mini" id="nsCrear">Crear y seleccionar</button>'
+    +       '</div>'
+    +     '</div>'
+    +   '</div>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Folio</label>'
     +       '<input type="text" id="qFolio" value="' + esc(q ? q.folio : generarFolioCotizacion(hoyISO())) + '"></div>'
@@ -7227,6 +7246,50 @@ function modalCotizacion(id){
   $('qInstFijo').addEventListener('input', ()=> formatearMiles($('qInstFijo')));
 
   pintarPartidas();
+
+  /* Alta en línea de cliente + sitio, igual que "Cliente nuevo" en
+     modalPoliza: sin esto, cotizar el primer trabajo de un cliente nuevo
+     exigía salir a Forpass y volver, perdiendo lo que ya se había
+     capturado aquí. */
+  if($('btnSitioNuevo')){
+    $('btnSitioNuevo').addEventListener('click', ()=>{
+      if(!exigirPermiso()) return;
+      const z = $('zonaSitioNuevo');
+      z.hidden = !z.hidden;
+      if(!z.hidden){ $('nsCliente').value = ''; $('nsSitio').value = ''; $('nsCliente').focus(); }
+    });
+  }
+  if($('nsCancelar')) $('nsCancelar').addEventListener('click', ()=> { $('zonaSitioNuevo').hidden = true; });
+  $('nsCrear').addEventListener('click', ()=>{
+    const nombreCliente = $('nsCliente').value.trim();
+    const nombreSitio = $('nsSitio').value.trim();
+    if(!nombreCliente){ $('nsCliente').setAttribute('aria-invalid','true'); $('nsCliente').focus(); aviso('Falta el nombre del cliente.', true); return; }
+    if(!nombreSitio){ $('nsSitio').setAttribute('aria-invalid','true'); $('nsSitio').focus(); aviso('Falta el nombre del sitio.', true); return; }
+
+    let cli = datos.clientes.find(c => c.nombre.toLowerCase() === nombreCliente.toLowerCase());
+    if(!cli){
+      cli = normalizarCliente({ id:nuevoId(), nombre:nombreCliente });
+      datos.clientes.push(cli);
+      guardarCliente(cli, 'creó');
+    }
+    const yaExiste = datos.sitios.find(s => s.clienteId === cli.id && s.nombre.toLowerCase() === nombreSitio.toLowerCase());
+    let sitio;
+    if(yaExiste){
+      sitio = yaExiste;
+      aviso('Ese sitio ya existía para ' + cli.nombre + '; lo seleccioné.');
+    }else{
+      sitio = normalizarSitio({ id:nuevoId(), clienteId:cli.id, nombre:nombreSitio,
+        modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+      datos.sitios.push(sitio);
+      guardarSitio(sitio, 'creó');
+      aviso(nombreSitio + ' dado de alta en ' + cli.nombre + ' y seleccionado.');
+    }
+
+    /* Se repinta solo el select, no el modal entero: repintar tiraría toda
+       la captura ya hecha (conceptos, márgenes, etc). */
+    $('qSitio').innerHTML = opcSitiosHTML(sitio.id);
+    $('zonaSitioNuevo').hidden = true;
+  });
 
   cerrarModalActual = ()=>{
     const cab = leerCabecera();
