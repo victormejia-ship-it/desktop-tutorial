@@ -170,6 +170,22 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    /* --- Segmentos y parámetros personalizados ---
+       Mismo molde que /catalogo: un documento único con un arreglo adentro.
+       'segmentos' sustituye la constante ZONAS (sugerencias de zona al
+       capturar un sitio) y 'parametros' guarda las definiciones de campos
+       extra para clientes y sitios. Cualquiera con acceso los lee —los
+       necesita para ver el formulario completo—, solo Owner o Admin los
+       cambia. */
+    match /segmentos/{doc} {
+      allow read:  if conAcceso();
+      allow write: if esAdmin();
+    }
+    match /parametros/{doc} {
+      allow read:  if conAcceso();
+      allow write: if esAdmin();
+    }
+
     /* --- Historial: cualquiera con acceso lo escribe, solo admin lo lee,
            y nadie lo puede modificar ni borrar. --- */
     match /bitacora/{id} {

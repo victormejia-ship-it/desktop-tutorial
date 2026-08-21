@@ -14,7 +14,10 @@ Lo demás ya está programado y esperando estos datos.
 ## Paso 1 — Crear el proyecto
 
 1. Entra a **https://console.firebase.google.com** con tu cuenta de Google.
-2. **Crear un proyecto** → nombre: `Control Forpass` → Continuar.
+2. **Crear un proyecto** → nombre: el que quieras para tu copia (por ejemplo
+   `Control Forpass`) → Continuar. **Tiene que ser un proyecto nuevo y propio**:
+   no uses el `control-de-forpass` de Forguard aunque tengas cuenta ahí — esta
+   copia necesita su propia base de datos, separada de la original.
 3. Cuando pregunte por Google Analytics, **desactívalo** (no hace falta).
 4. Espera a que termine y entra al proyecto.
 
@@ -74,7 +77,7 @@ Esta es la única cuenta que se crea a mano. Desde ella ya puedes crear todas la
 demás desde el tablero.
 
 1. **Authentication** → pestaña **Users** → **Agregar usuario**.
-   - Correo: `santiago.garza@platoexpress.com`
+   - Correo: el tuyo (ej. `victor.mejia@platoexpress.com`).
    - Contraseña: la que tú quieras (mínimo 6 caracteres).
 2. Copia el **UID** que aparece en la lista (una cadena larga, tipo
    `k3Jd8sPq...`). Lo necesitas en el siguiente punto.
@@ -83,22 +86,22 @@ demás desde el tablero.
    - ID del documento: **pega el UID** del punto anterior
    - Agrega estos campos, todos de tipo **string** menos `activo`:
 
-   | Campo         | Tipo    | Valor                             |
-   |---------------|---------|-----------------------------------|
-   | `correo`      | string  | `santiago.garza@platoexpress.com` |
-   | `nombre`      | string  | `Santiago Garza`                  |
-   | `rol`         | string  | `owner`                           |
-   | `activo`      | boolean | `true`                            |
-   | `creado`      | string  | `2026-08-05`                      |
-   | `creadoPor`   | string  | `consola`                         |
-   | `ultimoAcceso`| string  | *(déjalo vacío)*                  |
+   | Campo         | Tipo    | Valor                          |
+   |---------------|---------|---------------------------------|
+   | `correo`      | string  | tu correo                      |
+   | `nombre`      | string  | tu nombre                      |
+   | `rol`         | string  | `owner`                         |
+   | `activo`      | boolean | `true`                          |
+   | `creado`      | string  | la fecha de hoy, `AAAA-MM-DD`   |
+   | `creadoPor`   | string  | `consola`                       |
+   | `ultimoAcceso`| string  | *(déjalo vacío)*                |
 
 4. Guardar.
 
 ## Paso 7 — Entrar
 
-Abre https://santiagogarza11.github.io/control-forpass/ — ahora pide correo y
-contraseña. Entra con la cuenta del paso 6.
+Abre la página publicada de tu copia (el link de GitHub Pages de tu propio
+repo) — ahora pide correo y contraseña. Entra con la cuenta del paso 6.
 
 - Arriba a la derecha aparece **Guardado en la nube** y el botón **Admin**.
 - Si ya tenías clientes y sitios capturados en esa computadora, **se suben solos**
@@ -140,3 +143,25 @@ avisa si lo intentas.
 - Firebase guarda la información en la infraestructura de Google.
 - El botón **Respaldo JSON** sigue ahí para tener una copia propia.
 - El **Excel** sirve como respaldo legible y para reportar.
+
+## Segmentos y parámetros (nuevo en esta copia)
+
+Al final del panel de **Admin** hay tres bloques que no existen en el
+`control-forpass` original de Forguard:
+
+- **Segmentos** — la lista de zonas que se sugieren al capturar un sitio
+  (antes era una lista fija en el código, `ZONAS`). Un Admin agrega o quita
+  segmentos desde ahí; el campo sigue siendo de texto libre, así que escribir
+  cualquier otra cosa también funciona.
+- **Parámetros de clientes** y **Parámetros de sitios** — campos extra que un
+  Admin define (etiqueta + tipo: texto, número, fecha o Sí/No) y que aparecen
+  automáticamente en el formulario de «Agregar/Editar cliente» o
+  «Agregar/Editar sitio». Los valores capturados se ven como chips en la
+  tarjeta del cliente o del sitio.
+
+Igual que la lista de precios, cada uno vive en **un solo documento**
+(`segmentos/lista` y `parametros/lista`), así que las reglas ya vienen
+incluidas en `config/firestore.rules` — no hay que agregar nada a mano, solo
+pegar el archivo completo en el paso 5. Quitar un segmento o un parámetro no
+borra los datos que ya se habían capturado con él, solo deja de sugerirlo o
+pedirlo en formularios nuevos.

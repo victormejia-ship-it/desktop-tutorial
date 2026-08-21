@@ -1336,7 +1336,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]} };
 
 function cargar(){
   try{
@@ -1349,9 +1349,12 @@ function cargar(){
         sitios:   d.sitios.map(normalizarSitio),
         /* Un respaldo anterior al módulo de pólizas no trae esta llave. No es un
            archivo roto, es un archivo viejo: se abre con la lista vacía y sigue.
-           Por eso la condición de arriba tampoco la exige. */
+           Por eso la condición de arriba tampoco la exige. Igual con segmentos y
+           parametros, que son más nuevos todavía. */
         polizas:  (Array.isArray(d.polizas) ? d.polizas : []).map(normalizarPoliza),
-        catalogo: (Array.isArray(d.catalogo) ? d.catalogo : []).map(normalizarEquipo) };
+        catalogo: (Array.isArray(d.catalogo) ? d.catalogo : []).map(normalizarEquipo),
+        segmentos: normalizarSegmentos(d.segmentos),
+        parametros: normalizarListaParametros(d.parametros) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1380,7 +1383,11 @@ function normalizarCliente(c){
        La colección sigue siendo UNA (decisión cerrada: una empresa con kioscos
        y pólizas es un registro con un solo logo); esto solo dice en qué lista
        aparece. */
-    usaForpass: c.usaForpass === 'si' ? 'si' : c.usaForpass === 'no' ? 'no' : ''
+    usaForpass: c.usaForpass === 'si' ? 'si' : c.usaForpass === 'no' ? 'no' : '',
+    /* Valores de los parámetros personalizados (Admin → Segmentos y
+       parámetros), llaveados por el id del parámetro para que sobrevivan si
+       se renombra la etiqueta. */
+    personalizados: (c.personalizados && typeof c.personalizados === 'object' && !Array.isArray(c.personalizados)) ? c.personalizados : {}
   };
 }
 
@@ -1627,9 +1634,9 @@ function limpiarSesionYDatos(){
   detenerVigilancia();
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
-  /* Las tres colecciones. Si aquí faltara una, al salir quedaría en undefined y
-     lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[] };
+  /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
+     y lo primero que la recorriera tronaría. */
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]} };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
   estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null;
   sincronizado = false;
@@ -1917,8 +1924,9 @@ async function bajarDeLaNube(){
      documento por equipo: así son 48 equipos por 1 lectura en vez de 48. Se
      edita poco y se lee en cada carga, así que el ahorro es todo. El costo es
      que dos admins editándola a la vez se pisan, y eso está anotado en la vista. */
-  const [cl, si, po, eq] = await Promise.all([
-    listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo()
+  const [cl, si, po, eq, sg, pr] = await Promise.all([
+    listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
+    leerSegmentos(), leerParametros()
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -1931,7 +1939,8 @@ async function bajarDeLaNube(){
      refresco, ya con la cola vacía, descarga limpio. */
   if(cola.length || vaciando) return 'ok';
   datos = { v:1, clientes: cl.map(normalizarCliente), sitios: si.map(normalizarSitio),
-            polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo) };
+            polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo),
+            segmentos: sg, parametros: pr };
   guardarLocal();
   return 'ok';
 }
@@ -1976,6 +1985,185 @@ function sembrarCatalogo(){
   guardarCatalogo('siembra inicial de las cotizaciones de MXGT01, MXNL02, INOAC y NGK');
   render();
   aviso('Lista de precios guardada con ' + datos.catalogo.length + ' equipos.');
+}
+
+/* ===================== SEGMENTOS Y PARÁMETROS PERSONALIZADOS =====================
+   Dos catálogos más, mismo molde que la lista de precios: un solo documento
+   con un arreglo adentro, editable desde Admin → «Segmentos y parámetros»,
+   sin tocar código.
+
+   segmentos  → sustituye a la constante ZONAS: sugerencias de zona al
+                capturar un sitio. Es solo texto libre sugerido, así que basta
+                un arreglo de strings.
+   parametros → campos extra que un Admin define para clientes y/o sitios
+                ({id, etiqueta, tipo}). El VALOR de cada uno vive en
+                `personalizados[id]` del cliente/sitio — llaveado por id y no
+                por posición, por la misma razón que ya costó una vez con el
+                registro de servicios de pólizas: si el parámetro se renombra,
+                el valor no se desalinea.
+   =================================================================== */
+function normalizarSegmentos(arr){
+  return (Array.isArray(arr) ? arr : [])
+    .map(z => String(z || '').trim())
+    .filter(Boolean);
+}
+/* La lista viva. Sale del servidor; si todavía no hay nada, se usan las
+   sugerencias de arranque para que el formulario nunca se quede sin nada
+   que sugerir. */
+function segmentos(){ return datos.segmentos.length ? datos.segmentos : ZONAS.slice(); }
+
+async function leerSegmentos(){
+  try{
+    const d = await pedirNube('/segmentos/lista', { method:'GET' }, true);
+    return normalizarSegmentos((d && d.fields) ? deCampos(d.fields).valores : []);
+  }catch(e){
+    console.warn('No se pudo leer la lista de segmentos; se usa la de arranque:', String(e.message || e));
+    return [];
+  }
+}
+function guardarSegmentos(detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'segmentos', id:'lista', obj:{ valores: datos.segmentos } });
+  anotar('actualizó', 'lista de segmentos', datos.segmentos.length + ' ' + plural(datos.segmentos.length,'segmento','segmentos'), detalle);
+}
+
+const TIPOS_PARAMETRO = ['texto','numero','fecha','booleano'];
+const ETIQUETA_TIPO_PARAM = { texto:'Texto', numero:'Número', fecha:'Fecha', booleano:'Sí / No' };
+
+function normalizarParametro(p){
+  return {
+    id: (p && p.id ? String(p.id) : '').trim() || nuevoId(),
+    etiqueta: (p && p.etiqueta ? String(p.etiqueta) : '').trim(),
+    tipo: TIPOS_PARAMETRO.includes(p && p.tipo) ? p.tipo : 'texto'
+  };
+}
+function normalizarListaParametros(x){
+  return {
+    clientes: (Array.isArray(x && x.clientes) ? x.clientes : []).map(normalizarParametro),
+    sitios:   (Array.isArray(x && x.sitios)   ? x.sitios   : []).map(normalizarParametro)
+  };
+}
+/* Definiciones vivas para un módulo ('clientes' o 'sitios'). */
+function parametrosDe(modulo){ return (datos.parametros && datos.parametros[modulo]) || []; }
+
+async function leerParametros(){
+  try{
+    const d = await pedirNube('/parametros/lista', { method:'GET' }, true);
+    return normalizarListaParametros((d && d.fields) ? deCampos(d.fields) : null);
+  }catch(e){
+    console.warn('No se pudo leer los parámetros personalizados; se usan los de arranque:', String(e.message || e));
+    return { clientes:[], sitios:[] };
+  }
+}
+function guardarParametros(detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'parametros', id:'lista', obj: datos.parametros });
+  anotar('actualizó', 'parámetros personalizados', detalle);
+}
+
+/* Pinta los campos de un módulo dentro de un formulario (modalCliente o
+   modalSitio). `prefijo` distingue los id de los inputs entre los dos
+   formularios para que nunca choquen. */
+function camposParametros(modulo, prefijo, valores){
+  valores = valores || {};
+  const defs = parametrosDe(modulo);
+  if(!defs.length) return '';
+  return '<div class="seccion"><h4>Parámetros</h4>'
+    + defs.map(d=>{
+        const val = valores[d.id];
+        const idInput = prefijo + 'Param_' + d.id;
+        if(d.tipo === 'booleano'){
+          return '<label class="casilla"><input type="checkbox" id="' + esc(idInput) + '" data-param-id="' + esc(d.id) + '"'
+            + (val === true || val === 'true' ? ' checked' : '') + '> ' + esc(d.etiqueta) + '</label>';
+        }
+        const tipoInput = d.tipo === 'numero' ? 'number' : d.tipo === 'fecha' ? 'date' : 'text';
+        return '<div class="campo"><label>' + esc(d.etiqueta) + '</label>'
+          + '<input type="' + tipoInput + '" id="' + esc(idInput) + '" data-param-id="' + esc(d.id) + '" value="' + esc(val ?? '') + '"></div>';
+      }).join('')
+    + '</div>';
+}
+/* Lee del DOM los valores capturados, fusionados sobre los que ya tenía el
+   registro: así un parámetro que ya no está definido no se pierde al editar,
+   la misma trampa que ya costó con pagosDetalle y contactos de un sitio. */
+function leerParametrosForm(modulo, prefijo, previos){
+  const out = Object.assign({}, previos || {});
+  parametrosDe(modulo).forEach(d=>{
+    const el = $(prefijo + 'Param_' + d.id);
+    if(!el) return;
+    out[d.id] = d.tipo === 'booleano' ? el.checked : el.value.trim();
+  });
+  return out;
+}
+function formatoParametro(def, valor){
+  if(def.tipo === 'numero') return numero(valor);
+  if(def.tipo === 'fecha')  return valor ? fmtFecha(valor) : '';
+  if(def.tipo === 'booleano') return (valor === true || valor === 'true') ? 'Sí' : 'No';
+  return String(valor);
+}
+/* Chips de solo lectura para la tarjeta de sitio o el encabezado de cliente:
+   nada más lo que de verdad tiene valor, para no ensuciar la vista con
+   parámetros que nadie llenó. */
+function chipsPersonalizados(modulo, obj){
+  const p = obj.personalizados || {};
+  const defs = parametrosDe(modulo).filter(d => p[d.id] !== undefined && p[d.id] !== '');
+  if(!defs.length) return '';
+  return '<div class="t-nota" style="display:flex; flex-wrap:wrap; gap:6px 16px">'
+    + defs.map(d => '<span><b>' + esc(d.etiqueta) + ':</b> ' + esc(formatoParametro(d, p[d.id])) + '</span>').join('')
+    + '</div>';
+}
+
+/* Panel de Admin: alta y baja de segmentos y de parámetros. Los tres bloques
+   comparten molde con «Lista de precios» (vistaPrecios): un documento único,
+   se ve completo y se cambia de golpe. */
+function bloqueSegmentos(){
+  const puede = esAdmin();
+  const lista = segmentos();
+  return '<div class="bloque"><div class="bloque-cabeza"><div>'
+     +   '<h3>Segmentos</h3><p>Sugerencias de zona al capturar un sitio (campo de texto libre; esto solo cambia qué se sugiere). '
+     +   (puede ? 'Cualquiera las ve, solo un Admin las cambia.' : 'Solo un Admin las puede cambiar.') + '</p></div></div>'
+     +   '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:' + (puede ? '14px' : '0') + '">'
+     +     (lista.length ? lista.map(z =>
+             '<span class="chip-zona z-azul" style="display:inline-flex; align-items:center; gap:7px">' + esc(z)
+           + (puede ? '<button type="button" data-quitar-segmento="' + esc(z) + '" title="Quitar ' + esc(z) + '" '
+                     + 'aria-label="Quitar ' + esc(z) + '" style="border:0; background:none; cursor:pointer; padding:0; line-height:1; color:inherit">&times;</button>' : '')
+           + '</span>').join('')
+           : '<span class="pista">Ninguno guardado todavía; se sugieren los de arranque.</span>')
+     +   '</div>'
+     +   (puede
+         ? '<div class="fila2" style="align-items:flex-end">'
+           +   '<div class="campo" style="margin-bottom:0"><label>Nuevo segmento</label>'
+           +     '<input type="text" id="nuevoSegmento" placeholder="Ej. Monterrey"></div>'
+           +   '<button type="button" class="btn btn-suave" data-accion="agregar-segmento">' + ICONO.mas + 'Agregar</button>'
+           + '</div>'
+         : '')
+     + '</div>';
+}
+function bloqueParametros(modulo, titulo){
+  const puede = esAdmin();
+  const lista = parametrosDe(modulo);
+  return '<div class="bloque"><div class="bloque-cabeza"><div>'
+     +   '<h3>Parámetros de ' + esc(titulo) + '</h3><p>Campos extra que se piden al capturar ' + (modulo === 'clientes' ? 'un cliente' : 'un sitio')
+     +   ', sin tocar código.</p></div></div>'
+     +   (lista.length
+         ? '<div class="rodillo"><table class="tabla"><thead><tr><th>Etiqueta</th><th>Tipo</th>'
+           + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
+           + lista.map(d => '<tr><td>' + esc(d.etiqueta) + '</td><td>' + esc(ETIQUETA_TIPO_PARAM[d.tipo]) + '</td>'
+             + (puede ? '<td class="acciones"><button type="button" class="btn btn-peligro btn-mini" '
+                       + 'data-quitar-parametro="' + modulo + ':' + esc(d.id) + '" title="Quitar">' + ICONO.basura + '</button></td>' : '')
+             + '</tr>').join('')
+           + '</tbody></table></div>'
+         : '<p class="pista">Todavía no hay parámetros de ' + esc(titulo) + '.</p>')
+     +   (puede
+         ? '<div class="fila2" style="align-items:flex-end; margin-top:12px">'
+           +   '<div class="campo" style="margin-bottom:0"><label>Nueva etiqueta</label>'
+           +     '<input type="text" id="nuevoParam_' + modulo + '_etiqueta" placeholder="Ej. Número de contrato"></div>'
+           +   '<div class="campo" style="margin-bottom:0"><label>Tipo</label><select id="nuevoParam_' + modulo + '_tipo">'
+           +     TIPOS_PARAMETRO.map(t => '<option value="' + t + '">' + esc(ETIQUETA_TIPO_PARAM[t]) + '</option>').join('')
+           +   '</select></div>'
+           +   '<button type="button" class="btn btn-suave" data-accion="agregar-parametro-' + modulo + '">' + ICONO.mas + 'Agregar</button>'
+           + '</div>'
+         : '')
+     + '</div>';
 }
 /* ===================== VIGILANCIA DEL RESPALDO =====================
    El respaldo automático deja en sistema/respaldo la fecha de la última copia.
@@ -2057,6 +2245,12 @@ function subirTodo(){
   });
   if(datos.catalogo.length && puedeCat){
     encolar({ tipo:'poner', coleccion:'catalogo', id:'lista', obj:{ equipos: datos.catalogo } });
+  }
+  if(datos.segmentos.length && puedeCat){
+    encolar({ tipo:'poner', coleccion:'segmentos', id:'lista', obj:{ valores: datos.segmentos } });
+  }
+  if((datos.parametros.clientes.length || datos.parametros.sitios.length) && puedeCat){
+    encolar({ tipo:'poner', coleccion:'parametros', id:'lista', obj: datos.parametros });
   }
   if(!puedeCat && (fuera || datos.catalogo.length)){
     aviso('Se subió lo tuyo. ' + (fuera ? fuera + ' ' + plural(fuera,'póliza cerrada','pólizas cerradas') + ' ' : '')
@@ -2162,7 +2356,8 @@ function normalizarSitio(s){
     onboarding: Math.max(0, Number(s.onboarding) || 0),
     fechaInicio: /^\d{4}-\d{2}-\d{2}$/.test(s.fechaInicio||'') ? s.fechaInicio : hoyISO(),
     meses, pagos,
-    notas: s.notas || ''
+    notas: s.notas || '',
+    personalizados: (s.personalizados && typeof s.personalizados === 'object' && !Array.isArray(s.personalizados)) ? s.personalizados : {}
   };
 }
 
@@ -3393,6 +3588,7 @@ function vistaCliente(){
      +   '<p>' + numero(rTodos.sitios) + ' ' + plural(rTodos.sitios,'sitio','sitios')
      +   ' · ' + numero(rTodos.forpass) + ' ' + plural(rTodos.forpass,'Forpass activo','Forpass activos')
      +   (c.contacto ? ' · ' + esc(c.contacto) : '') + '</p>'
+     +   chipsPersonalizados('clientes', c)
      + '</div></div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-cliente">' + ICONO.excel + 'Excel de este cliente</button>'
      +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nuevo-sitio">' + ICONO.mas + 'Agregar sitio</button>' : '')
@@ -3552,6 +3748,7 @@ function tarjetaSitio(s, i){
        +   '</div>'
 
        +   (s.notas ? '<div class="t-nota">' + esc(s.notas) + '</div>' : '')
+       +   chipsPersonalizados('sitios', s)
 
        +   '<div class="t-pie">'
        +     (c.proximo && puedeEditar() ? '<button type="button" class="btn btn-verde btn-mini" data-marcar="' + esc(s.id) + '">' + ICONO.cheque + 'Marcar pagada</button>' : '')
@@ -4450,6 +4647,10 @@ function vistaAdmin(){
      +   '<h3>Historial de cambios</h3><p>Últimos 150 movimientos, del más reciente al más viejo.</p></div></div>'
      +   '<div id="listaBitacora"></div>'
      + '</div>';
+
+  h += bloqueSegmentos();
+  h += bloqueParametros('clientes', 'clientes');
+  h += bloqueParametros('sitios', 'sitios');
   return h;
 }
 
@@ -4821,7 +5022,8 @@ function modalCliente(id){
           + '<div class="pista">Prendida, el cliente aparece en la lista de Forpass aunque todavía no tenga kioscos. '
           + 'Apagada, solo vive en Pólizas — hay cuentas con póliza y sin Forpass, y al revés. '
           + 'Un cliente con kioscos capturados aparece en Forpass de todos modos.</div>';
-      })();
+      })()
+    + camposParametros('clientes', 'c', c ? c.personalizados : {});
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (c ? 'Guardar cambios' : 'Agregar cliente') + '</button>';
@@ -4936,14 +5138,15 @@ function modalCliente(id){
     /* Al guardar, la decisión queda EXPLÍCITA ('si'/'no'): un cliente de antes
        de la casilla se gradúa del estado heredado en cuanto alguien lo edita. */
     const usa = $('cUsaForpass').checked ? 'si' : 'no';
+    const personalizados = leerParametrosForm('clientes', 'c', c ? c.personalizados : {});
     let reg;
     if(c){
       c.nombre = nombre; c.contacto = $('cContacto').value.trim(); c.notas = $('cNotas').value.trim();
-      c.logo = logoTmp; c.usaForpass = usa;
+      c.logo = logoTmp; c.usaForpass = usa; c.personalizados = personalizados;
       reg = c;
     }else{
       reg = normalizarCliente({ id:nuevoId(), nombre, contacto:$('cContacto').value.trim(),
-                                notas:$('cNotas').value.trim(), logo:logoTmp, usaForpass: usa });
+                                notas:$('cNotas').value.trim(), logo:logoTmp, usaForpass: usa, personalizados });
       datos.clientes.push(reg);
     }
     guardarCliente(reg, c ? 'editó' : 'creó');
@@ -4969,7 +5172,7 @@ function modalSitio(clienteId, sitioId){
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Zona</label>'
     +       '<input type="text" id="sZona" list="listaZonas" placeholder="Ej. MTY" value="' + esc(s ? s.zona : '') + '">'
-    +       '<datalist id="listaZonas">' + ZONAS.map(z=>'<option value="' + esc(z) + '">').join('') + '</datalist>'
+    +       '<datalist id="listaZonas">' + segmentos().map(z=>'<option value="' + esc(z) + '">').join('') + '</datalist>'
     +       '<div class="pista">Elige una de la lista o escribe otra.</div>'
     +       '<input type="hidden" id="sColor" value="' + esc(s ? s.color : 'azul') + '">'
     +       '<div class="colores" id="paletaColor" role="group" aria-label="Color de la etiqueta">'
@@ -5027,7 +5230,9 @@ function modalSitio(clienteId, sitioId){
     +   '<div class="campo"><label>Notas del sitio (opcional)</label>'
     +     '<textarea id="sNotas" placeholder="Orden de compra, contacto de sitio, pendientes…">' + esc(s ? s.notas : '') + '</textarea></div>'
     +   '<div class="resumen" id="resumenSitio"></div>'
-    + '</div>';
+    + '</div>'
+
+    + camposParametros('sitios', 's', s ? s.personalizados : {});
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (s ? 'Guardar cambios' : 'Agregar sitio') + '</button>';
@@ -5054,7 +5259,8 @@ function modalSitio(clienteId, sitioId){
       viaticos: aNumero($('sViaticos').value),
       fechaInicio: $('sInicio').value || hoyISO(),
       meses,
-      notas: $('sNotas').value.trim()
+      notas: $('sNotas').value.trim(),
+      personalizados: leerParametrosForm('sitios', 's', s ? s.personalizados : {})
     };
   }
 
@@ -7289,6 +7495,50 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-atrasados-cliente') modalCobranza(estado.clienteId, 'atrasados');
     else if(a === 'nueva-cuenta') modalCuenta();
     else if(a === 'refrescar-admin') montarAdmin(true);
+    else if(a === 'agregar-segmento'){
+      if(!exigirAdmin('agregar un segmento')) return;
+      const v = ($('nuevoSegmento').value || '').trim();
+      if(!v){ aviso('Escribe el nombre del segmento.', true); return; }
+      if(!datos.segmentos.length) datos.segmentos = segmentos().slice();
+      if(datos.segmentos.some(z => z.toLowerCase() === v.toLowerCase())){ aviso('Ese segmento ya existe.', true); return; }
+      datos.segmentos.push(v);
+      guardarSegmentos('agregó «' + v + '»');
+      render();
+      aviso('Segmento agregado.');
+    }
+    else if(a === 'agregar-parametro-clientes' || a === 'agregar-parametro-sitios'){
+      if(!exigirAdmin('agregar un parámetro')) return;
+      const modulo = a === 'agregar-parametro-clientes' ? 'clientes' : 'sitios';
+      const etq = ($('nuevoParam_' + modulo + '_etiqueta').value || '').trim();
+      const tipo = $('nuevoParam_' + modulo + '_tipo').value;
+      if(!etq){ aviso('Escribe la etiqueta del parámetro.', true); return; }
+      datos.parametros[modulo].push(normalizarParametro({ etiqueta: etq, tipo }));
+      guardarParametros('agregó «' + etq + '» a ' + modulo);
+      render();
+      aviso('Parámetro agregado.');
+    }
+    return;
+  }
+
+  const qSeg = t.closest('[data-quitar-segmento]');
+  if(qSeg){
+    if(!exigirAdmin('quitar un segmento')) return;
+    const v = qSeg.dataset.quitarSegmento;
+    if(!datos.segmentos.length) datos.segmentos = segmentos().slice();
+    datos.segmentos = datos.segmentos.filter(z => z !== v);
+    guardarSegmentos('quitó «' + v + '»');
+    render();
+    return;
+  }
+
+  const qParam = t.closest('[data-quitar-parametro]');
+  if(qParam){
+    if(!exigirAdmin('quitar un parámetro')) return;
+    const partes = qParam.dataset.quitarParametro.split(':');
+    const modulo = partes[0], id = partes[1];
+    datos.parametros[modulo] = datos.parametros[modulo].filter(d => d.id !== id);
+    guardarParametros('quitó un parámetro de ' + modulo);
+    render();
     return;
   }
 
@@ -7472,7 +7722,7 @@ function selloFecha(){ return hoyISO().replace(/-/g,''); }
 function descargarRespaldo(){
   const blob = new Blob([JSON.stringify({ v:1, generado:new Date().toISOString(),
                           clientes:datos.clientes, sitios:datos.sitios, polizas:datos.polizas,
-                          catalogo:datos.catalogo }, null, 2)],
+                          catalogo:datos.catalogo, segmentos:datos.segmentos, parametros:datos.parametros }, null, 2)],
                         { type:'application/json' });
   descargar(blob, 'Respaldo_Control_Forpass_' + selloFecha() + '.json');
   aviso('Respaldo descargado.');
@@ -7502,7 +7752,9 @@ $('archivoRestaurar').addEventListener('change', ev=>{
         const previos = { clientes:datos.clientes.map(c=>c.id), sitios:datos.sitios.map(s=>s.id), polizas:datos.polizas.map(p=>p.id) };
         datos = { v:1, clientes:d.clientes.map(normalizarCliente), sitios:d.sitios.map(normalizarSitio),
                   polizas:dPolizas.map(normalizarPoliza),
-                  catalogo:(Array.isArray(d.catalogo) ? d.catalogo : datos.catalogo).map(normalizarEquipo) };
+                  catalogo:(Array.isArray(d.catalogo) ? d.catalogo : datos.catalogo).map(normalizarEquipo),
+                  segmentos: d.segmentos !== undefined ? normalizarSegmentos(d.segmentos) : datos.segmentos,
+                  parametros: d.parametros !== undefined ? normalizarListaParametros(d.parametros) : datos.parametros };
         estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null;
         guardarLocal();
         if(HAY_NUBE){
