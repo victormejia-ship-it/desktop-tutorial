@@ -914,6 +914,15 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 .evidencia-quitar svg{width:11px; height:11px;}
 .evidencia-quitar:hover{background:rgba(179,49,44,.85);}
 
+/* Respaldo de costo en cotizaciones: mismo cuadrito que una foto de
+   evidencia, pero cuando el archivo es PDF se muestra un ícono y el nombre
+   en lugar de una miniatura (no hay como generar una vista previa de un
+   PDF sin librerías). */
+.respaldo-pdf{background:var(--bg);}
+.respaldo-pdf a{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; width:100%; height:100%; padding:6px; text-align:center; color:var(--ink); text-decoration:none; cursor:pointer;}
+.respaldo-pdf svg{width:26px; height:26px; flex-shrink:0; stroke:var(--gray);}
+.respaldo-pdf span{font-size:10px; line-height:1.15; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; word-break:break-word;}
+
 .lista-tecnicos{display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding:2px;}
 
 .lista-seguimiento{display:flex; flex-direction:column; gap:2px;}
@@ -1556,6 +1565,21 @@ const EVIDENCIA_MAX_ENTRADA = 15 * 1024 * 1024;  /* 15 MB: una foto de celular p
 const EVIDENCIA_MAX_GUARDADO = 90 * 1024;        /* ~90 KB ya reducida */
 const EVIDENCIA_MAX_POR_REPORTE = 6;
 
+/* ---- Respaldo de costo de una cotización (cotización de un proveedor
+   externo que sustenta el costo interno mostrado) ----
+   Mismo criterio que la evidencia de arriba: va embebido en el propio
+   documento de la cotización, sin Firebase Storage. Aquí el archivo puede
+   ser una foto o un PDF, y un PDF no se puede recomprimir desde el
+   navegador, así que su tope de entrada es más chico para que quepa tal
+   cual. El presupuesto total cuenta las cadenas ya guardadas de TODOS los
+   respaldos de una misma cotización, para no rebasar el 1 MB por documento
+   de Firestore entre esto y el resto de sus campos. */
+const RESPALDO_COSTO_LADO_MAX = 1600;                    /* lado mayor, en px: más grande que la evidencia para que se lea el documento */
+const RESPALDO_COSTO_MAX_ENTRADA = 15 * 1024 * 1024;     /* 15 MB de imagen original */
+const RESPALDO_COSTO_MAX_GUARDADO = 220 * 1024;          /* ~220 KB ya reducida */
+const RESPALDO_COSTO_PDF_MAX_ENTRADA = 600 * 1024;       /* un PDF no se comprime: entra tal cual, por eso el tope es chico */
+const RESPALDO_PRESUPUESTO_TOTAL = 900 * 1024;           /* suma máxima, en la cotización completa, de las cadenas dataURL de todos sus respaldos */
+
 async function leerEvidencia(archivo){
   if(!archivo.type || !archivo.type.startsWith('image/')) throw new Error('Elige una foto para la evidencia.');
   if(archivo.size > EVIDENCIA_MAX_ENTRADA) throw new Error('Esa foto pesa más de 15 MB. Prueba con otra o reduce la calidad de la cámara.');
@@ -1579,6 +1603,42 @@ function comprimirEvidencia(img){
   if(!candidatos.length) throw new Error('Este navegador no pudo procesar la foto.');
 
   const objetivo = EVIDENCIA_MAX_GUARDADO * 1.37;   /* base64 abulta ~37% */
+  return candidatos.find(d => d.length <= objetivo) || candidatos[candidatos.length - 1];
+}
+
+/* Lee cualquier archivo (aquí, sobre todo PDFs) tal cual, sin pasar por
+   <Image>: cargarImagen() sirve solo para imágenes. */
+function leerArchivoComoDataURL(archivo){
+  return new Promise((listo, falla)=>{
+    const lector = new FileReader();
+    lector.onerror = ()=> falla(new Error('No se pudo leer el archivo.'));
+    lector.onload = ()=> listo(lector.result);
+    lector.readAsDataURL(archivo);
+  });
+}
+
+async function leerRespaldoImagen(archivo){
+  if(!archivo.type || !archivo.type.startsWith('image/')) throw new Error('Elige una imagen o un PDF para el respaldo.');
+  if(archivo.size > RESPALDO_COSTO_MAX_ENTRADA) throw new Error('Esa imagen pesa más de 15 MB. Prueba con otra o reduce la calidad.');
+  return cargarImagen(archivo);
+}
+
+/* Igual que comprimirEvidencia, pero con un lado máximo y una calidad más
+   altos: aquí hay que poder leer un documento, no solo reconocer una foto. */
+function comprimirRespaldoCosto(img){
+  const anchoOrig = img.naturalWidth || img.width, altoOrig = img.naturalHeight || img.height;
+  const escala = Math.min(1, RESPALDO_COSTO_LADO_MAX / Math.max(anchoOrig, altoOrig));
+  const w = Math.max(1, Math.round(anchoOrig * escala)), h = Math.max(1, Math.round(altoOrig * escala));
+  const lienzo = document.createElement('canvas');
+  lienzo.width = w; lienzo.height = h;
+  lienzo.getContext('2d').drawImage(img, 0, 0, w, h);
+
+  const candidatos = [0.85, 0.72, 0.5, 0.32].map(calidad=>{
+    try{ return lienzo.toDataURL('image/jpeg', calidad); }catch(e){ return null; }
+  }).filter(Boolean);
+  if(!candidatos.length) throw new Error('Este navegador no pudo procesar la imagen.');
+
+  const objetivo = RESPALDO_COSTO_MAX_GUARDADO * 1.37;
   return candidatos.find(d => d.length <= objetivo) || candidatos[candidatos.length - 1];
 }
 
@@ -2409,6 +2469,10 @@ function normalizarCotizacion(q){
        queda la liga hacia atrás — el reporte guarda la liga hacia adelante
        en su propio `cotizacionId`. */
     reporteOrigenId: (q && q.reporteOrigenId) || '',
+    /* Cotización(es) de proveedor externo que sustentan el costo interno de
+       arriba — solo se ven del lado "Costo interno", nunca en el documento
+       para el cliente. */
+    respaldosCosto: (Array.isArray(q && q.respaldosCosto) ? q.respaldosCosto : []).map(normalizarRespaldoCosto),
     partidas
   };
 }
@@ -2512,6 +2576,19 @@ function normalizarEvidencia(e){
     nota: (e && e.nota ? String(e.nota) : '').trim(),
     subioNombre: (e && e.subioNombre ? String(e.subioNombre) : '').trim(),
     cuando: (e && e.cuando) || hoyISO()
+  };
+}
+
+/* Un respaldo de costo: la cotización de un proveedor externo que sustenta
+   el costo interno de una cotización (foto o PDF). */
+function normalizarRespaldoCosto(r){
+  return {
+    id: (r && r.id) || nuevoId(),
+    nombre: (r && r.nombre ? String(r.nombre) : '').trim() || 'Archivo',
+    tipo: (r && r.tipo === 'pdf') ? 'pdf' : 'imagen',
+    dataUrl: (r && r.dataUrl) ? String(r.dataUrl) : '',
+    subioNombre: (r && r.subioNombre ? String(r.subioNombre) : '').trim(),
+    cuando: (r && r.cuando) || hoyISO()
   };
 }
 
@@ -2681,6 +2758,13 @@ function guardarCotizacion(q, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'cotizaciones', id:q.id, obj:q });
   anotar(accion || 'editó', 'cotización', q.folio || 'sin folio', detalle);
+}
+
+/* Cuánto pesan, en bytes de cadena dataURL, los respaldos de costo ya
+   guardados en una cotización — para saber si aún hay cupo antes de sumar
+   uno más (ver RESPALDO_PRESUPUESTO_TOTAL). */
+function tamanoRespaldos(cot){
+  return cot.respaldosCosto.reduce((s, r) => s + (r.dataUrl ? r.dataUrl.length : 0), 0);
 }
 
 /* ===================== VIGILANCIA DEL RESPALDO =====================
@@ -4157,7 +4241,8 @@ const ICONO = {
   tarjetas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>',
   tabla:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="4" rx="1.2"/><rect x="3" y="10" width="18" height="4" rx="1.2"/><rect x="3" y="15.5" width="18" height="4" rx="1.2"/></svg>',
   reporte:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 11v3"/><path d="M12 17h.01"/></svg>',
-  camara:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'
+  camara:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
+  documento:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>'
 };
 
 /* Botón para volver a la lista de clientes, arriba de cada vista interna. */
@@ -5341,6 +5426,31 @@ function vistaCotizacion(){
      +   '<div><div class="d-label">Total</div><div class="d-valor" style="font-size:19px">' + dineroCent(lado==='costo' ? c.totalCosto : c.totalCliente) + '</div></div>'
      + '</div>'
      + '</div>';
+
+  /* Solo del lado "Costo interno": es el respaldo de lo que cuesta, no algo
+     que deba verse en el documento para el cliente. */
+  if(lado === 'costo'){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Respaldo de costo</h3>'
+       +   '<p>La cotización del proveedor externo que sustenta el costo interno de arriba.</p></div>'
+       +   (puedeEditar()
+            ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="subir-respaldo-costo">' + ICONO.mas + 'Agregar respaldo</button></div>'
+            : '')
+       + '</div>'
+       +   (cot.respaldosCosto.length
+            ? '<div class="galeria-evidencia">' + cot.respaldosCosto.map(r=>
+                '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
+                + (r.tipo === 'pdf'
+                    ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+                    : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
+                + (puedeEditar()
+                    ? '<button type="button" class="evidencia-quitar" data-accion="quitar-respaldo-costo" data-respaldo="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
+                    : '')
+                + '</div>'
+              ).join('') + '</div>'
+            : '<p class="pista" style="margin:0">Todavía no hay respaldo cargado.</p>')
+       +   (puedeEditar() ? '<input type="file" id="archivoRespaldoCosto" accept="image/*,application/pdf" style="display:none">' : '')
+       + '</div>';
+  }
 
   h += '<div class="bloque"><div class="pista" style="white-space:pre-wrap">' + esc(cot.tiempoEntrega) + (cot.notas ? '\n' + cot.notas : '') + '</div></div>';
 
@@ -6528,6 +6638,38 @@ function render(){
       }
       anotarReporte(rp, 'Agregó ' + plural(archivos.length,'una foto','fotos') + ' de evidencia.', 'agregó evidencia a', rp.folio);
       render(); aviso('Foto agregada.');
+    });
+  }
+  /* Respaldo de costo: la cotización de un proveedor externo que sustenta el
+     costo interno. Acepta imagen o PDF; el PDF no se puede comprimir en el
+     navegador, así que se guarda tal cual (de ahí su tope de entrada más
+     chico) y solo se valida su tamaño. */
+  const arc = $('archivoRespaldoCosto');
+  if(arc){
+    arc.addEventListener('change', async ev=>{
+      const archivo = (ev.target.files || [])[0];
+      ev.target.value = '';
+      if(!archivo) return;
+      const cot = cotizacionPorId(estado.cotizacionId);
+      if(!cot) return;
+      try{
+        let dataUrl, tipo;
+        if(archivo.type === 'application/pdf'){
+          if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 600 KB. Prueba a comprimirlo o sube solo la parte con el costo.');
+          dataUrl = await leerArchivoComoDataURL(archivo);
+          tipo = 'pdf';
+        }else{
+          const img = await leerRespaldoImagen(archivo);
+          dataUrl = comprimirRespaldoCosto(img);
+          tipo = 'imagen';
+        }
+        if(tamanoRespaldos(cot) + dataUrl.length > RESPALDO_PRESUPUESTO_TOTAL){
+          throw new Error('Ya no hay espacio para más respaldo en esta cotización. Quita alguno para agregar otro.');
+        }
+        cot.respaldosCosto.push(normalizarRespaldoCosto({ dataUrl, tipo, nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+        guardarCotizacion(cot, 'agregó respaldo de costo a');
+        render(); aviso('Respaldo agregado.');
+      }catch(e){ aviso(e.message, true); }
     });
   }
   const brc = $('buscaResumenCliente');
@@ -9847,6 +9989,15 @@ $('vista').addEventListener('click', ev=>{
           estado.vista = 'cotizaciones'; estado.cotizacionId = null;
           render(); aviso('Cotización eliminada.');
         });
+    }
+    else if(a === 'subir-respaldo-costo'){ if(exigirPermiso()) $('archivoRespaldoCosto').click(); }
+    else if(a === 'quitar-respaldo-costo'){
+      if(!exigirPermiso()) return;
+      const cot = cotizacionPorId(estado.cotizacionId);
+      if(!cot) return;
+      cot.respaldosCosto = cot.respaldosCosto.filter(r => r.id !== acc.dataset.respaldo);
+      guardarCotizacion(cot, 'quitó respaldo de costo de');
+      render(); aviso('Respaldo eliminado.');
     }
     else if(a === 'ir-reportes') irAReportes();
     else if(a === 'nuevo-reporte'){ if(exigirReportar()) modalReporte(null); }
