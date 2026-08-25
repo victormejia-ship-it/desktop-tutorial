@@ -3709,6 +3709,21 @@ function irACotizaciones(){
   estado.busca = '';
   render();
 }
+/* Salta al módulo Cotizaciones ya filtrado por el nombre de un cliente o un
+   sitio — así se pueden consultar sus cotizaciones desde la ficha de
+   Forpass, en vez de tener que ir a buscarlas aparte. Reaprovecha el mismo
+   buscador de texto de vistaCotizaciones(), que ya compara contra folio,
+   sitio y cliente. */
+function verCotizacionesDe(texto){
+  if(estado.modulo !== 'cotizaciones'){ estado.modulo = 'cotizaciones'; guardarModulo(); }
+  estado.vista = 'cotizaciones';
+  estado.cotizacionId = null;
+  estado.filtro = 'todos';
+  estado.busca = texto || '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
 function entrarCotizacion(id){
   animarTarjetas = true;
   estado.vista = 'cotizacion'; estado.cotizacionId = id;
@@ -3905,6 +3920,7 @@ function vistaCliente(){
   const c = clientePorId(estado.clienteId);
   if(!c){ estado.vista = 'clientes'; return vistaClientes(); }
   const todos = sitiosDe(c.id);
+  const cotizacionesCliente = datos.cotizaciones.filter(q => q.clienteId === c.id);
 
   /* Los filtros deciden qué sitios entran a los indicadores y a la lista.
      Si lo elegido ya no existe, se regresa a "todos". */
@@ -3940,6 +3956,10 @@ function vistaCliente(){
      +   chipsPersonalizados('clientes', c)
      + '</div></div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-cliente">' + ICONO.excel + 'Excel de este cliente</button>'
+     +   (cotizacionesCliente.length
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-cotizaciones-cliente" '
+            + 'title="Ver las cotizaciones de este cliente">' + ICONO.credencial + 'Cotizaciones (' + cotizacionesCliente.length + ')</button>'
+          : '')
      +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nuevo-sitio">' + ICONO.mas + 'Agregar sitio</button>' : '')
      + '</div></div>';
 
@@ -4067,6 +4087,14 @@ function tarjetaSitio(s, i){
        +           (datos.polizas.some(q => q.sitioId === s.id)
                     ? '<button type="button" class="icono-btn" data-ir-poliza-sitio="' + esc(s.id) + '" '
                       + 'title="Ver su póliza de mantenimiento" aria-label="Póliza de ' + esc(s.nombre) + '">'
+                      + ICONO.credencial + '</button>'
+                    : '')
+       /* Mismo puente, hacia sus cotizaciones de servicio: se consultan sin
+          salir de la ficha del cliente ni tener que buscarlas por folio. */
+       +           (datos.cotizaciones.some(q => q.sitioId === s.id)
+                    ? '<button type="button" class="icono-btn" data-accion="ver-cotizaciones-sitio" data-sitio-nombre="' + esc(s.nombre) + '" '
+                      + 'title="Ver sus cotizaciones de servicio (' + datos.cotizaciones.filter(q => q.sitioId === s.id).length + ')" '
+                      + 'aria-label="Cotizaciones de ' + esc(s.nombre) + '">'
                       + ICONO.credencial + '</button>'
                     : '')
        +         '</span>'
@@ -8329,6 +8357,8 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-polizas') irAPolizas();
     else if(a === 'nueva-poliza'){ if(exigirPermiso()) modalPoliza(null); }
     else if(a === 'ir-cotizaciones') irACotizaciones();
+    else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
+    else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
     else if(a === 'nueva-cotizacion'){ if(exigirPermiso()) modalCotizacion(null); }
     else if(a === 'editar-cotizacion'){ if(exigirPermiso()) modalCotizacion(estado.cotizacionId); }
     /* Imprimir es solo lectura y ya se ve todo en pantalla: sin exigirPermiso,
