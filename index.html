@@ -3705,11 +3705,12 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
-                 /* Cómo se ve la lista de cotizaciones: en tarjetas (el default de
-                    siempre) o en tabla, más compacta para revisar muchas de un
-                    vistazo. Es preferencia de pantalla, no dato — por eso vive
-                    aquí y no en `datos`, y se reinicia como `busca` o `filtro`. */
-                 vistaCotizaciones:'tarjetas',
+                 /* Cómo se ve cada lista: en tarjetas (el default de siempre) o en
+                    tabla, más compacta para revisar muchas de un vistazo. Es
+                    preferencia de pantalla, no dato — por eso vive aquí y no en
+                    `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
+                    guarda la suya para que cambiar una no cambie las otras. */
+                 vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -3921,6 +3922,17 @@ function tarjetaKpi(label, valor, pie, clase, accion){
     ? '<button type="button" class="kpi kpi-clic ' + (clase||'') + '" data-accion="' + esc(accion) + '">'
       + cuerpo + '<span class="k-mas">Ver cuáles →</span></button>'
     : '<div class="kpi ' + (clase||'') + '">' + cuerpo + '</div>';
+}
+
+/* El mismo alternador tarjetas/tabla para cualquier lista: Forpass, Pólizas y
+   Cotizaciones lo usan igual, cada uno con su propio campo en `estado` para
+   que cambiar la vista en un módulo no toque el de los otros. */
+function controlAlternaVista(campo){
+  const enTabla = estado[campo] === 'tabla';
+  return '<div class="alterna-vista" role="group" aria-label="Cómo ver la lista">'
+       +   '<button type="button" data-accion="vista-lista" data-campo="' + campo + '" data-modo="tarjetas" aria-pressed="' + (!enTabla) + '" title="Ver como tarjetas">' + ICONO.tarjetas + '</button>'
+       +   '<button type="button" data-accion="vista-lista" data-campo="' + campo + '" data-modo="tabla" aria-pressed="' + enTabla + '" title="Ver como tabla">' + ICONO.tabla + '</button>'
+       + '</div>';
 }
 
 function barraHerramientas(){
@@ -4215,6 +4227,30 @@ function vistaResultados(){
 }
 
 /* ------------------------------ Vista: clientes ------------------------------ */
+/* Misma lista de clientes de Forpass, en tabla: cada <tr> lleva el mismo
+   data-cliente que ya usan las tarjetas para abrir sus sitios. */
+function tablaForpass(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:760px"><thead><tr>'
+       +   '<th>Cliente</th><th>Sitios</th><th>Forpass activos</th><th>Mensualidad</th><th>Estado</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(c=>{
+           const rr = resumir(sitiosDe(c.id));
+           const tono = rr.atrasados ? 'error' : (rr.porPagar ? 'alerta' : (rr.forpass ? 'ok' : 'neutro'));
+           const etiqueta = rr.atrasados ? rr.atrasados + ' ' + plural(rr.atrasados,'sitio atrasado','sitios atrasados')
+                          : rr.porPagar  ? rr.porPagar + ' por pagar'
+                          : rr.forpass   ? 'Al día'
+                          : 'Sin Forpass activos';
+           return '<tr class="fila-clic" data-cliente="' + esc(c.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(c.nombre) + '</td>'
+                +   '<td>' + numero(rr.sitiosActivos) + ' de ' + numero(rr.sitios) + '</td>'
+                +   '<td>' + numero(rr.forpass) + '</td>'
+                +   '<td>' + dinero(rr.mrr) + '</td>'
+                +   '<td><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(etiqueta) + '</span></td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
 function vistaClientes(){
   const r = resumir(datos.sitios);
   /* Solo los de este módulo: los que existen nada más por una póliza se quedan
@@ -4269,6 +4305,7 @@ function vistaClientes(){
      +     '<option value="atrasados">Solo con atrasos</option>'
      +     '<option value="activos">Solo con Forpass activos</option>'
      +   '</select>'
+     +   controlAlternaVista('vistaForpass')
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
@@ -4288,6 +4325,8 @@ function vistaClientes(){
     h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún cliente coincide con la búsqueda o el filtro.</p></div>';
     return h;
   }
+
+  if(estado.vistaForpass === 'tabla') return h + tablaForpass(lista);
 
   h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + lista.map((c,i)=>{
     const ss = sitiosDe(c.id);
@@ -4614,6 +4653,28 @@ function tituloPoliza(p){
   return sitio + ' · ' + cli.nombre;
 }
 
+/* Misma lista de pólizas, en tabla: cada <tr> lleva el mismo data-poliza que
+   ya usan las tarjetas para abrir el detalle. */
+function tablaPolizas(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:820px"><thead><tr>'
+       +   '<th>Sitio</th><th>Cliente</th><th>Folio</th><th>Estado</th>'
+       +   '<th>Precio anual</th><th>Servicios</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(p=>{
+           const c = calcularPoliza(p);
+           const cli = clientePorId(p.clienteId);
+           return '<tr class="fila-clic" data-poliza="' + esc(p.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(p.sitioNombre || p.folio || 'Póliza') + '</td>'
+                +   '<td>' + esc(cli ? cli.nombre : 'Sin cliente ligado') + '</td>'
+                +   '<td>' + esc(p.folio || '—') + '</td>'
+                +   '<td><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></td>'
+                +   '<td>' + dineroCent(c.precioAnual) + '</td>'
+                +   '<td>' + c.hechos + ' de ' + c.programados + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
 function vistaPolizas(){
   const r = resumirPolizas(datos.polizas);
   let h = '';
@@ -4670,6 +4731,7 @@ function vistaPolizas(){
      +     '<option value="calle">Solo en la calle</option>'
      +     '<option value="pendientes">Con servicios pendientes</option>'
      +   '</select>'
+     +   controlAlternaVista('vistaPolizas')
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
@@ -4686,6 +4748,8 @@ function vistaPolizas(){
     h += '<div class="vacio"><h3>Sin resultados</h3><p>Ninguna póliza coincide con la búsqueda o el filtro.</p></div>';
     return h;
   }
+
+  if(estado.vistaPolizas === 'tabla') return h + tablaPolizas(lista);
 
   h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + lista.map((p,i)=>{
     const c = calcularPoliza(p);
@@ -4848,10 +4912,7 @@ function vistaCotizaciones(){
      +     ESTATUS_COTIZACION.map(e=>'<option value="' + e + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[e]) + '</option>').join('')
      +     '<option value="vencidas">Vencidas</option>'
      +   '</select>'
-     +   '<div class="alterna-vista" role="group" aria-label="Cómo ver la lista">'
-     +     '<button type="button" data-accion="vista-cotizaciones" data-modo="tarjetas" aria-pressed="' + (!vistaTabla) + '" title="Ver como tarjetas">' + ICONO.tarjetas + '</button>'
-     +     '<button type="button" data-accion="vista-cotizaciones" data-modo="tabla" aria-pressed="' + vistaTabla + '" title="Ver como tabla">' + ICONO.tabla + '</button>'
-     +   '</div>'
+     +   controlAlternaVista('vistaCotizaciones')
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
@@ -8841,7 +8902,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
-    else if(a === 'vista-cotizaciones'){ estado.vistaCotizaciones = acc.dataset.modo === 'tabla' ? 'tabla' : 'tarjetas'; render(); }
+    else if(a === 'vista-lista'){ estado[acc.dataset.campo] = acc.dataset.modo === 'tabla' ? 'tabla' : 'tarjetas'; render(); }
     else if(a === 'nueva-cotizacion'){ if(exigirPermiso()) modalCotizacion(null); }
     else if(a === 'editar-cotizacion'){ if(exigirPermiso()) modalCotizacion(estado.cotizacionId); }
     /* Imprimir es solo lectura y ya se ve todo en pantalla: sin exigirPermiso,
