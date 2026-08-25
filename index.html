@@ -156,6 +156,23 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
   color:var(--ink); background:#fff; outline:none; transition:border-color .15s;
 }
 .barra-busca input{flex:1; min-width:180px;}
+/* Alternador tarjetas/tabla: mismo lenguaje visual que .modulos (fondo gris,
+   la opción activa se despega en blanco con sombra), pero de tamaño de icono
+   porque aquí no hay texto que leer. */
+.alterna-vista{display:flex; gap:2px; background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:3px;}
+.alterna-vista button{
+  appearance:none; border:none; background:none; display:flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:6px; color:var(--gray); cursor:pointer;
+  transition:color .15s var(--ease), background .15s var(--ease);
+}
+.alterna-vista button svg{width:16px; height:16px;}
+.alterna-vista button:hover{color:var(--navy);}
+.alterna-vista button[aria-pressed="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
+.alterna-vista button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+/* Filas de tabla que abren un detalle al clic, igual que las tarjetas. */
+.fila-clic{cursor:pointer; transition:background .12s;}
+.fila-clic:hover{background:var(--bg);}
+.fila-clic:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
 .barra-busca input:focus, .barra-busca select:focus{border-color:var(--accent);}
 
 /* ---------- Rejilla de tarjetas ---------- */
@@ -3688,6 +3705,11 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
+                 /* Cómo se ve la lista de cotizaciones: en tarjetas (el default de
+                    siempre) o en tabla, más compacta para revisar muchas de un
+                    vistazo. Es preferencia de pantalla, no dato — por eso vive
+                    aquí y no en `datos`, y se reinicia como `busca` o `filtro`. */
+                 vistaCotizaciones:'tarjetas',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -3872,7 +3894,9 @@ const ICONO = {
   persona:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
   sobre:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>',
   calendario:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2"/></svg>',
-  tel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8.1 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/></svg>'
+  tel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8.1 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/></svg>',
+  tarjetas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>',
+  tabla:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="4" rx="1.2"/><rect x="3" y="10" width="18" height="4" rx="1.2"/><rect x="3" y="15.5" width="18" height="4" rx="1.2"/></svg>'
 };
 
 /* Botón para volver a la lista de clientes, arriba de cada vista interna. */
@@ -4744,6 +4768,36 @@ function botonRegresarCotizaciones(){
        + ICONO.atras + 'Regresar a cotizaciones</button></div>';
 }
 
+/* La misma lista que las tarjetas, pero en tabla: cabe mucha más información
+   por pantalla y se puede escanear de arriba a abajo. Es el mismo `data-cotizacion`
+   en cada <tr> que ya usan las tarjetas, así que abre el detalle igual, con
+   clic o con teclado — el delegado de eventos no distingue de dónde viene. */
+function tablaCotizaciones(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:900px"><thead><tr>'
+       +   '<th>Sitio</th><th>Cliente</th><th>Folio</th><th>Tipo</th><th>Estatus</th>'
+       +   '<th>Fecha</th><th>Al cliente</th><th>Costo</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(cot=>{
+           const c = calcularCotizacion(cot);
+           const s = sitioPorId(cot.sitioId), cli = clientePorId(cot.clienteId);
+           const abierta = !['aprobada','rechazada','cancelada'].includes(cot.estatus);
+           const vencidaAbierta = c.vencida && abierta;
+           const { tonoInsignia } = tonoCotizacion(cot);
+           return '<tr class="fila-clic" data-cotizacion="' + esc(cot.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(s ? s.nombre : 'Sin sitio') + '</td>'
+                +   '<td>' + esc(cli ? cli.nombre : '—') + '</td>'
+                +   '<td>' + esc(cot.folio || '—') + '</td>'
+                +   '<td>' + esc(cot.tipoMtto || 'Sin tipo') + '</td>'
+                +   '<td><span class="insignia i-' + tonoInsignia + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[cot.estatus]) + '</span>'
+                +     (vencidaAbierta ? ' <span class="insignia i-error">Vencida</span>' : '') + '</td>'
+                +   '<td>' + fmtFecha(cot.fecha) + '</td>'
+                +   '<td>' + dineroCent(c.totalCliente) + '</td>'
+                +   '<td>' + dineroCent(c.totalCosto) + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
 function resumirCotizaciones(lista){
   const r = { total:lista.length, montoCliente:0, borradores:0, vencidas:0 };
   lista.forEach(q=>{
@@ -4786,6 +4840,7 @@ function vistaCotizaciones(){
     return h;
   }
 
+  const vistaTabla = estado.vistaCotizaciones === 'tabla';
   h += '<div class="barra-busca">'
      +   '<input type="search" id="buscaCotizacion" placeholder="Buscar por folio, sitio o cliente…" value="' + esc(estado.busca) + '">'
      +   '<select id="filtroCotizacion">'
@@ -4793,6 +4848,10 @@ function vistaCotizaciones(){
      +     ESTATUS_COTIZACION.map(e=>'<option value="' + e + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[e]) + '</option>').join('')
      +     '<option value="vencidas">Vencidas</option>'
      +   '</select>'
+     +   '<div class="alterna-vista" role="group" aria-label="Cómo ver la lista">'
+     +     '<button type="button" data-accion="vista-cotizaciones" data-modo="tarjetas" aria-pressed="' + (!vistaTabla) + '" title="Ver como tarjetas">' + ICONO.tarjetas + '</button>'
+     +     '<button type="button" data-accion="vista-cotizaciones" data-modo="tabla" aria-pressed="' + vistaTabla + '" title="Ver como tabla">' + ICONO.tabla + '</button>'
+     +   '</div>'
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
@@ -4812,6 +4871,8 @@ function vistaCotizaciones(){
   }
 
   const ordenadas = lista.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || b.folio.localeCompare(a.folio));
+
+  if(vistaTabla) return h + tablaCotizaciones(ordenadas);
 
   h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenadas.map((cot,i)=>{
     const c = calcularCotizacion(cot);
@@ -8780,6 +8841,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
+    else if(a === 'vista-cotizaciones'){ estado.vistaCotizaciones = acc.dataset.modo === 'tabla' ? 'tabla' : 'tarjetas'; render(); }
     else if(a === 'nueva-cotizacion'){ if(exigirPermiso()) modalCotizacion(null); }
     else if(a === 'editar-cotizacion'){ if(exigirPermiso()) modalCotizacion(estado.cotizacionId); }
     /* Imprimir es solo lectura y ya se ve todo en pantalla: sin exigirPermiso,
