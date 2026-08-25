@@ -211,6 +211,18 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .fr-titulo{font-size:13.5px; font-weight:600; color:var(--navy); word-break:break-word;}
 .fr-sub{font-size:11.5px; color:var(--gray); margin-top:1px;}
 
+/* ---------- Estado de resultados (módulo Resultados) ---------- */
+.tabla-pyl{background:#fff; border:1px solid var(--line); border-radius:15px; padding:6px 20px; margin-bottom:16px;}
+.tp-seccion{font-size:12px; font-weight:700; letter-spacing:.04em; color:var(--gray); text-transform:uppercase; padding:14px 0 4px;}
+.tp-fila{display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13.5px; color:var(--ink);}
+.tp-fila:last-of-type{border-bottom:none;}
+.tp-fila .tp-monto{font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap;}
+.tp-fila.tp-total{font-weight:700; font-size:14.5px; color:var(--navy); border-top:1.5px solid var(--line); border-bottom:none; padding-top:12px; margin-top:2px;}
+.tp-fila.tp-negativo .tp-monto{color:var(--error);}
+.tp-final{display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 20px; margin-top:6px; border-top:2px solid var(--navy); background:#fff; border-radius:0 0 15px 15px;}
+.tp-final .tp-label{font-size:14.5px; font-weight:700; color:var(--navy);}
+.tp-final .tp-monto{font-size:24px; font-weight:800; font-variant-numeric:tabular-nums;}
+
 .t-cabeza{display:flex; align-items:flex-start; gap:10px;}
 .t-nombre{font-size:16.5px; font-weight:700; color:var(--navy); line-height:1.25; word-break:break-word;}
 .t-sub{font-size:11.5px; color:var(--gray); margin-top:2px;}
@@ -900,6 +912,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
        título ya era mentira en la mitad de la app, y la pestaña encendida dice lo
        mismo que decía el título. -->
   <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
+    <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
     <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="true">Forpass</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
@@ -3653,6 +3666,7 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null,
                  ladoCotizacion:'costo',
+                 periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
@@ -3662,7 +3676,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['clientes', 'forpass', 'polizas', 'cotizaciones'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'polizas', 'cotizaciones'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -3678,6 +3692,7 @@ function inicioDelModulo(){
   return estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'clientes' ? 'resumen'
+       : estado.modulo === 'resultados' ? 'resultados'
        : 'clientes';
 }
 
@@ -4023,6 +4038,134 @@ function vistaResumenCliente(){
      +   (cot.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (cot.length - MAX_FILAS) + ' más…</div>' : '')
      +   (cot.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ver-cotizaciones-cliente">Ver todas las cotizaciones</button></div>' : '')
      + '</div>';
+
+  return h;
+}
+
+/* ==================== Módulo Resultados: estado de resultados ejecutivo ====================
+   Cruce de dinero de los tres módulos, por periodo. Nada de esto se CAPTURA
+   aquí ni se guarda: son puras lecturas de lo que ya existe, igual que el
+   resumen por cliente. El "ingreso" de una cotización es la que ya se
+   aprobó (el cliente la autorizó) fechada dentro del periodo — es lo más
+   cercano a "ingreso realizado" que el estatus de cotización distingue hoy.
+   El costo solo existe capturado para cotizaciones: Forpass y pólizas no
+   traen un costo interno en su modelo de datos, así que ahí solo se ve el
+   ingreso, nunca un margen inventado. */
+function rangoPeriodoResultados(modo, desde, hasta){
+  const hoy = hoyISO();
+  if(modo === 'anio'){
+    const anio = hoy.slice(0,4);
+    return { inicio: anio + '-01-01', fin: anio + '-12-31' };
+  }
+  if(modo === 'personalizado'){
+    const i = /^\d{4}-\d{2}-\d{2}$/.test(desde) ? desde : hoy;
+    const f = /^\d{4}-\d{2}-\d{2}$/.test(hasta) ? hasta : hoy;
+    return i <= f ? { inicio:i, fin:f } : { inicio:f, fin:i };
+  }
+  /* Mes actual, por omisión. */
+  const anioMes = hoy.slice(0,7);
+  const ultimoDia = new Date(Number(hoy.slice(0,4)), Number(hoy.slice(5,7)), 0).getDate();
+  return { inicio: anioMes + '-01', fin: anioMes + '-' + String(ultimoDia).padStart(2,'0') };
+}
+
+function calcularResultados(inicio, fin){
+  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, costoCotizaciones:0,
+              numPagosForpass:0, numCobrosPolizas:0, numCotizaciones:0 };
+
+  /* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
+     el mes al que corresponde (fechaInicio + su número de mes), no en el mes
+     en que se haya dado clic en "Marcar pagada". */
+  datos.sitios.forEach(s=>{
+    const c = calcular(s);
+    s.pagos.forEach((pagado, i)=>{
+      if(!pagado) return;
+      const fecha = sumarMeses(s.fechaInicio, i);
+      if(fecha >= inicio && fecha <= fin){ r.ingresoForpass += c.montos[i]; r.numPagosForpass++; }
+    });
+  });
+
+  /* Pólizas: mismo criterio, con sus cobros (uno solo si es anual, doce si
+     es mensual). */
+  datos.polizas.forEach(p=>{
+    const c = calcularPoliza(p);
+    p.cobros.forEach((cobrado, i)=>{
+      if(!cobrado) return;
+      const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
+      if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.numCobrosPolizas++; }
+    });
+  });
+
+  /* Cotizaciones: la fecha de la cotización aprobada, no la de sus pagos —
+     el módulo no lleva cobranza propia, a diferencia de Forpass y pólizas. */
+  datos.cotizaciones.forEach(q=>{
+    if(q.estatus !== 'aprobada') return;
+    if(!(q.fecha >= inicio && q.fecha <= fin)) return;
+    const c = calcularCotizacion(q);
+    r.ingresoCotizaciones += c.totalCliente;
+    r.costoCotizaciones += c.totalCosto;
+    r.numCotizaciones++;
+  });
+
+  r.ingresoTotal = r.ingresoForpass + r.ingresoPolizas + r.ingresoCotizaciones;
+  r.costoTotal = r.costoCotizaciones;
+  r.utilidadBruta = r.ingresoTotal - r.costoTotal;
+  r.margenPct = r.ingresoTotal ? (r.utilidadBruta / r.ingresoTotal * 100) : 0;
+  return r;
+}
+
+function vistaResultados(){
+  const modo = estado.periodoResultados;
+  const { inicio, fin } = rangoPeriodoResultados(modo, estado.resultadosDesde, estado.resultadosHasta);
+  const r = calcularResultados(inicio, fin);
+
+  let h = '<div class="titulo-zona"><div>'
+        +   '<h2>Estado de resultados</h2>'
+        +   '<p>' + fmtFecha(inicio) + ' – ' + fmtFecha(fin)
+        +   ' · cruce de Forpass, pólizas y cotizaciones aprobadas</p>'
+        + '</div></div>';
+
+  h += '<div class="barra-busca">'
+     +   '<select id="selPeriodoResultados">'
+     +     '<option value="mes"' + (modo === 'mes' ? ' selected' : '') + '>Mes actual</option>'
+     +     '<option value="anio"' + (modo === 'anio' ? ' selected' : '') + '>Año actual</option>'
+     +     '<option value="personalizado"' + (modo === 'personalizado' ? ' selected' : '') + '>Rango personalizado</option>'
+     +   '</select>'
+     +   (modo === 'personalizado'
+        ? '<input type="date" id="resultadosDesde" value="' + esc(estado.resultadosDesde || inicio) + '">'
+          + '<input type="date" id="resultadosHasta" value="' + esc(estado.resultadosHasta || fin) + '">'
+        : '')
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Ingresos totales', dineroCent(r.ingresoTotal), 'Forpass + pólizas + cotizaciones', 'k-ok')
+     + tarjetaKpi('Costo capturado', dineroCent(r.costoTotal), 'Solo lo que traen las cotizaciones')
+     + tarjetaKpi('Utilidad bruta', dineroCent(r.utilidadBruta), r.margenPct.toFixed(1) + '% de margen sobre el ingreso',
+         r.utilidadBruta >= 0 ? 'k-ok' : 'k-error')
+     + '</div>';
+
+  h += '<div class="tabla-pyl">'
+     +   '<div class="tp-seccion">Ingresos</div>'
+     +   '<div class="tp-fila"><span>Forpass · mensualidades cobradas (' + numero(r.numPagosForpass) + ')</span>'
+     +     '<span class="tp-monto">' + dineroCent(r.ingresoForpass) + '</span></div>'
+     +   '<div class="tp-fila"><span>Pólizas · cobros facturados (' + numero(r.numCobrosPolizas) + ')</span>'
+     +     '<span class="tp-monto">' + dineroCent(r.ingresoPolizas) + '</span></div>'
+     +   '<div class="tp-fila"><span>Cotizaciones aprobadas (' + numero(r.numCotizaciones) + ')</span>'
+     +     '<span class="tp-monto">' + dineroCent(r.ingresoCotizaciones) + '</span></div>'
+     +   '<div class="tp-fila tp-total"><span>Total de ingresos</span><span class="tp-monto">' + dineroCent(r.ingresoTotal) + '</span></div>'
+
+     +   '<div class="tp-seccion">Costos</div>'
+     +   '<div class="tp-fila tp-negativo"><span>Costo de las cotizaciones aprobadas</span>'
+     +     '<span class="tp-monto">' + dineroCent(r.costoTotal) + '</span></div>'
+     +   '<div class="tp-fila tp-total"><span>Total de costos</span><span class="tp-monto">' + dineroCent(r.costoTotal) + '</span></div>'
+     + '</div>';
+
+  h += '<div class="tp-final">'
+     +   '<span class="tp-label">Utilidad bruta del periodo</span>'
+     +   '<span class="tp-monto" style="color:' + (r.utilidadBruta >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + dineroCent(r.utilidadBruta) + '</span>'
+     + '</div>';
+
+  h += '<p class="pista" style="margin-top:14px">Forpass y pólizas no tienen un costo interno capturado en el sistema, '
+     + 'así que aquí solo aportan ingreso — no se les inventa un margen. El costo completo solo existe para cotizaciones.</p>';
 
   return h;
 }
@@ -5330,6 +5473,7 @@ function render(){
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
+    : estado.modulo === 'resultados'   ? vistaResultados()
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
 
   const be = $('buscaEquipo');
@@ -5350,6 +5494,20 @@ function render(){
   }
   const brc = $('buscaResumenCliente');
   if(brc) brc.addEventListener('input', ()=>{ estado.busca = brc.value; renderConservandoFoco(brc, 'buscaResumenCliente'); });
+  const selPR = $('selPeriodoResultados');
+  if(selPR){
+    selPR.addEventListener('change', ()=>{
+      estado.periodoResultados = selPR.value;
+      if(selPR.value === 'personalizado' && !estado.resultadosDesde){
+        const rango = rangoPeriodoResultados('mes', '', '');
+        estado.resultadosDesde = rango.inicio; estado.resultadosHasta = rango.fin;
+      }
+      render();
+    });
+    const rDesde = $('resultadosDesde'), rHasta = $('resultadosHasta');
+    if(rDesde) rDesde.addEventListener('change', ()=>{ estado.resultadosDesde = rDesde.value; render(); });
+    if(rHasta) rHasta.addEventListener('change', ()=>{ estado.resultadosHasta = rHasta.value; render(); });
+  }
   const ba = $('buscaAgenda');
   if(ba){
     /* Con su propio id: renderConservandoFoco lo necesita o el foco se va al
