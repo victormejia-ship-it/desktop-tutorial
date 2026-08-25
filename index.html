@@ -198,6 +198,19 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .tarjeta-clic{cursor:pointer;}
 .tarjeta-clic:hover{transform:translateY(-3px); box-shadow:0 10px 26px rgba(10,27,77,.10); border-color:#c9d4ec;}
 
+/* ---------- Resumen de cliente (módulo Clientes): cruce de Forpass, Pólizas
+   y Cotizaciones sin ir módulo por módulo. ---------- */
+.bloque-resumen{background:#fff; border:1px solid var(--line); border-radius:15px; padding:18px; margin-bottom:16px;}
+.bloque-resumen h3{font-size:15px; color:var(--navy); display:flex; align-items:center; gap:8px; margin:0;}
+.bloque-resumen h3 svg{width:18px; height:18px; color:var(--accent); flex-shrink:0;}
+.bloque-resumen .b-pie{font-size:12px; color:var(--gray); margin:2px 0 10px;}
+.fila-resumen{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 6px; border-top:1px solid var(--line); border-radius:8px;}
+.fila-resumen:first-of-type{border-top:none;}
+.fila-resumen.tarjeta-clic:hover{background:var(--bg); transform:none; box-shadow:none; border-color:var(--line); border-top-color:transparent;}
+.fila-resumen:first-of-type.tarjeta-clic:hover{border-top-color:transparent;}
+.fr-titulo{font-size:13.5px; font-weight:600; color:var(--navy); word-break:break-word;}
+.fr-sub{font-size:11.5px; color:var(--gray); margin-top:1px;}
+
 .t-cabeza{display:flex; align-items:flex-start; gap:10px;}
 .t-nombre{font-size:16.5px; font-weight:700; color:var(--navy); line-height:1.25; word-break:break-word;}
 .t-sub{font-size:11.5px; color:var(--gray); margin-top:2px;}
@@ -887,6 +900,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
        título ya era mentira en la mitad de la app, y la pestaña encendida dice lo
        mismo que decía el título. -->
   <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
+    <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="true">Forpass</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
@@ -2282,6 +2296,18 @@ function normalizarCotizacion(q){
 function cotizacionPorId(id){ return datos.cotizaciones.find(q => q.id === id); }
 function cotizacionesDeSitio(sitioId){ return datos.cotizaciones.filter(q => q.sitioId === sitioId); }
 
+/* Un solo lugar para decidir el color de una cotización, para que la lista del
+   módulo Cotizaciones y el resumen por cliente digan siempre lo mismo. */
+function tonoCotizacion(cot){
+  const abierta = !['aprobada','rechazada','cancelada'].includes(cot.estatus);
+  const vencidaAbierta = abierta && calcularCotizacion(cot).vencida;
+  if(vencidaAbierta) return { tono:'error', tonoInsignia:'error' };
+  if(cot.estatus === 'borrador') return { tono:'alerta', tonoInsignia:'alerta' };
+  if(cot.estatus === 'enviada') return { tono:'alerta', tonoInsignia:'info' };
+  if(cot.estatus === 'aprobada') return { tono:'ok', tonoInsignia:'ok' };
+  return { tono:'neutro', tonoInsignia:'neutro' };
+}
+
 /* El folio por omisión al crear una cotización nueva: SERV-DDMMAA-NN, donde NN
    es su lugar dentro de las que ya llevan ese mismo día. Es solo una
    sugerencia — el campo sigue siendo texto libre, por si hace falta otra
@@ -3636,7 +3662,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['forpass', 'polizas', 'cotizaciones'];
+const MODULOS = ['clientes', 'forpass', 'polizas', 'cotizaciones'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -3651,6 +3677,7 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
 function inicioDelModulo(){
   return estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
+       : estado.modulo === 'clientes' ? 'resumen'
        : 'clientes';
 }
 
@@ -3737,6 +3764,63 @@ function entrarCotizacion(id){
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 
+/* ===================== Módulo Clientes: resumen general =====================
+   Un cliente vive en una sola colección, pero sus datos están repartidos en
+   tres módulos (Forpass, Pólizas, Cotizaciones). Este módulo no CAPTURA nada
+   nuevo — es solo el cruce de lo que ya existe, para verlo de un vistazo sin
+   ir módulo por módulo. Capturar sigue pasando en cada módulo, igual que
+   siempre; de aquí solo se salta para allá. */
+function irAResumenClientes(){
+  animarTarjetas = true;
+  estado.vista = 'resumen';
+  estado.clienteId = null;
+  estado.busca = '';
+  render();
+}
+function entrarResumenCliente(id){
+  animarTarjetas = true;
+  estado.vista = 'resumen-cliente';
+  estado.clienteId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+/* Puentes hacia el módulo dueño de cada dato, mismo molde que
+   irAlSitioDeForpass()/irALaPolizaDelSitio(): primero se cambia de módulo y
+   LUEGO se usa la función de entrada propia de ese módulo, para que quien
+   regrese encuentre las cosas donde ese módulo las deja siempre. */
+function irAlClienteEnForpass(clienteId){
+  estado.modulo = 'forpass'; guardarModulo();
+  estado.busca = ''; estado.filtro = 'todos';
+  estado.sitioFiltro = ''; estado.encargadoFiltro = '';
+  entrarCliente(clienteId);
+}
+function irAlSitioEnForpass(sitioId){
+  const s = sitioPorId(sitioId);
+  if(!s){ aviso('Ese sitio ya no existe en Forpass.', true); return; }
+  estado.modulo = 'forpass'; guardarModulo();
+  estado.busca = ''; estado.filtro = 'todos';
+  estado.sitioFiltro = sitioId; estado.encargadoFiltro = '';
+  entrarCliente(s.clienteId);
+}
+function irAPolizasDe(texto){
+  estado.modulo = 'polizas'; guardarModulo();
+  estado.vista = 'polizas'; estado.polizaId = null;
+  estado.filtro = 'todos'; estado.busca = texto || '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irADetallePoliza(id){
+  estado.modulo = 'polizas'; guardarModulo();
+  estado.busca = ''; estado.filtro = 'todos';
+  entrarPoliza(id);
+}
+function irADetalleCotizacion(id){
+  estado.modulo = 'cotizaciones'; guardarModulo();
+  estado.busca = ''; estado.filtro = 'todos';
+  entrarCotizacion(id);
+}
+
 const ICONO = {
   mas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   imprimir:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
@@ -3789,6 +3873,158 @@ function barraHerramientas(){
     h += '<button type="button" class="btn btn-suave btn-mini" data-accion="respaldo">' + ICONO.respaldo + 'Respaldo JSON</button>'
        + '<button type="button" class="btn btn-suave btn-mini" data-accion="restaurar">' + ICONO.subir + 'Restaurar</button>';
   }
+  return h;
+}
+
+/* ============== Módulo Clientes: lista y resumen general ============== */
+function resumenGeneralCliente(c){
+  const sitios = sitiosDe(c.id);
+  const pol = polizasDe(c.id);
+  const cot = datos.cotizaciones.filter(q => q.clienteId === c.id);
+  return { sitios, pol, cot, rSitios:resumir(sitios), rPol:resumirPolizas(pol), rCot:resumirCotizaciones(cot) };
+}
+
+function vistaResumenClientes(){
+  let h = '<div class="titulo-zona"><div>'
+        +   '<h2>Clientes</h2>'
+        +   '<p>' + numero(datos.clientes.length) + ' ' + plural(datos.clientes.length,'cliente','clientes')
+        +   ' · resumen de Forpass, pólizas y cotizaciones en un solo lugar</p>'
+        + '</div>'
+        + (puedeEditar()
+           ? '<div class="acciones"><button type="button" class="btn btn-primario" data-accion="nuevo-cliente">' + ICONO.mas + 'Agregar cliente</button></div>'
+           : '')
+        + '</div>';
+
+  if(!datos.clientes.length){
+    h += vistaVacia('edificio', 'Todavía no hay clientes',
+          'Agrega tu primer cliente para empezar a llevar sus sitios de Forpass, sus pólizas y sus cotizaciones desde un solo lugar.',
+          puedeEditar() ? 'nuevo-cliente' : '', 'Agregar cliente');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaResumenCliente" placeholder="Buscar cliente…" value="' + esc(estado.busca) + '">'
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.clientes.filter(c => !q || c.nombre.toLowerCase().includes(q))
+                               .sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún cliente coincide con la búsqueda.</p></div>';
+    return h;
+  }
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + lista.map((c,i)=>{
+    const { rSitios, rPol, rCot } = resumenGeneralCliente(c);
+    return '<div class="tarjeta tarjeta-clic" data-cliente-resumen="' + esc(c.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     avatarCliente(c)
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(c.nombre) + '</div>'
+         +       (c.contacto ? '<div class="t-sub">' + esc(c.contacto) + '</div>' : '')
+         +     '</div>'
+         +   '</div>'
+         +   chipsPersonalizados('clientes', c)
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Forpass</div><div class="d-valor">' + numero(rSitios.sitios) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Pólizas</div><div class="d-valor">' + numero(rPol.total) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Cotizaciones</div><div class="d-valor">' + numero(rCot.total) + '</div></div>'
+         +   '</div>'
+         + '</div>';
+  }).join('') + '</div>';
+  return h;
+}
+
+function vistaResumenCliente(){
+  const c = clientePorId(estado.clienteId);
+  if(!c){ estado.vista = 'resumen'; return vistaResumenClientes(); }
+  const { sitios, pol, cot, rSitios, rPol, rCot } = resumenGeneralCliente(c);
+
+  let h = '<div style="margin-bottom:14px">'
+        + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-resumen-clientes">' + ICONO.atras + 'Regresar a clientes</button>'
+        + '</div>';
+
+  h += '<div class="titulo-zona">'
+     +   '<div style="display:flex; align-items:center; gap:14px">'
+     +     avatarCliente(c, 52)
+     +     '<div>'
+     +       '<h2>' + esc(c.nombre) + '</h2>'
+     +       (c.contacto ? '<p>' + esc(c.contacto) + '</p>' : '')
+     +       chipsPersonalizados('clientes', c)
+     +     '</div>'
+     +   '</div>'
+     +   (puedeEditar()
+        ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-editar-cliente="' + esc(c.id) + '">' + ICONO.lapiz + 'Editar cliente</button></div>'
+        : '')
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Sitios Forpass', numero(rSitios.sitios), rSitios.mrr ? dinero(rSitios.mrr) + '/mes activos' : 'Sin mensualidad activa')
+     + tarjetaKpi('Pólizas', numero(rPol.total), rPol.activas ? numero(rPol.activas) + ' ' + plural(rPol.activas,'activa','activas') : 'Ninguna activa')
+     + tarjetaKpi('Cotizaciones', numero(rCot.total), rCot.total ? dineroCent(rCot.montoCliente) + ' cotizado' : 'Todavía sin cotizar')
+     + '</div>';
+
+  const MAX_FILAS = 8;
+
+  /* -------- Forpass -------- */
+  h += '<div class="bloque-resumen">'
+     +   '<h3>' + ICONO.credencial + 'Forpass</h3>'
+     +   '<div class="b-pie">' + numero(sitios.length) + ' ' + plural(sitios.length,'sitio','sitios')
+     +     (rSitios.mrr ? ' · ' + dinero(rSitios.mrr) + '/mes' : '') + '</div>'
+     +   (sitios.length
+        ? sitios.slice(0, MAX_FILAS).map(s=>{
+            const cs = calcular(s);
+            return '<div class="fila-resumen tarjeta-clic" data-ir-sitio-resumen="' + esc(s.id) + '" tabindex="0" role="button">'
+                 +   '<div><div class="fr-titulo">' + esc(s.nombre) + '</div>'
+                 +   '<div class="fr-sub">' + (s.zona ? esc(s.zona) + ' · ' : '') + numero(s.modulos) + ' Forpass · ' + dinero(s.mensualidad) + '/mes</div></div>'
+                 +   '<span class="insignia i-' + (cs.tono === 'error' ? 'error' : cs.tono === 'alerta' ? 'alerta' : cs.tono === 'ok' ? 'ok' : 'neutro') + '">' + esc(cs.estatus) + '</span>'
+                 + '</div>';
+          }).join('')
+        : '<p class="pista" style="margin:0">Sin sitios registrados en Forpass.</p>')
+     +   (sitios.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (sitios.length - MAX_FILAS) + ' más…</div>' : '')
+     +   (sitios.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-cliente-forpass">Ver en Forpass</button></div>' : '')
+     + '</div>';
+
+  /* -------- Pólizas -------- */
+  h += '<div class="bloque-resumen">'
+     +   '<h3>' + ICONO.edificio + 'Pólizas de mantenimiento</h3>'
+     +   '<div class="b-pie">' + numero(pol.length) + ' ' + plural(pol.length,'póliza','pólizas')
+     +     (rPol.valorActivo ? ' · ' + dineroCent(rPol.valorActivo) + '/año activas' : '') + '</div>'
+     +   (pol.length
+        ? pol.slice(0, MAX_FILAS).map(p=>{
+            const cp = calcularPoliza(p);
+            return '<div class="fila-resumen tarjeta-clic" data-ir-poliza-resumen="' + esc(p.id) + '" tabindex="0" role="button">'
+                 +   '<div><div class="fr-titulo">' + esc(tituloPoliza(p)) + '</div>'
+                 +   '<div class="fr-sub">' + esc(p.folio || 'Sin folio') + '</div></div>'
+                 +   '<span class="insignia i-' + cp.tono + '">' + esc(cp.estado) + '</span>'
+                 + '</div>';
+          }).join('')
+        : '<p class="pista" style="margin:0">Sin pólizas cotizadas.</p>')
+     +   (pol.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (pol.length - MAX_FILAS) + ' más…</div>' : '')
+     +   (pol.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-polizas-cliente">Ver todas las pólizas</button></div>' : '')
+     + '</div>';
+
+  /* -------- Cotizaciones -------- */
+  h += '<div class="bloque-resumen">'
+     +   '<h3>' + ICONO.credencial + 'Cotizaciones de servicio</h3>'
+     +   '<div class="b-pie">' + numero(cot.length) + ' ' + plural(cot.length,'cotización','cotizaciones')
+     +     (rCot.montoCliente ? ' · ' + dineroCent(rCot.montoCliente) + ' cotizado' : '') + '</div>'
+     +   (cot.length
+        ? cot.slice().sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||'')).slice(0, MAX_FILAS).map(q=>{
+            const cq = calcularCotizacion(q);
+            const { tonoInsignia } = tonoCotizacion(q);
+            return '<div class="fila-resumen tarjeta-clic" data-ir-cotizacion-resumen="' + esc(q.id) + '" tabindex="0" role="button">'
+                 +   '<div><div class="fr-titulo">' + esc(q.folio || 'Sin folio') + '</div>'
+                 +   '<div class="fr-sub">' + fmtFecha(q.fecha) + ' · ' + dineroCent(cq.totalCliente) + '</div></div>'
+                 +   '<span class="insignia i-' + tonoInsignia + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[q.estatus]) + '</span>'
+                 + '</div>';
+          }).join('')
+        : '<p class="pista" style="margin:0">Sin cotizaciones todavía.</p>')
+     +   (cot.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (cot.length - MAX_FILAS) + ' más…</div>' : '')
+     +   (cot.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ver-cotizaciones-cliente">Ver todas las cotizaciones</button></div>' : '')
+     + '</div>';
+
   return h;
 }
 
@@ -4418,12 +4654,7 @@ function vistaCotizaciones(){
     const s = sitioPorId(cot.sitioId), cli = clientePorId(cot.clienteId);
     const abierta = !['aprobada','rechazada','cancelada'].includes(cot.estatus);
     const vencidaAbierta = c.vencida && abierta;
-
-    let tono = 'neutro', tonoInsignia = 'neutro';
-    if(vencidaAbierta){ tono = 'error'; tonoInsignia = 'error'; }
-    else if(cot.estatus === 'borrador'){ tono = 'alerta'; tonoInsignia = 'alerta'; }
-    else if(cot.estatus === 'enviada'){ tono = 'alerta'; tonoInsignia = 'info'; }
-    else if(cot.estatus === 'aprobada'){ tono = 'ok'; tonoInsignia = 'ok'; }
+    const { tono, tonoInsignia } = tonoCotizacion(cot);
 
     return '<div class="tarjeta tarjeta-clic t-' + tono + '" data-cotizacion="' + esc(cot.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
          +   '<div class="t-cabeza">'
@@ -5097,6 +5328,7 @@ function render(){
                                     : estado.vista === 'agenda'  ? vistaAgenda()
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
+    : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
 
   const be = $('buscaEquipo');
@@ -5115,6 +5347,8 @@ function render(){
     fp.value = estado.filtro;
     fp.addEventListener('change', ()=>{ estado.filtro = fp.value; render(); });
   }
+  const brc = $('buscaResumenCliente');
+  if(brc) brc.addEventListener('input', ()=>{ estado.busca = brc.value; renderConservandoFoco(brc, 'buscaResumenCliente'); });
   const ba = $('buscaAgenda');
   if(ba){
     /* Con su propio id: renderConservandoFoco lo necesita o el foco se va al
@@ -8362,6 +8596,9 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-polizas') irAPolizas();
     else if(a === 'nueva-poliza'){ if(exigirPermiso()) modalPoliza(null); }
     else if(a === 'ir-cotizaciones') irACotizaciones();
+    else if(a === 'ir-resumen-clientes') irAResumenClientes();
+    else if(a === 'ir-cliente-forpass') irAlClienteEnForpass(estado.clienteId);
+    else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
     else if(a === 'nueva-cotizacion'){ if(exigirPermiso()) modalCotizacion(null); }
@@ -8608,6 +8845,20 @@ $('vista').addEventListener('click', ev=>{
 
   const lado = t.closest('[data-lado-cotizacion]');
   if(lado){ estado.ladoCotizacion = lado.dataset.ladoCotizacion; render(); return; }
+
+  /* Módulo Clientes: la lista general y los puentes de su resumen hacia el
+     detalle real en Forpass / Pólizas / Cotizaciones. */
+  const tarCR = t.closest('[data-cliente-resumen]');
+  if(tarCR){ entrarResumenCliente(tarCR.dataset.clienteResumen); return; }
+
+  const irSR = t.closest('[data-ir-sitio-resumen]');
+  if(irSR){ irAlSitioEnForpass(irSR.dataset.irSitioResumen); return; }
+
+  const irPR = t.closest('[data-ir-poliza-resumen]');
+  if(irPR){ irADetallePoliza(irPR.dataset.irPolizaResumen); return; }
+
+  const irQR = t.closest('[data-ir-cotizacion-resumen]');
+  if(irQR){ irADetalleCotizacion(irQR.dataset.irCotizacionResumen); return; }
 });
 
 /* Abrir una tarjeta con Enter o barra espaciadora. */
@@ -8619,7 +8870,15 @@ $('vista').addEventListener('keydown', ev=>{
   const tarP = ev.target.closest('[data-poliza]');
   if(tarP){ ev.preventDefault(); entrarPoliza(tarP.dataset.poliza); return; }
   const tarQ = ev.target.closest('[data-cotizacion]');
-  if(tarQ){ ev.preventDefault(); entrarCotizacion(tarQ.dataset.cotizacion); }
+  if(tarQ){ ev.preventDefault(); entrarCotizacion(tarQ.dataset.cotizacion); return; }
+  const tarCR = ev.target.closest('[data-cliente-resumen]');
+  if(tarCR){ ev.preventDefault(); entrarResumenCliente(tarCR.dataset.clienteResumen); return; }
+  const irSR = ev.target.closest('[data-ir-sitio-resumen]');
+  if(irSR){ ev.preventDefault(); irAlSitioEnForpass(irSR.dataset.irSitioResumen); return; }
+  const irPR = ev.target.closest('[data-ir-poliza-resumen]');
+  if(irPR){ ev.preventDefault(); irADetallePoliza(irPR.dataset.irPolizaResumen); return; }
+  const irQR = ev.target.closest('[data-ir-cotizacion-resumen]');
+  if(irQR){ ev.preventDefault(); irADetalleCotizacion(irQR.dataset.irCotizacionResumen); }
 });
 
 function entrarCliente(id){
