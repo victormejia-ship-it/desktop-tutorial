@@ -3888,12 +3888,11 @@ function vistaResumenClientes(){
   let h = '<div class="titulo-zona"><div>'
         +   '<h2>Clientes</h2>'
         +   '<p>' + numero(datos.clientes.length) + ' ' + plural(datos.clientes.length,'cliente','clientes')
-        +   ' · resumen de Forpass, pólizas y cotizaciones en un solo lugar</p>'
-        + '</div>'
-        + (puedeEditar()
-           ? '<div class="acciones"><button type="button" class="btn btn-primario" data-accion="nuevo-cliente">' + ICONO.mas + 'Agregar cliente</button></div>'
-           : '')
-        + '</div>';
+        +   ' · ' + numero(datos.sitios.length) + ' ' + plural(datos.sitios.length,'sitio','sitios') + ' registrados</p>'
+        + '</div><div class="acciones">'
+        +   barraHerramientas()
+        +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nuevo-cliente">' + ICONO.mas + 'Agregar cliente</button>' : '')
+        + '</div></div>';
 
   if(!datos.clientes.length){
     h += vistaVacia('edificio', 'Todavía no hay clientes',
@@ -4043,7 +4042,9 @@ function vistaClientes(){
      +   ' · ' + numero(r.sitios) + ' ' + plural(r.sitios,'sitio','sitios') + ' registrados'
      +   (soloPoliza ? ' · ' + numero(soloPoliza) + ' más solo con póliza' : '') + '</p>'
      + '</div><div class="acciones">'
-     +   barraHerramientas()
+     /* Respaldo/Restaurar/Excel general se movieron a la pestaña Clientes: son
+        acciones de TODA la base (los cuatro módulos), no solo de Forpass, y
+        vivir aquí duplicado con el módulo Clientes solo confundía. */
      /* A un Viewer no se le ofrece nada de captura: el módulo de pólizas ya
         seguía esta regla (botón si puede editar, texto si no) y Forpass se había
         quedado atrás — ofrecía lápices y «Agregar» que al picarlos contestaban
