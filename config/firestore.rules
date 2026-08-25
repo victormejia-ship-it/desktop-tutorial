@@ -82,6 +82,22 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Reportes (tickets) ---
+       Cuarto módulo: el reporte de una falla, que puede levantar CUALQUIERA
+       con acceso al tablero — a propósito MÁS permisivo que `puedeEditar()`.
+       Un Viewer no toca clientes, sitios ni cotizaciones, pero si ve un
+       equipo dañado tiene que poder avisar y darle seguimiento (subir
+       evidencia, marcarlo en proceso o resuelto) sin que un Admin tenga que
+       levantarlo por él. Es el mismo espíritu que ya tienen /cotizaciones y
+       /bitacora: captura y corrige, cualquiera con acceso; borrar, solo
+       Admin — el historial de un reporte (con sus fotos) no se recupera. */
+    match /reportes/{id} {
+      allow read:   if conAcceso();
+      allow create: if conAcceso();
+      allow update: if conAcceso();
+      allow delete: if esAdmin();
+    }
+
     /* --- Pólizas de mantenimiento preventivo ---
        La cotización y la póliza activa son el MISMO documento en distintos
        momentos, separados por su campo 'estatus':

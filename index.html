@@ -71,14 +71,18 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .modulos .mod[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
 .modulos .mod:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
-/* Bajo los 700px ya no cabe todo en una sola fila: logo, pestañas de módulo,
-   estado de la nube y los tres botones de sesión. En vez de encimarse o
-   empujar la página entera a hacer scroll horizontal —lo que se veía antes—,
-   el encabezado se parte en dos renglones. El selector de módulo se va
-   completo a su propio renglón (flex-basis:100% fuerza el salto de línea) y,
-   si de plano no caben las 5 pestañas, se desliza con scroll horizontal
-   PROPIO en vez de desbordar el documento. */
-@media (max-width:700px){
+/* Bajo los 840px ya no cabe todo en una sola fila: logo, las seis pestañas de
+   módulo, estado de la nube y los tres botones de sesión. En vez de
+   encimarse o empujar la página entera a hacer scroll horizontal —lo que se
+   veía antes—, el encabezado se parte en dos renglones. El selector de
+   módulo se va completo a su propio renglón (flex-basis:100% fuerza el
+   salto de línea) y, si de plano no caben las 6 pestañas, se desliza con
+   scroll horizontal PROPIO en vez de desbordar el documento.
+   El corte quedó en 840 y no en 700 porque a las 6 pestañas (se agregó
+   Reportes) el renglón sin partir necesita ~828px — medido con Playwright en
+   varios anchos —, así que 700 se quedaba corto y esos 130px de tablets
+   angostas desbordaban toda la página. */
+@media (max-width:840px){
   header.app{padding:12px 16px; gap:10px; flex-wrap:wrap;}
   header.app .sub{display:none;}
   .modulos{flex:1 1 100%; order:3; gap:1px; overflow-x:auto; -ms-overflow-style:none; scrollbar-width:none;}
@@ -895,6 +899,30 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 .evento .e-meta{font-size:11px; color:var(--gray); margin-top:2px;}
 .evento .e-cuando{font-size:11px; color:var(--gray); white-space:nowrap; text-align:right; flex-shrink:0;}
 
+/* ---------- Reportes: evidencia, técnicos y seguimiento ---------- */
+/* Cuadritos, no una fila que se desborda: en el celular —el dispositivo de
+   quien más usa esto— una galería que envuelve es más fácil de hojear que
+   una tira con scroll horizontal escondido. */
+.galeria-evidencia{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;}
+.galeria-evidencia:empty{margin-bottom:0;}
+.evidencia-foto{position:relative; width:92px; height:92px; border-radius:10px; overflow:hidden; border:1px solid var(--line); flex-shrink:0;}
+.evidencia-foto img{width:100%; height:100%; object-fit:cover; display:block; cursor:pointer;}
+.evidencia-quitar{
+  position:absolute; top:4px; right:4px; width:22px; height:22px; border-radius:50%; border:none;
+  background:rgba(20,24,38,.62); color:#fff; display:grid; place-items:center; cursor:pointer;
+}
+.evidencia-quitar svg{width:11px; height:11px;}
+.evidencia-quitar:hover{background:rgba(179,49,44,.85);}
+
+.lista-tecnicos{display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding:2px;}
+
+.lista-seguimiento{display:flex; flex-direction:column; gap:2px;}
+.seguimiento-item{padding:9px 2px; border-bottom:1px solid var(--line); font-size:12.5px; color:var(--ink); line-height:1.5;}
+.seguimiento-item:last-child{border-bottom:none;}
+.seguimiento-item b{color:var(--navy);}
+.seguimiento-item .pista{margin-left:6px;}
+.seguimiento-item > div{margin-top:2px; white-space:pre-wrap;}
+
 /* ---------- Pie ---------- */
 .pie{padding:18px 24px; text-align:center; font-size:11.5px; color:var(--gray); border-top:1px solid var(--line); background:#fff;}
 
@@ -946,6 +974,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
     <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
     <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="true">Forpass</button>
+    <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
   </nav>
@@ -1406,7 +1435,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[] };
 
 function cargar(){
   try{
@@ -1425,7 +1454,8 @@ function cargar(){
         catalogo: (Array.isArray(d.catalogo) ? d.catalogo : []).map(normalizarEquipo),
         segmentos: normalizarSegmentos(d.segmentos),
         parametros: normalizarListaParametros(d.parametros),
-        cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion) };
+        cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion),
+        reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1509,6 +1539,47 @@ function comprimirLienzo(lienzo){
     throw new Error('La imagen quedó muy pesada aun reduciéndola. Prueba con un logo más simple o en PNG.');
   }
   return mejor;
+}
+
+/* ---- Fotos de evidencia de un reporte ----
+   Van EMBEBIDAS en el propio documento del reporte (como el logo de un
+   cliente), no en Firebase Storage — este proyecto no usa Storage en ningún
+   otro lado y sumar un servicio nuevo solo para esto era más de lo que la
+   primera versión necesitaba. La consecuencia es real y hay que respetarla:
+   Firestore tope 1 MB por documento. Con el tope de abajo (6 fotos de ~90 KB
+   ya en base64) un reporte lleno pesa ~550 KB, dejando margen de sobra para
+   el resto de sus campos. Si más adelante hacen falta más fotos por reporte,
+   o fotos con más detalle, el siguiente paso es Firebase Storage de verdad
+   —ahí sí sin límite práctico— y este archivo guardaría solo la URL. */
+const EVIDENCIA_LADO_MAX = 1000;                 /* lado mayor, en px */
+const EVIDENCIA_MAX_ENTRADA = 15 * 1024 * 1024;  /* 15 MB: una foto de celular pesa más que un logo */
+const EVIDENCIA_MAX_GUARDADO = 90 * 1024;        /* ~90 KB ya reducida */
+const EVIDENCIA_MAX_POR_REPORTE = 6;
+
+async function leerEvidencia(archivo){
+  if(!archivo.type || !archivo.type.startsWith('image/')) throw new Error('Elige una foto para la evidencia.');
+  if(archivo.size > EVIDENCIA_MAX_ENTRADA) throw new Error('Esa foto pesa más de 15 MB. Prueba con otra o reduce la calidad de la cámara.');
+  return cargarImagen(archivo);
+}
+
+/* A diferencia del logo, aquí no hay encuadre manual: se reduce al lado
+   máximo y se prueba en JPEG de más a menos calidad hasta quedar bajo el
+   tope, o se toma la más chica que el navegador pudo sacar. */
+function comprimirEvidencia(img){
+  const anchoOrig = img.naturalWidth || img.width, altoOrig = img.naturalHeight || img.height;
+  const escala = Math.min(1, EVIDENCIA_LADO_MAX / Math.max(anchoOrig, altoOrig));
+  const w = Math.max(1, Math.round(anchoOrig * escala)), h = Math.max(1, Math.round(altoOrig * escala));
+  const lienzo = document.createElement('canvas');
+  lienzo.width = w; lienzo.height = h;
+  lienzo.getContext('2d').drawImage(img, 0, 0, w, h);
+
+  const candidatos = [0.72, 0.5, 0.32, 0.2].map(calidad=>{
+    try{ return lienzo.toDataURL('image/jpeg', calidad); }catch(e){ return null; }
+  }).filter(Boolean);
+  if(!candidatos.length) throw new Error('Este navegador no pudo procesar la foto.');
+
+  const objetivo = EVIDENCIA_MAX_GUARDADO * 1.37;   /* base64 abulta ~37% */
+  return candidatos.find(d => d.length <= objetivo) || candidatos[candidatos.length - 1];
 }
 
 /* Dibuja la imagen en un cuadro de LOGO_LADO con el zoom y el desplazamiento
@@ -1707,9 +1778,9 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[] };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -1995,9 +2066,9 @@ async function bajarDeLaNube(){
      documento por equipo: así son 48 equipos por 1 lectura en vez de 48. Se
      edita poco y se lee en cada carga, así que el ahorro es todo. El costo es
      que dos admins editándola a la vez se pisan, y eso está anotado en la vista. */
-  const [cl, si, po, eq, sg, pr, co] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
-    leerSegmentos(), leerParametros(), listarNube('cotizaciones')
+    leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -2011,7 +2082,8 @@ async function bajarDeLaNube(){
   if(cola.length || vaciando) return 'ok';
   datos = { v:1, clientes: cl.map(normalizarCliente), sitios: si.map(normalizarSitio),
             polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo),
-            segmentos: sg, parametros: pr, cotizaciones: co.map(normalizarCotizacion) };
+            segmentos: sg, parametros: pr, cotizaciones: co.map(normalizarCotizacion),
+            reportes: rp.map(normalizarReporte) };
   guardarLocal();
   return 'ok';
 }
@@ -2333,6 +2405,10 @@ function normalizarCotizacion(q){
     tiempoEntrega: (q && q.tiempoEntrega ? String(q.tiempoEntrega) : '').trim() || 'TE: 3 A 4 SEMANAS DIAS HABILES',
     notas: (q && q.notas ? String(q.notas) : '').trim() || 'PRECIOS SUJETOS A CAMBIO SIN PREVIO AVISO',
     estatus: ESTATUS_COTIZACION.includes(q && q.estatus) ? q.estatus : 'borrador',
+    /* Si esta cotización nació de un reporte (ver módulo Reportes), aquí
+       queda la liga hacia atrás — el reporte guarda la liga hacia adelante
+       en su propio `cotizacionId`. */
+    reporteOrigenId: (q && q.reporteOrigenId) || '',
     partidas
   };
 }
@@ -2381,6 +2457,153 @@ function generarFolioCotizacion(fechaISO){
   const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
   const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
   return 'SERV-' + ddmmaa + '-' + String(datos.cotizaciones.length + 1).padStart(2,'0');
+}
+
+/* ============================ Reportes (tickets) ============================
+   Cuarto módulo: el reporte que levanta CUALQUIERA —no solo quien cotiza— para
+   avisar que un equipo falló. Es la puerta de entrada al trabajo correctivo;
+   de aquí puede salir una cotización (ver `cotizacionId` más abajo), pero el
+   reporte existe aunque nunca se cotice nada — a veces el técnico lo resuelve
+   en la misma visita y ahí queda.
+
+   Folio: TK-DDMMAA-NNNN. Mismo molde que las cotizaciones (SERV-DDMMAA-NN)
+   para que a nadie le sorprenda el patrón, con dos diferencias a propósito:
+   prefijo TK (de "ticket", la palabra que va a usar todo el mundo en piso) y
+   CUATRO dígitos en vez de dos — un reporte lo puede levantar cualquiera desde
+   su celular, así que el volumen por día es de otro orden que una cotización
+   capturada por el equipo comercial.
+
+   Quién puede qué (ver también config/firestore.rules):
+     · Levantar un reporte y darle seguimiento (subir evidencia, cambiar su
+       propio avance) → cualquiera con acceso al tablero, SIN excepción. Un
+       Viewer no puede tocar clientes ni pagos, pero si ve un refrigerador
+       goteando tiene que poder avisar — por eso `puedeReportar()` es más
+       permisivo que `puedeEditar()`.
+     · Asignar o cambiar los técnicos → Analyst para arriba: es una decisión
+       de despacho, no de campo.
+     · Borrar un reporte → solo Admin, igual que todo lo demás. */
+const PRIORIDAD_REPORTE = ['baja', 'media', 'alta', 'urgente'];
+const ETIQUETA_PRIORIDAD = { baja:'Baja', media:'Media', alta:'Alta', urgente:'Urgente' };
+const TONO_PRIORIDAD = { baja:'neutro', media:'info', alta:'alerta', urgente:'error' };
+
+/* Estados de un reporte, en el orden en que de verdad ocurren. 'abierto' nace
+   solo; nadie lo puede cerrar sin haber pasado por 'resuelto' primero —eso lo
+   exige el propio flujo de botones, no el estatus—, salvo 'cancelado', que se
+   puede marcar en cualquier momento (se levantó por error, el sitio ya no
+   existe, etc.). */
+const ESTATUS_REPORTE = ['abierto', 'asignado', 'en_proceso', 'resuelto', 'cerrado', 'cancelado'];
+const ETIQUETA_ESTATUS_REPORTE = {
+  abierto:'Abierto', asignado:'Asignado', en_proceso:'En proceso',
+  resuelto:'Resuelto', cerrado:'Cerrado', cancelado:'Cancelado'
+};
+const TONO_ESTATUS_REPORTE = {
+  abierto:'error', asignado:'alerta', en_proceso:'alerta',
+  resuelto:'ok', cerrado:'neutro', cancelado:'neutro'
+};
+
+/* Cualquiera con acceso reporta y da seguimiento — es el permiso "de piso".
+   `puedeEditar()` sigue siendo el que decide quién asigna técnicos. */
+function puedeReportar(){ return !HAY_NUBE || haySesion(); }
+
+function normalizarEvidencia(e){
+  return {
+    id: (e && e.id) || nuevoId(),
+    dataUrl: (e && e.dataUrl) ? String(e.dataUrl) : '',
+    nota: (e && e.nota ? String(e.nota) : '').trim(),
+    subioNombre: (e && e.subioNombre ? String(e.subioNombre) : '').trim(),
+    cuando: (e && e.cuando) || hoyISO()
+  };
+}
+
+function normalizarTecnicoAsignado(t){
+  return { uid: (t && t.uid ? String(t.uid) : '').trim(), nombre: (t && t.nombre ? String(t.nombre) : '').trim() };
+}
+
+/* Una entrada de la bitácora PROPIA del reporte (distinta de la bitácora
+   general del tablero): quién hizo qué y cuándo, para que el historial de UN
+   reporte se pueda leer completo sin ir a buscarlo en Administración. */
+function normalizarSeguimientoReporte(s){
+  return {
+    cuando: (s && s.cuando) || new Date().toISOString(),
+    quien: (s && s.quien ? String(s.quien) : '').trim(),
+    texto: (s && s.texto ? String(s.texto) : '').trim()
+  };
+}
+
+function normalizarReporte(r){
+  const evidencias = (Array.isArray(r && r.evidencias) ? r.evidencias : []).map(normalizarEvidencia).filter(e => e.dataUrl);
+  const tecnicos = (Array.isArray(r && r.tecnicos) ? r.tecnicos : []).map(normalizarTecnicoAsignado).filter(t => t.nombre);
+  return {
+    id: (r && r.id) || nuevoId(),
+    folio: (r && r.folio ? String(r.folio) : '').trim(),
+    clienteId: (r && r.clienteId) || '',
+    sitioId: (r && r.sitioId) || '',
+    /* Igual que sitioNombre en pólizas: se copia el texto para que el
+       reporte siga diciendo dónde fue aunque el sitio se borre o se
+       renombre después. */
+    sitioNombre: (r && r.sitioNombre ? String(r.sitioNombre) : '').trim(),
+    /* El equipo puede venir del catálogo (id + nombre copiado, como las
+       partidas de una póliza) o ser texto libre si no está en la lista —
+       nunca un formulario detiene a alguien porque le falta un renglón
+       en el catálogo. */
+    equipoCatalogoId: (r && r.equipoCatalogoId ? String(r.equipoCatalogoId) : '').trim(),
+    equipoNombre: (r && r.equipoNombre ? String(r.equipoNombre) : '').trim(),
+    titulo: (r && r.titulo ? String(r.titulo) : '').trim(),
+    descripcion: (r && r.descripcion ? String(r.descripcion) : '').trim(),
+    prioridad: PRIORIDAD_REPORTE.includes(r && r.prioridad) ? r.prioridad : 'media',
+    estatus: ESTATUS_REPORTE.includes(r && r.estatus) ? r.estatus : 'abierto',
+    tecnicos,
+    reportadoPor: {
+      uid: (r && r.reportadoPor && r.reportadoPor.uid) || '',
+      nombre: (r && r.reportadoPor && r.reportadoPor.nombre) || ''
+    },
+    fechaCreacion: /^\d{4}-\d{2}-\d{2}$/.test(r && r.fechaCreacion) ? r.fechaCreacion : hoyISO(),
+    fechaCierre: /^\d{4}-\d{2}-\d{2}$/.test(r && r.fechaCierre) ? r.fechaCierre : '',
+    /* El puente hacia Cotizaciones: si de este reporte salió un trabajo que
+       hay que cotizar, aquí queda la liga en los dos sentidos (ver
+       `cotizacionPorId(r.cotizacionId)` y, del otro lado, el reporte que
+       trae `cot.reporteOrigenId === r.id`). */
+    cotizacionId: (r && r.cotizacionId) || '',
+    evidencias,
+    seguimiento: (Array.isArray(r && r.seguimiento) ? r.seguimiento : []).map(normalizarSeguimientoReporte)
+  };
+}
+
+function reportePorId(id){ return datos.reportes.find(r => r.id === id); }
+function reportesDeSitio(sitioId){ return datos.reportes.filter(r => r.sitioId === sitioId); }
+function reportesDeCliente(clienteId){ return datos.reportes.filter(r => r.clienteId === clienteId); }
+
+function tonoReporte(r){
+  const t = TONO_ESTATUS_REPORTE[r.estatus] || 'neutro';
+  /* Un reporte urgente y todavía sin técnico grita más fuerte que su estatus:
+     "abierto" ya es rojo, pero uno urgente en proceso también debe leerse
+     distinto de uno de prioridad baja en proceso. */
+  if(r.prioridad === 'urgente' && !['resuelto','cerrado','cancelado'].includes(r.estatus)) return 'error';
+  return t;
+}
+
+/* TK-ddmmaa-NNNN: mismo molde que las cotizaciones, cuatro dígitos porque
+   cualquiera puede levantar uno desde su celular. Es sugerencia, no candado:
+   como el folio de cotización, sigue siendo texto libre por si hace falta
+   corregirlo a mano. */
+function generarFolioReporte(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  return 'TK-' + ddmmaa + '-' + String(datos.reportes.length + 1).padStart(4,'0');
+}
+
+function guardarReporte(r, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'reportes', id:r.id, obj:r });
+  anotar(accion || 'editó', 'reporte', r.folio || r.titulo || 'sin folio', detalle);
+}
+
+/* Agrega una línea a la bitácora PROPIA del reporte y guarda. Se usa en cada
+   acción que cambia algo importante (asignar técnico, cambiar estatus, subir
+   evidencia) para que abrir el reporte cuente su historia completa. */
+function anotarReporte(r, texto, accionGlobal, detalleGlobal){
+  r.seguimiento.push(normalizarSeguimientoReporte({ quien: nombreDe(sesion) || 'Alguien del equipo', texto }));
+  guardarReporte(r, accionGlobal, detalleGlobal);
 }
 
 /* Numera las partidas como en el documento: consecutivas con la misma
@@ -2528,6 +2751,9 @@ function subirTodo(){
   /* Las cotizaciones no tienen congelado por rol: cualquiera que edite puede
      subir las suyas, igual que clientes y sitios. */
   datos.cotizaciones.forEach(q => encolar({ tipo:'poner', coleccion:'cotizaciones', id:q.id, obj:q }));
+  /* Los reportes tampoco tienen congelado por rol: cualquiera con acceso los
+     puede subir, el mismo criterio que cotizaciones. */
+  datos.reportes.forEach(r => encolar({ tipo:'poner', coleccion:'reportes', id:r.id, obj:r }));
   /* `puedeCat` y no `admin`: ese nombre ya lo ocupa la caché del panel. */
   const puedeCat = esAdmin();
   let fuera = 0;
@@ -3701,7 +3927,7 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
 /* "modulo" decide QUÉ producto se está viendo; "vista" decide en qué pantalla de
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
-const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null,
+const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
@@ -3710,7 +3936,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     preferencia de pantalla, no dato — por eso vive aquí y no en
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
-                 vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas',
+                 vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -3719,7 +3945,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'polizas', 'cotizaciones'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'polizas', 'cotizaciones'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -3734,6 +3960,7 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
 function inicioDelModulo(){
   return estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
+       : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
        : 'clientes';
@@ -3784,7 +4011,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -3818,6 +4045,32 @@ function entrarCotizacion(id){
   animarTarjetas = true;
   estado.vista = 'cotizacion'; estado.cotizacionId = id;
   estado.ladoCotizacion = 'costo';
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function irAReportes(){
+  animarTarjetas = true;
+  estado.vista = 'reportes';
+  estado.reporteId = null;
+  estado.busca = '';
+  render();
+}
+/* Mismo puente que verCotizacionesDe(), para consultar los reportes de un
+   cliente o sitio desde su ficha de Forpass. */
+function verReportesDe(texto){
+  if(estado.modulo !== 'reportes'){ estado.modulo = 'reportes'; guardarModulo(); }
+  estado.vista = 'reportes';
+  estado.reporteId = null;
+  estado.filtro = 'todos';
+  estado.busca = texto || '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarReporte(id){
+  animarTarjetas = true;
+  estado.vista = 'reporte'; estado.reporteId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -3897,7 +4150,9 @@ const ICONO = {
   calendario:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2"/></svg>',
   tel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8.1 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/></svg>',
   tarjetas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>',
-  tabla:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="4" rx="1.2"/><rect x="3" y="10" width="18" height="4" rx="1.2"/><rect x="3" y="15.5" width="18" height="4" rx="1.2"/></svg>'
+  tabla:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="4" rx="1.2"/><rect x="3" y="10" width="18" height="4" rx="1.2"/><rect x="3" y="15.5" width="18" height="4" rx="1.2"/></svg>',
+  reporte:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 11v3"/><path d="M12 17h.01"/></svg>',
+  camara:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'
 };
 
 /* Botón para volver a la lista de clientes, arriba de cada vista interna. */
@@ -3952,7 +4207,8 @@ function resumenGeneralCliente(c){
   const sitios = sitiosDe(c.id);
   const pol = polizasDe(c.id);
   const cot = datos.cotizaciones.filter(q => q.clienteId === c.id);
-  return { sitios, pol, cot, rSitios:resumir(sitios), rPol:resumirPolizas(pol), rCot:resumirCotizaciones(cot) };
+  const rep = reportesDeCliente(c.id);
+  return { sitios, pol, cot, rep, rSitios:resumir(sitios), rPol:resumirPolizas(pol), rCot:resumirCotizaciones(cot), rRep:resumirReportes(rep) };
 }
 
 function vistaResumenClientes(){
@@ -4009,7 +4265,7 @@ function vistaResumenClientes(){
 function vistaResumenCliente(){
   const c = clientePorId(estado.clienteId);
   if(!c){ estado.vista = 'resumen'; return vistaResumenClientes(); }
-  const { sitios, pol, cot, rSitios, rPol, rCot } = resumenGeneralCliente(c);
+  const { sitios, pol, cot, rep, rSitios, rPol, rCot, rRep } = resumenGeneralCliente(c);
 
   let h = '<div style="margin-bottom:14px">'
         + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-resumen-clientes">' + ICONO.atras + 'Regresar a clientes</button>'
@@ -4033,6 +4289,7 @@ function vistaResumenCliente(){
      + tarjetaKpi('Sitios Forpass', numero(rSitios.sitios), rSitios.mrr ? dinero(rSitios.mrr) + '/mes activos' : 'Sin mensualidad activa')
      + tarjetaKpi('Pólizas', numero(rPol.total), rPol.activas ? numero(rPol.activas) + ' ' + plural(rPol.activas,'activa','activas') : 'Ninguna activa')
      + tarjetaKpi('Cotizaciones', numero(rCot.total), rCot.total ? dineroCent(rCot.montoCliente) + ' cotizado' : 'Todavía sin cotizar')
+     + tarjetaKpi('Reportes', numero(rRep.total), (rRep.abiertos + rRep.enAtencion) ? numero(rRep.abiertos + rRep.enAtencion) + ' sin resolver' : 'Todo resuelto', (rRep.abiertos || rRep.urgentes) ? 'k-error' : '')
      + '</div>';
 
   const MAX_FILAS = 8;
@@ -4093,6 +4350,25 @@ function vistaResumenCliente(){
         : '<p class="pista" style="margin:0">Sin cotizaciones todavía.</p>')
      +   (cot.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (cot.length - MAX_FILAS) + ' más…</div>' : '')
      +   (cot.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ver-cotizaciones-cliente">Ver todas las cotizaciones</button></div>' : '')
+     + '</div>';
+
+  /* -------- Reportes -------- */
+  h += '<div class="bloque-resumen">'
+     +   '<h3>' + ICONO.reporte + 'Reportes</h3>'
+     +   '<div class="b-pie">' + numero(rep.length) + ' ' + plural(rep.length,'reporte','reportes')
+     +     (rRep.abiertos ? ' · ' + numero(rRep.abiertos) + ' ' + plural(rRep.abiertos,'abierto','abiertos') : '') + '</div>'
+     +   (rep.length
+        ? rep.slice().sort((a,b)=> (b.fechaCreacion||'').localeCompare(a.fechaCreacion||'')).slice(0, MAX_FILAS).map(rp=>{
+            const tono = tonoReporte(rp);
+            return '<div class="fila-resumen tarjeta-clic" data-reporte="' + esc(rp.id) + '" tabindex="0" role="button">'
+                 +   '<div><div class="fr-titulo">' + esc(rp.sitioNombre || rp.titulo || 'Reporte') + '</div>'
+                 +   '<div class="fr-sub">' + esc(rp.folio || 'Sin folio') + ' · ' + fmtFecha(rp.fechaCreacion) + '</div></div>'
+                 +   '<span class="insignia i-' + tono + '">' + esc(ETIQUETA_ESTATUS_REPORTE[rp.estatus]) + '</span>'
+                 + '</div>';
+          }).join('')
+        : '<p class="pista" style="margin:0">Sin reportes todavía.</p>')
+     +   (rep.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (rep.length - MAX_FILAS) + ' más…</div>' : '')
+     +   (rep.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ver-reportes-cliente">Ver todos los reportes</button></div>' : '')
      + '</div>';
 
   return h;
@@ -4565,6 +4841,14 @@ function tarjetaSitio(s, i){
                       + 'aria-label="Cotizaciones de ' + esc(s.nombre) + '">'
                       + ICONO.credencial + '</button>'
                     : '')
+       /* Mismo puente, hacia sus reportes: un técnico que reportó una falla en
+          este sitio queda a un clic, sin salir de la ficha del cliente. */
+       +           (datos.reportes.some(rp => rp.sitioId === s.id)
+                    ? '<button type="button" class="icono-btn" data-accion="ver-reportes-sitio" data-sitio-nombre="' + esc(s.nombre) + '" '
+                      + 'title="Ver sus reportes (' + datos.reportes.filter(rp => rp.sitioId === s.id).length + ')" '
+                      + 'aria-label="Reportes de ' + esc(s.nombre) + '">'
+                      + ICONO.reporte + '</button>'
+                    : '')
        +         '</span>'
        +       '</div>'
        +       '<div class="t-sub">'
@@ -4978,6 +5262,15 @@ function vistaCotizacion(){
 
   let h = botonRegresarCotizaciones();
 
+  /* Si esta cotización nació de un reporte, la liga hacia atrás: se abre
+     directo en su detalle, sin tener que ir a buscarlo por folio. */
+  const reporteOrigen = cot.reporteOrigenId ? reportePorId(cot.reporteOrigenId) : null;
+  if(reporteOrigen){
+    h += '<div class="aviso" style="margin-bottom:14px">' + ICONO.reporte
+       + '<div>Esta cotización viene del reporte <b>' + esc(reporteOrigen.folio || 'sin folio') + '</b>.'
+       + ' <button type="button" class="btn btn-suave btn-mini" data-reporte="' + esc(reporteOrigen.id) + '" style="margin-left:8px">Ver reporte →</button></div></div>';
+  }
+
   h += '<div class="titulo-zona"><div>'
      +   '<h2>' + esc(s ? s.nombre : 'Sin sitio') + '</h2>'
      +   '<p>' + esc(cli ? cli.nombre : 'Sin cliente') + (cot.folio ? ' · ' + esc(cot.folio) : '')
@@ -5047,6 +5340,476 @@ function vistaCotizacion(){
   h += '<div class="bloque"><div class="pista" style="white-space:pre-wrap">' + esc(cot.tiempoEntrega) + (cot.notas ? '\n' + cot.notas : '') + '</div></div>';
 
   return h;
+}
+
+/* ------------------------------- Reportes (tickets) ------------------------------- */
+function botonRegresarReportes(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-reportes">'
+       + ICONO.atras + 'Regresar a reportes</button></div>';
+}
+
+function resumirReportes(lista){
+  const r = { total:lista.length, abiertos:0, enAtencion:0, urgentes:0, resueltos:0 };
+  lista.forEach(rp=>{
+    if(rp.estatus === 'abierto') r.abiertos++;
+    if(rp.estatus === 'asignado' || rp.estatus === 'en_proceso') r.enAtencion++;
+    if(rp.prioridad === 'urgente' && !['resuelto','cerrado','cancelado'].includes(rp.estatus)) r.urgentes++;
+    if(rp.estatus === 'resuelto' || rp.estatus === 'cerrado') r.resueltos++;
+  });
+  return r;
+}
+
+function vistaReportes(){
+  const r = resumirReportes(datos.reportes);
+  let h = '';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Reportes</h2>'
+     +   '<p>' + numero(r.total) + ' ' + plural(r.total,'reporte','reportes') + '</p>'
+     + '</div><div class="acciones">'
+     +   (puedeReportar()
+          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-reporte">' + ICONO.mas + 'Nuevo reporte</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Abiertos', numero(r.abiertos), 'Todavía sin técnico', r.abiertos ? 'k-error' : '')
+     + tarjetaKpi('En atención', numero(r.enAtencion), 'Asignados o en proceso', r.enAtencion ? 'k-alerta' : '')
+     + tarjetaKpi('Urgentes', numero(r.urgentes), 'Prioridad urgente sin resolver', r.urgentes ? 'k-error' : '')
+     + tarjetaKpi('Resueltos', numero(r.resueltos), 'Ya atendidos', r.resueltos ? 'k-ok' : '')
+     + '</div>';
+
+  if(!datos.reportes.length){
+    h += vistaVacia('reporte', 'Todavía no hay reportes',
+          'Cualquiera del equipo puede levantar uno: el sitio, el equipo y una foto de evidencia bastan para arrancar.',
+          puedeReportar() ? 'nuevo-reporte' : '', 'Nuevo reporte');
+    return h;
+  }
+
+  const vistaTabla = estado.vistaReportes === 'tabla';
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaReporte" placeholder="Buscar por folio, sitio, cliente o técnico…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroReporte">'
+     +     '<option value="todos">Todos</option>'
+     +     ESTATUS_REPORTE.map(e=>'<option value="' + e + '">' + esc(ETIQUETA_ESTATUS_REPORTE[e]) + '</option>').join('')
+     +     '<option value="urgentes">Solo urgentes</option>'
+     +   '</select>'
+     +   controlAlternaVista('vistaReportes')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.reportes.filter(rp=>{
+    if(q){
+      const enTecnicos = rp.tecnicos.some(t => t.nombre.toLowerCase().includes(q));
+      if(!(rp.folio||'').toLowerCase().includes(q) && !(rp.sitioNombre||'').toLowerCase().includes(q)
+         && !enTecnicos){
+        const cli = clientePorId(rp.clienteId);
+        if(!(cli && cli.nombre.toLowerCase().includes(q))) return false;
+      }
+    }
+    if(estado.filtro === 'urgentes') return rp.prioridad === 'urgente' && !['resuelto','cerrado','cancelado'].includes(rp.estatus);
+    if(estado.filtro !== 'todos') return rp.estatus === estado.filtro;
+    return true;
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún reporte coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenados = lista.slice().sort((a,b)=> b.fechaCreacion.localeCompare(a.fechaCreacion) || b.folio.localeCompare(a.folio));
+
+  if(vistaTabla) return h + tablaReportes(ordenados);
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((rp,i)=>{
+    const cli = clientePorId(rp.clienteId);
+    const tono = tonoReporte(rp);
+    let chips = '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_REPORTE[rp.estatus]) + '</span>';
+    if(rp.prioridad === 'urgente' || rp.prioridad === 'alta'){
+      chips += '<span class="insignia i-' + TONO_PRIORIDAD[rp.prioridad] + '">' + esc(ETIQUETA_PRIORIDAD[rp.prioridad]) + '</span>';
+    }
+    if(rp.evidencias.length) chips += '<span class="insignia i-info">' + rp.evidencias.length + ' ' + plural(rp.evidencias.length,'foto','fotos') + '</span>';
+
+    return '<div class="tarjeta tarjeta-clic t-' + tono + '" data-reporte="' + esc(rp.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     (cli ? avatarCliente(cli) : '<div class="t-avatar">' + esc(iniciales(rp.sitioNombre || rp.folio)) + '</div>')
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(rp.sitioNombre || 'Sin sitio') + '</div>'
+         +       '<div class="t-sub">' + esc(rp.titulo || rp.equipoNombre || 'Reporte') + (rp.folio ? ' · ' + esc(rp.folio) : '') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="t-chips">' + chips + '</div>'
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Técnico(s)</div><div class="d-valor chico">' + (rp.tecnicos.length ? esc(rp.tecnicos.map(t=>t.nombre).join(', ')) : 'Sin asignar') + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Prioridad</div><div class="d-valor">' + esc(ETIQUETA_PRIORIDAD[rp.prioridad]) + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">' + fmtFecha(rp.fechaCreacion) + '</span></div>'
+         + '</div>';
+  }).join('') + '</div>';
+
+  return h;
+}
+
+/* Misma lista, en tabla. */
+function tablaReportes(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:860px"><thead><tr>'
+       +   '<th>Folio</th><th>Sitio</th><th>Cliente</th><th>Equipo</th><th>Prioridad</th><th>Estatus</th><th>Técnico(s)</th><th>Fecha</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(rp=>{
+           const cli = clientePorId(rp.clienteId);
+           const tono = tonoReporte(rp);
+           return '<tr class="fila-clic" data-reporte="' + esc(rp.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(rp.folio || '—') + '</td>'
+                +   '<td>' + esc(rp.sitioNombre || 'Sin sitio') + '</td>'
+                +   '<td>' + esc(cli ? cli.nombre : '—') + '</td>'
+                +   '<td>' + esc(rp.equipoNombre || '—') + '</td>'
+                +   '<td><span class="insignia i-' + TONO_PRIORIDAD[rp.prioridad] + '">' + esc(ETIQUETA_PRIORIDAD[rp.prioridad]) + '</span></td>'
+                +   '<td><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_REPORTE[rp.estatus]) + '</span></td>'
+                +   '<td>' + (rp.tecnicos.length ? esc(rp.tecnicos.map(t=>t.nombre).join(', ')) : '—') + '</td>'
+                +   '<td>' + fmtFecha(rp.fechaCreacion) + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
+/* Detalle de un reporte. */
+function vistaReporte(){
+  const rp = reportePorId(estado.reporteId);
+  if(!rp){ estado.vista = 'reportes'; return vistaReportes(); }
+  const cli = clientePorId(rp.clienteId);
+  const tono = tonoReporte(rp);
+  const cotizacionLigada = rp.cotizacionId ? cotizacionPorId(rp.cotizacionId) : null;
+  const abierto = !['cerrado','cancelado'].includes(rp.estatus);
+
+  let h = botonRegresarReportes();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(rp.titulo || rp.equipoNombre || 'Reporte') + '</h2>'
+     +   '<p>' + esc(rp.folio || 'Sin folio') + ' · ' + esc(cli ? cli.nombre : 'Sin cliente') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_REPORTE[rp.estatus]) + '</span>'
+     +   '<span class="insignia i-' + TONO_PRIORIDAD[rp.prioridad] + '">Prioridad ' + esc(ETIQUETA_PRIORIDAD[rp.prioridad]).toLowerCase() + '</span>'
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Sitio', esc(rp.sitioNombre || 'Sin sitio'), cli ? esc(cli.nombre) : '')
+     + tarjetaKpi('Equipo', esc(rp.equipoNombre || 'Sin especificar'), '')
+     + tarjetaKpi('Reportó', esc(rp.reportadoPor.nombre || 'Alguien del equipo'), fmtFecha(rp.fechaCreacion))
+     + tarjetaKpi('Evidencia', numero(rp.evidencias.length), plural(rp.evidencias.length,'foto','fotos'))
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Descripción</h3></div></div>'
+     +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(rp.descripcion || 'Sin descripción.') + '</p>'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Técnicos asignados</h3>'
+     +   '<p>' + (rp.tecnicos.length ? numero(rp.tecnicos.length) + ' ' + plural(rp.tecnicos.length,'persona','personas') + ' a cargo' : 'Todavía sin asignar') + '</p></div>'
+     +   (puedeEditar()
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="asignar-tecnicos">' + ICONO.persona + 'Asignar</button></div>'
+          : '')
+     + '</div>'
+     +   (rp.tecnicos.length
+          ? '<div class="t-chips">' + rp.tecnicos.map(t=>'<span class="insignia i-info">' + esc(t.nombre) + '</span>').join('') + '</div>'
+          : '<p class="pista" style="margin:0">Nadie asignado todavía.</p>')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Evidencia</h3><p>Fotos del problema, tomadas desde el celular.</p></div>'
+     +   (puedeReportar()
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="subir-evidencia">' + ICONO.camara + 'Agregar foto</button></div>'
+          : '')
+     + '</div>'
+     +   (rp.evidencias.length
+          ? '<div class="galeria-evidencia">' + rp.evidencias.map(e=>
+              '<div class="evidencia-foto">'
+              +   '<img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy">'
+              +   (puedeEditar()
+                   ? '<button type="button" class="evidencia-quitar" data-accion="quitar-evidencia" data-evidencia="' + esc(e.id) + '" title="Quitar esta foto">' + ICONO.basura + '</button>'
+                   : '')
+              + '</div>'
+            ).join('') + '</div>'
+          : '<p class="pista" style="margin:0">Todavía no hay fotos.</p>')
+     +   '<input type="file" id="archivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cotización relacionada</h3></div></div>'
+     +   (cotizacionLigada
+          ? '<button type="button" class="btn btn-suave btn-mini" data-cotizacion="' + esc(cotizacionLigada.id) + '">'
+            + ICONO.credencial + 'Ver cotización ' + esc(cotizacionLigada.folio || '') + ' →</button>'
+          : (puedeEditar() && abierto
+              ? '<button type="button" class="btn btn-suave btn-mini" data-accion="generar-cotizacion-reporte">'
+                + ICONO.mas + 'Generar cotización desde este reporte</button>'
+              : '<p class="pista" style="margin:0">Este reporte no tiene ninguna cotización ligada.</p>'))
+     + '</div>';
+
+  if(rp.seguimiento.length){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Seguimiento</h3></div></div>'
+       +   '<div class="lista-seguimiento">' + rp.seguimiento.slice().reverse().map(s=>
+             '<div class="seguimiento-item"><b>' + esc(s.quien || 'Alguien del equipo') + '</b> '
+             + '<span class="pista">' + esc(fechaHora(s.cuando)) + '</span><div>' + esc(s.texto) + '</div></div>'
+           ).join('') + '</div>'
+       + '</div>';
+  }
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  if(puedeReportar()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-reporte">' + ICONO.lapiz + 'Editar</button>';
+  if(puedeReportar()){
+    if(rp.estatus === 'abierto' || rp.estatus === 'asignado'){
+      h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="en_proceso">Marcar en proceso</button>';
+    }
+    if(rp.estatus === 'asignado' || rp.estatus === 'en_proceso'){
+      h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="resuelto">Marcar resuelto</button>';
+    }
+    if(rp.estatus === 'resuelto'){
+      h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="en_proceso">Reabrir</button>'
+         + '<button type="button" class="btn btn-primario btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="cerrado">Cerrar reporte</button>';
+    }
+    if(abierto){
+      h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="cancelado">Cancelar</button>';
+    }
+  }
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-reporte">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: reporte ---------------------------- */
+function modalReporte(id){
+  const rp = id ? reportePorId(id) : null;
+  if(!datos.clientes.length){
+    aviso('Primero da de alta un cliente: el reporte cuelga de un sitio suyo.', true);
+    return;
+  }
+
+  let evidenciasTmp = rp ? rp.evidencias.slice() : [];
+  const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const cat = catalogo().slice().sort((a,b)=> a.concepto.localeCompare(b.concepto,'es'));
+
+  const opc = (lista, sel, texto, valor) => lista.map(o =>
+    '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
+
+  const equipoEsDelCatalogo = rp && rp.equipoCatalogoId;
+  const cuerpo =
+      '<div class="campo"><label>Cliente *</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="rCliente">' + opc(clientesOrd, rp ? rp.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoR" '
+    +       'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaClienteNuevoR" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del cliente nuevo *</label>'
+    +     '<input type="text" id="rncNombre" placeholder="Ej. Mercado Libre" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="rncCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="rncCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="campo"><label>Sitio *</label><select id="rSitio"></select>'
+    +   '<div class="pista" id="pistaSitioR"></div></div>'
+    + '<div class="campo"><label>Equipo</label><select id="rEquipoId">'
+    +   '<option value="">— Elegir de la lista —</option>'
+    +   opc(cat, equipoEsDelCatalogo ? rp.equipoCatalogoId : '', e=>e.concepto, e=>e.id)
+    +   '<option value="__otro__"' + (rp && !equipoEsDelCatalogo && rp.equipoNombre ? ' selected' : '') + '>Otro / no está en la lista</option>'
+    + '</select></div>'
+    + '<div class="campo" id="zonaEquipoTextoR" hidden><label>Nombre del equipo</label>'
+    +   '<input type="text" id="rEquipoTexto" placeholder="Ej. Refrigerador de postres" '
+    +     'value="' + esc(rp && !equipoEsDelCatalogo ? rp.equipoNombre : '') + '"></div>'
+    + '<div class="campo"><label>Título del reporte *</label>'
+    +   '<input type="text" id="rTitulo" placeholder="Ej. Refrigerador no enfría" value="' + esc(rp ? rp.titulo : '') + '"></div>'
+    + '<div class="campo"><label>Descripción</label>'
+    +   '<textarea id="rDescripcion" placeholder="Qué pasa, desde cuándo, cualquier detalle que ayude al técnico…">' + esc(rp ? rp.descripcion : '') + '</textarea></div>'
+    + '<div class="campo"><label>Prioridad</label><select id="rPrioridad">'
+    +   PRIORIDAD_REPORTE.map(p => '<option value="' + p + '"' + ((rp ? rp.prioridad : 'media') === p ? ' selected' : '') + '>' + esc(ETIQUETA_PRIORIDAD[p]) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Fotos de evidencia</label>'
+    +   '<div class="galeria-evidencia" id="galeriaEvidenciaTmp"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarFotoR">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +   '<input type="file" id="archivoEvidenciaR" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<div class="pista" id="pistaEvidenciaR">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Se reducen solas para no pesar.</div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (rp ? 'Guardar cambios' : 'Levantar reporte') + '</button>';
+
+  abrirModal(rp ? 'Editar reporte' : 'Nuevo reporte', cuerpo, pie);
+
+  function pintarSitios(){
+    const clienteId = $('rCliente').value;
+    const sitios = sitiosDe(clienteId).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+    $('rSitio').innerHTML = opc(sitios, rp ? rp.sitioId : '', s=>s.nombre, s=>s.id);
+    $('pistaSitioR').textContent = sitios.length
+      ? ''
+      : 'Este cliente no tiene sitios en Forpass todavía. Agrega uno ahí antes de levantar el reporte.';
+  }
+  pintarSitios();
+  $('rCliente').addEventListener('change', pintarSitios);
+
+  $('btnClienteNuevoR').addEventListener('click', ()=>{
+    $('zonaClienteNuevoR').hidden = false;
+    $('rncNombre').focus();
+  });
+  $('rncCancelar').addEventListener('click', ()=>{ $('zonaClienteNuevoR').hidden = true; $('rncNombre').value = ''; });
+  $('rncCrear').addEventListener('click', ()=>{
+    const nombre = $('rncNombre').value.trim();
+    if(!nombre){ aviso('Ponle un nombre al cliente nuevo.', true); return; }
+    const nuevo = normalizarCliente({ id:nuevoId(), nombre, usaForpass:'si' });
+    datos.clientes.push(nuevo);
+    guardarCliente(nuevo, 'creó');
+    $('rCliente').insertAdjacentHTML('beforeend', '<option value="' + esc(nuevo.id) + '" selected>' + esc(nuevo.nombre) + '</option>');
+    $('rCliente').value = nuevo.id;
+    $('zonaClienteNuevoR').hidden = true;
+    pintarSitios();
+    aviso('Cliente agregado. Ahora agrégale un sitio en Forpass si hace falta.');
+  });
+
+  function pintarEquipoTexto(){
+    $('zonaEquipoTextoR').hidden = $('rEquipoId').value !== '__otro__';
+  }
+  pintarEquipoTexto();
+  $('rEquipoId').addEventListener('change', pintarEquipoTexto);
+
+  function pintarGaleriaTmp(){
+    $('galeriaEvidenciaTmp').innerHTML = evidenciasTmp.map(e =>
+      '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
+      + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
+    ).join('');
+    $('galeriaEvidenciaTmp').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
+        pintarGaleriaTmp();
+      });
+    });
+    $('btnAgregarFotoR').disabled = evidenciasTmp.length >= EVIDENCIA_MAX_POR_REPORTE;
+  }
+  pintarGaleriaTmp();
+
+  $('btnAgregarFotoR').addEventListener('click', ()=> $('archivoEvidenciaR').click());
+  $('archivoEvidenciaR').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length) return;
+    const cupo = EVIDENCIA_MAX_POR_REPORTE - evidenciasTmp.length;
+    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Quita alguna para agregar otra.', true); return; }
+    $('pistaEvidenciaR').textContent = 'Procesando fotos…';
+    for(const archivo of archivos.slice(0, cupo)){
+      try{
+        const img = await leerEvidencia(archivo);
+        const dataUrl = comprimirEvidencia(img);
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+      }catch(e){ aviso(e.message, true); }
+    }
+    $('pistaEvidenciaR').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Se reducen solas para no pesar.';
+    pintarGaleriaTmp();
+  });
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('rCliente').value;
+    const sitioId = $('rSitio').value;
+    const titulo = $('rTitulo').value.trim();
+    if(!sitioId){ aviso('Elige un sitio: el reporte necesita saber dónde fue.', true); return; }
+    if(!titulo){ $('rTitulo').setAttribute('aria-invalid','true'); $('rTitulo').focus(); aviso('El reporte necesita un título.', true); return; }
+
+    const equipoId = $('rEquipoId').value;
+    let equipoCatalogoId = '', equipoNombre = '';
+    if(equipoId === '__otro__'){
+      equipoNombre = $('rEquipoTexto').value.trim();
+    }else if(equipoId){
+      const eq = catalogo().find(e => e.id === equipoId);
+      equipoCatalogoId = equipoId;
+      equipoNombre = eq ? eq.concepto : '';
+    }
+
+    const sitio = sitioPorId(sitioId);
+    let reg;
+    if(rp){
+      Object.assign(rp, {
+        clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : rp.sitioNombre,
+        equipoCatalogoId, equipoNombre,
+        titulo, descripcion: $('rDescripcion').value.trim(),
+        prioridad: $('rPrioridad').value,
+        evidencias: evidenciasTmp
+      });
+      reg = rp;
+    }else{
+      reg = normalizarReporte({
+        id:nuevoId(), folio: generarFolioReporte(hoyISO()),
+        clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : '',
+        equipoCatalogoId, equipoNombre, titulo,
+        descripcion: $('rDescripcion').value.trim(), prioridad: $('rPrioridad').value,
+        estatus:'abierto', fechaCreacion: hoyISO(),
+        reportadoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' },
+        evidencias: evidenciasTmp,
+        seguimiento: [{ quien: nombreDe(sesion) || 'Alguien del equipo', texto:'Levantó el reporte.' }]
+      });
+      datos.reportes.push(reg);
+    }
+    guardarReporte(reg, rp ? 'editó' : 'creó');
+    cerrarModal();
+    entrarReporte(reg.id);
+    aviso(rp ? 'Reporte actualizado.' : 'Reporte levantado: ' + reg.folio + '.');
+  };
+}
+
+/* ------------------------- Modal: técnicos del reporte ------------------------- */
+async function modalTecnicosReporte(id){
+  const rp = reportePorId(id);
+  if(!rp) return;
+  if(!exigirPermiso()) return;
+
+  abrirModal('Técnicos de ' + (rp.folio || 'este reporte'),
+    '<div class="vacio-chico">Cargando el equipo…</div>',
+    '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>');
+
+  let cuentas = null;
+  if(HAY_NUBE){
+    try{
+      if(!admin.usuarios) admin.usuarios = await listarNube('usuarios');
+      cuentas = admin.usuarios.filter(u => u.activo !== false);
+    }catch(e){ cuentas = null; }
+  }
+
+  let cuerpo = '<p class="pista" style="margin:0 0 14px">Quiénes van a atender este reporte en persona. Se pueden marcar varios.</p>';
+  if(cuentas && cuentas.length){
+    cuerpo += '<div class="lista-tecnicos">' + cuentas
+      .slice().sort((a,b)=> nombreDe(a).localeCompare(nombreDe(b),'es'))
+      .map(u => '<label class="casilla"><input type="checkbox" data-tecnico-uid="' + esc(u.id) + '" data-tecnico-nombre="' + esc(nombreDe(u)) + '"'
+        + (rp.tecnicos.some(t=>t.uid === u.id) ? ' checked' : '') + '> ' + esc(nombreDe(u))
+        + ' <span class="pista">— ' + esc(ROLES[normalizarRol(u.rol)].nombre) + '</span></label>').join('')
+      + '</div>';
+  }else{
+    cuerpo += '<div class="campo"><label>Nombres (separados por coma)</label>'
+            + '<input type="text" id="tecNombres" placeholder="Ej. Juan Pérez, Ana Torres" '
+            + 'value="' + esc(rp.tecnicos.map(t=>t.nombre).join(', ')) + '"></div>';
+  }
+
+  $('modalCuerpo').innerHTML = cuerpo;
+  $('modalPie').innerHTML =
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">Guardar</button>';
+
+  cerrarModalActual = ()=>{
+    let nuevos = [];
+    if(cuentas && cuentas.length){
+      $('modalCuerpo').querySelectorAll('[data-tecnico-uid]:checked').forEach(chk=>{
+        nuevos.push({ uid:chk.dataset.tecnicoUid, nombre:chk.dataset.tecnicoNombre });
+      });
+    }else if($('tecNombres')){
+      nuevos = $('tecNombres').value.split(',').map(n => n.trim()).filter(Boolean).map(n => ({ uid:'', nombre:n }));
+    }
+    const antes = rp.tecnicos.map(t=>t.nombre).join(', ') || 'nadie';
+    rp.tecnicos = nuevos.map(normalizarTecnicoAsignado);
+    if(rp.tecnicos.length && rp.estatus === 'abierto') rp.estatus = 'asignado';
+    const despues = rp.tecnicos.map(t=>t.nombre).join(', ') || 'nadie';
+    anotarReporte(rp, 'Cambió los técnicos asignados: ' + antes + ' → ' + despues + '.',
+                  'asignó técnicos a', rp.folio + ': ' + despues);
+    cerrarModal(); render();
+    aviso(rp.tecnicos.length ? 'Técnico(s) asignado(s): ' + despues + '.' : 'Reporte sin técnicos asignados.');
+  };
 }
 
 /* Detalle de una póliza. ESTE es el único lugar donde se pintan las partidas:
@@ -5614,6 +6377,7 @@ function render(){
                                     : estado.vista === 'agenda'  ? vistaAgenda()
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
+    : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
@@ -5633,6 +6397,36 @@ function render(){
     const fp = $('filtroPoliza');
     fp.value = estado.filtro;
     fp.addEventListener('change', ()=>{ estado.filtro = fp.value; render(); });
+  }
+  const bpR = $('buscaReporte');
+  if(bpR){
+    bpR.addEventListener('input', ()=>{ estado.busca = bpR.value; renderConservandoFoco(bpR, 'buscaReporte'); });
+    const fpR = $('filtroReporte');
+    fpR.value = estado.filtro;
+    fpR.addEventListener('change', ()=>{ estado.filtro = fpR.value; render(); });
+  }
+  /* Subir evidencia directo desde el detalle del reporte, sin abrir el modal
+     completo de edición: la foto se comprime y se agrega de inmediato. */
+  const aeR = $('archivoEvidencia');
+  if(aeR){
+    aeR.addEventListener('change', async ev=>{
+      const archivos = Array.from(ev.target.files || []);
+      ev.target.value = '';
+      if(!archivos.length) return;
+      const rp = reportePorId(estado.reporteId);
+      if(!rp) return;
+      const cupo = EVIDENCIA_MAX_POR_REPORTE - rp.evidencias.length;
+      if(cupo <= 0){ aviso('Ya tiene ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Quita alguna para agregar otra.', true); return; }
+      for(const archivo of archivos.slice(0, cupo)){
+        try{
+          const img = await leerEvidencia(archivo);
+          const dataUrl = comprimirEvidencia(img);
+          rp.evidencias.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+        }catch(e){ aviso(e.message, true); }
+      }
+      anotarReporte(rp, 'Agregó ' + plural(archivos.length,'una foto','fotos') + ' de evidencia.', 'agregó evidencia a', rp.folio);
+      render(); aviso('Foto agregada.');
+    });
   }
   const brc = $('buscaResumenCliente');
   if(brc) brc.addEventListener('input', ()=>{ estado.busca = brc.value; renderConservandoFoco(brc, 'buscaResumenCliente'); });
@@ -5697,7 +6491,8 @@ function pintarCabecera(){
      del módulo queda deshabilitado: sin esto sería un botón que no hace nada y
      además estorbaría en el recorrido del teclado. */
   const inicio = $('btnInicio');
-  const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones' : 'Clientes';
+  const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
+                 : estado.modulo === 'reportes' ? 'Reportes' : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
   inicio.disabled = enPortada;
   inicio.title = enPortada ? '' : 'Volver a ' + destino;
@@ -5723,6 +6518,14 @@ function exigirPermiso(){
 function exigirAdmin(quePasa){
   if(esAdmin()) return true;
   aviso('Solo un Admin puede ' + quePasa + '.', true);
+  return false;
+}
+/* Reportar es más permisivo que editar: hasta un Viewer puede levantar uno o
+   darle seguimiento. Solo corta si de plano no hay sesión (modo nube, sin
+   cuenta iniciada). */
+function exigirReportar(){
+  if(puedeReportar()) return true;
+  aviso('Necesitas iniciar sesión para levantar o actualizar un reporte.', true);
   return false;
 }
 /* Redibuja sin perder el cursor del buscador. El id se recibe para que sirva a
@@ -7622,12 +8425,18 @@ function modalPoliza(id){
 }
 
 /* ------------------------- Modal: cotización de servicio ------------------------- */
-function modalCotizacion(id){
+/* `origenReporte` es opcional: cuando la cotización nace de un reporte (botón
+   "Generar cotización desde este reporte"), llega el reporte completo para
+   prellenar sitio, tipo de mantenimiento y un primer concepto con el equipo
+   que se reportó — y para dejar la liga en los dos sentidos al guardar. */
+function modalCotizacion(id, origenReporte){
   const q = id ? cotizacionPorId(id) : null;
 
   /* Copia de trabajo: se toca esto y no el registro, para que Cancelar
      cancele de verdad — mismo molde que partidasTmp en modalPoliza. */
-  let partidasTmp = (q ? q.partidas : []).map(x => Object.assign({}, x));
+  let partidasTmp = (q ? q.partidas
+    : (origenReporte ? [normalizarPartidaCotizacion({ concepto: origenReporte.equipoNombre || origenReporte.titulo, cantidad:1 })] : [])
+  ).map(x => Object.assign({}, x));
 
   const sitiosOrd = () => datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
   const opcSitiosHTML = sel => (sitiosOrd().length
@@ -7649,10 +8458,14 @@ function modalCotizacion(id){
   const sinSitios = !datos.sitios.length;
 
   const cuerpo =
-      '<div class="seccion"><h4>Datos generales</h4>'
+      (origenReporte
+        ? '<div class="aviso">' + ICONO.info + '<div>Esta cotización se va a ligar al reporte <b>'
+          + esc(origenReporte.folio || 'sin folio') + '</b>. El sitio y el primer concepto ya vienen prellenados.</div></div>'
+        : '')
+    + '<div class="seccion"><h4>Datos generales</h4>'
     +   '<div class="campo"><label>Sitio *</label>'
     +     '<div class="cliente-zona">'
-    +       '<select id="qSitio">' + opcSitiosHTML(q ? q.sitioId : '') + '</select>'
+    +       '<select id="qSitio">' + opcSitiosHTML(q ? q.sitioId : (origenReporte ? origenReporte.sitioId : '')) + '</select>'
     +       '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevo" '
     +         'title="Dar de alta un cliente y su sitio sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
     +     '</div>'
@@ -7685,7 +8498,7 @@ function modalCotizacion(id){
     +   '</div>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Tipo de mantenimiento</label>'
-    +       '<input type="text" id="qTipoMtto" list="listaTiposMtto" value="' + esc(q ? q.tipoMtto : '') + '">'
+    +       '<input type="text" id="qTipoMtto" list="listaTiposMtto" value="' + esc(q ? q.tipoMtto : (origenReporte ? 'CORRECTIVO' : '')) + '">'
     +       opcDatalist('listaTiposMtto', TIPOS_MTTO_SUGERIDOS)
     +     '</div>'
     +     '<div class="campo"><label>Cargo a</label><select id="qCargoA">'
@@ -7910,13 +8723,23 @@ function modalCotizacion(id){
     const cab = leerCabecera();
     if(!cab.sitioId){ aviso('Elige un sitio.', true); return; }
     if(cab.realizo) recordarRealizo(cab.realizo);
-    const limpio = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : nuevoId(), partidas: partidasTmp }));
+    const reporteOrigenId = q ? q.reporteOrigenId : (origenReporte ? origenReporte.id : '');
+    const limpio = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : nuevoId(), partidas: partidasTmp, reporteOrigenId }));
     if(q){ Object.assign(q, limpio); }
     else{ datos.cotizaciones.push(limpio); }
 
     const c = calcularCotizacion(limpio);
     guardarCotizacion(q || limpio, q ? 'editó' : 'creó',
       limpio.partidas.length + ' ' + plural(limpio.partidas.length,'concepto','conceptos') + ' · ' + dineroCent(c.totalCliente) + ' al cliente');
+
+    /* La liga hacia adelante: el reporte que originó esta cotización se
+       entera de su folio, solo la primera vez (si ya tenía una liga, no se
+       pisa por reeditar la cotización). */
+    if(origenReporte && !q && !origenReporte.cotizacionId){
+      origenReporte.cotizacionId = limpio.id;
+      anotarReporte(origenReporte, 'Se generó la cotización ' + (limpio.folio || 'sin folio') + ' a partir de este reporte.',
+                    'generó una cotización desde', origenReporte.folio);
+    }
 
     cerrarModal();
     estado.modulo = 'cotizaciones'; guardarModulo();
@@ -8923,6 +9746,58 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso('Cotización eliminada.');
         });
     }
+    else if(a === 'ir-reportes') irAReportes();
+    else if(a === 'nuevo-reporte'){ if(exigirReportar()) modalReporte(null); }
+    else if(a === 'editar-reporte'){ if(exigirReportar()) modalReporte(estado.reporteId); }
+    else if(a === 'ver-reportes-cliente'){ const c = clientePorId(estado.clienteId); if(c) verReportesDe(c.nombre); }
+    else if(a === 'ver-reportes-sitio') verReportesDe(acc.dataset.sitioNombre || '');
+    else if(a === 'asignar-tecnicos'){ if(exigirPermiso()) modalTecnicosReporte(estado.reporteId); }
+    else if(a === 'subir-evidencia'){ if(exigirReportar()) $('archivoEvidencia').click(); }
+    else if(a === 'quitar-evidencia'){
+      if(!exigirPermiso()) return;
+      const rp = reportePorId(estado.reporteId);
+      if(!rp) return;
+      rp.evidencias = rp.evidencias.filter(e => e.id !== acc.dataset.evidencia);
+      guardarReporte(rp, 'quitó evidencia de');
+      render(); aviso('Foto eliminada.');
+    }
+    else if(a === 'cambiar-estatus-reporte'){
+      if(!exigirReportar()) return;
+      const rp = reportePorId(estado.reporteId);
+      if(!rp) return;
+      const nuevo = acc.dataset.estatus;
+      const cambiar = ()=>{
+        const antes = ETIQUETA_ESTATUS_REPORTE[rp.estatus];
+        rp.estatus = nuevo;
+        rp.fechaCierre = ['cerrado','cancelado'].includes(nuevo) ? hoyISO() : '';
+        anotarReporte(rp, 'Cambió el estatus: ' + antes + ' → ' + ETIQUETA_ESTATUS_REPORTE[nuevo] + '.',
+                      'cambió el estatus de', rp.folio + ': ' + antes + ' → ' + ETIQUETA_ESTATUS_REPORTE[nuevo]);
+        render(); aviso('Reporte marcado como "' + ETIQUETA_ESTATUS_REPORTE[nuevo] + '".');
+      };
+      if(nuevo === 'cancelado'){
+        confirmar('Cancelar reporte', 'Se va a marcar <b>' + esc(rp.folio || 'este reporte') + '</b> como cancelado. Se puede reabrir después si hace falta.', 'Sí, cancelar', cambiar);
+      }else cambiar();
+    }
+    else if(a === 'generar-cotizacion-reporte'){
+      if(!exigirPermiso()) return;
+      const rp = reportePorId(estado.reporteId);
+      if(!rp) return;
+      modalCotizacion(null, rp);
+    }
+    else if(a === 'borrar-reporte'){
+      if(!exigirAdmin('eliminar un reporte')) return;
+      const rp = reportePorId(estado.reporteId);
+      if(!rp) return;
+      confirmar('Eliminar reporte',
+        'Se va a eliminar el reporte <b>' + esc(rp.folio || 'sin folio') + '</b> y toda su evidencia. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.reportes = datos.reportes.filter(x => x.id !== rp.id);
+          borrarRegistro('reportes', rp.id);
+          anotar('eliminó', 'reporte', rp.folio || 'sin folio');
+          estado.vista = 'reportes'; estado.reporteId = null;
+          render(); aviso('Reporte eliminado.');
+        });
+    }
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-agenda') irAAgenda(false);
@@ -9145,6 +10020,9 @@ $('vista').addEventListener('click', ev=>{
   const tarQ = t.closest('[data-cotizacion]');
   if(tarQ){ entrarCotizacion(tarQ.dataset.cotizacion); return; }
 
+  const tarR = t.closest('[data-reporte]');
+  if(tarR){ entrarReporte(tarR.dataset.reporte); return; }
+
   const lado = t.closest('[data-lado-cotizacion]');
   if(lado){ estado.ladoCotizacion = lado.dataset.ladoCotizacion; render(); return; }
 
@@ -9173,6 +10051,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarP){ ev.preventDefault(); entrarPoliza(tarP.dataset.poliza); return; }
   const tarQ = ev.target.closest('[data-cotizacion]');
   if(tarQ){ ev.preventDefault(); entrarCotizacion(tarQ.dataset.cotizacion); return; }
+  const tarR = ev.target.closest('[data-reporte]');
+  if(tarR){ ev.preventDefault(); entrarReporte(tarR.dataset.reporte); return; }
   const tarCR = ev.target.closest('[data-cliente-resumen]');
   if(tarCR){ ev.preventDefault(); entrarResumenCliente(tarCR.dataset.clienteResumen); return; }
   const irSR = ev.target.closest('[data-ir-sitio-resumen]');
@@ -9205,7 +10085,7 @@ function descargarRespaldo(){
   const blob = new Blob([JSON.stringify({ v:1, generado:new Date().toISOString(),
                           clientes:datos.clientes, sitios:datos.sitios, polizas:datos.polizas,
                           catalogo:datos.catalogo, segmentos:datos.segmentos, parametros:datos.parametros,
-                          cotizaciones:datos.cotizaciones }, null, 2)],
+                          cotizaciones:datos.cotizaciones, reportes:datos.reportes }, null, 2)],
                         { type:'application/json' });
   descargar(blob, 'Respaldo_Control_Forpass_' + selloFecha() + '.json');
   aviso('Respaldo descargado.');
@@ -9232,22 +10112,24 @@ $('archivoRestaurar').addEventListener('change', ev=>{
       + (HAY_NUBE ? ' para todo el equipo' : '') + '.'
       + (!d.polizas ? '<br><br>Ojo: este respaldo es <b>anterior al módulo de pólizas</b>, así que restaurarlo va a dejar el tablero <b>sin ninguna póliza</b>.' : ''),
       'Sí, restaurar', async ()=>{
-        const previos = { clientes:datos.clientes.map(c=>c.id), sitios:datos.sitios.map(s=>s.id), polizas:datos.polizas.map(p=>p.id) };
+        const previos = { clientes:datos.clientes.map(c=>c.id), sitios:datos.sitios.map(s=>s.id), polizas:datos.polizas.map(p=>p.id), reportes:datos.reportes.map(r=>r.id) };
         datos = { v:1, clientes:d.clientes.map(normalizarCliente), sitios:d.sitios.map(normalizarSitio),
                   polizas:dPolizas.map(normalizarPoliza),
                   catalogo:(Array.isArray(d.catalogo) ? d.catalogo : datos.catalogo).map(normalizarEquipo),
                   segmentos: d.segmentos !== undefined ? normalizarSegmentos(d.segmentos) : datos.segmentos,
                   parametros: d.parametros !== undefined ? normalizarListaParametros(d.parametros) : datos.parametros,
-                  cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : datos.cotizaciones).map(normalizarCotizacion) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
+                  cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : datos.cotizaciones).map(normalizarCotizacion),
+                  reportes: (Array.isArray(d.reportes) ? d.reportes : datos.reportes).map(normalizarReporte) };
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
           const vivos = { clientes:new Set(datos.clientes.map(c=>c.id)), sitios:new Set(datos.sitios.map(s=>s.id)),
-                          polizas:new Set(datos.polizas.map(p=>p.id)) };
+                          polizas:new Set(datos.polizas.map(p=>p.id)), reportes:new Set(datos.reportes.map(r=>r.id)) };
           previos.clientes.filter(id => !vivos.clientes.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'clientes', id }));
           previos.sitios.filter(id => !vivos.sitios.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'sitios', id }));
           previos.polizas.filter(id => !vivos.polizas.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'polizas', id }));
+          previos.reportes.filter(id => !vivos.reportes.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'reportes', id }));
           subirTodo();
           anotar('restauró', 'respaldo', 'archivo JSON',
                  datos.clientes.length + ' clientes, ' + datos.sitios.length + ' sitios y ' + datos.polizas.length + ' pólizas');
@@ -9900,9 +10782,9 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
     sincronizado = false;
   }
 }
