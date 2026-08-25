@@ -2961,9 +2961,15 @@ function polizasDeCliente(id){ return datos.polizas.filter(q => q.clienteId === 
    mientras le capturas el primer sitio sería peor. */
 function clientesDeForpass(){
   return datos.clientes.filter(c => {
-    /* Con kioscos CAPTURADOS siempre entra: esconder un cliente con sitios
-       dejaría sus sitios inalcanzables, así que el dato le gana a la casilla. */
-    if(sitiosDe(c.id).length) return true;
+    /* Con sitios capturados, esta lista solo enseña al cliente si AL MENOS
+       uno está activo de verdad — no basta con que exista el registro. Un
+       cliente con todos sus sitios en pausa (ej. importados desde un listado
+       maestro, sin Forpass instalado aún) no pertenece a la portada de
+       Forpass; sigue accesible desde la pestaña Clientes con su botón
+       "Ver en Forpass", así que no queda inalcanzable, solo deja de
+       aparecer aquí hasta que de verdad tenga un módulo activo. */
+    const sitios = sitiosDe(c.id);
+    if(sitios.length) return sitios.some(s => s.estado === 'activo');
     /* Un cliente que NO TIENE NADA —ni kioscos ni pólizas— también entra
        siempre, apagada la casilla o no. Ya estaba escrito en POLIZAS.md («ahí es
        donde se crean») y la primera versión de la casilla lo rompió: un cliente
