@@ -176,7 +176,12 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 }
 .encargado svg{width:13px; height:13px; flex-shrink:0; color:var(--accent);}
 .encargado span{overflow:hidden; text-overflow:ellipsis;}
-.encargado.vacio{color:var(--gray); border-color:var(--line); border-style:dashed;}
+/* padding y border-radius se repiten aquí a propósito: la clase genérica
+   ".vacio" (la del estado "todavía no hay nada", con su propio padding de
+   44px) tiene la misma especificidad que ".encargado" y aparece después en
+   la hoja de estilos, así que sin esto se la ganaba en el empate y la
+   etiqueta de "Sin encargado" se inflaba hasta tapar la tarjeta completa. */
+.encargado.vacio{color:var(--gray); border-color:var(--line); border-style:dashed; padding:4px 12px; border-radius:999px;}
 .encargado.vacio svg{color:#b6bccb;}
 button.encargado{cursor:pointer; transition:border-color .15s, color .15s, box-shadow .15s;}
 button.encargado:hover{border-color:var(--accent); color:var(--accent); box-shadow:0 4px 12px rgba(10,27,77,.14);}
