@@ -3294,7 +3294,14 @@ function normalizarPoliza(p){
              volver a guardar (editar la nota, agregar fotos) no genera una
              segunda solicitud ni borra la que ya existía. */
           refaccion: d.refaccion ? String(d.refaccion) : '',
-          refaccionCotizacionId: d.refaccionCotizacionId ? String(d.refaccionCotizacionId) : ''
+          refaccionCotizacionId: d.refaccionCotizacionId ? String(d.refaccionCotizacionId) : '',
+          /* Serie del equipo atendido, no de la póliza ni del cliente: con
+             varias unidades idénticas en un mismo renglón (ej. 3 Rational),
+             es lo que distingue cuál de todas se atendió este mes. Alfanumérico
+             a propósito —letras, números y guión, nada más— porque así vienen
+             las placas de serie y así se van a copiar del equipo, no a
+             redactar. */
+          numeroSerie: (d.numeroSerie ? String(d.numeroSerie) : '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40)
         };
         if(hechas < tope && d.motivo) reg.motivo = String(d.motivo);
         limpio[String(m)] = reg;
@@ -6502,6 +6509,7 @@ function vistaPoliza(){
                                             + (hecho.quien ? ' · ' + hecho.quien : '')
                                             + (parcial ? ' · ' + hecho.hechas + ' de ' + x.cantidad
                                                 + (hecho.motivo ? ' · faltó: ' + hecho.motivo : '') : '')
+                                            + (hecho.numeroSerie ? ' · serie ' + hecho.numeroSerie : '')
                                             + (hecho.evidencias && hecho.evidencias.length
                                                 ? ' · ' + hecho.evidencias.length + ' ' + plural(hecho.evidencias.length,'foto','fotos') : '')
                                             + (hecho.refaccion ? ' · pidió refacción: ' + hecho.refaccion : '')
@@ -8206,6 +8214,13 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     +   '<div class="pista">Lo que valga la pena recordar del servicio: un refacción cambiada, algo que quedó pendiente.</div>'
     + '</div>'
 
+    + '<div class="campo"><label>Número de serie del equipo (opcional)</label>'
+    +   '<input type="text" id="svNumeroSerie" placeholder="Ej. A1B2C3D4" pattern="[A-Za-z0-9-]*" '
+    +     'title="Solo letras, números y guión" value="' + esc((det && det.numeroSerie) || '') + '">'
+    +   '<div class="pista">Solo letras, números y guión — cópialo tal cual de la placa del equipo. Útil cuando el renglón tiene '
+    +     'varias unidades iguales, para saber cuál de todas se atendió.</div>'
+    + '</div>'
+
     + '<div class="campo"><label>Fotos de evidencia (opcional)</label>'
     +   '<div class="galeria-evidencia" id="svGaleriaEvidencia"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="svBtnAgregarFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
@@ -8320,9 +8335,14 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     const cuando = $('svCuando').value.trim();
     const quien  = $('svQuien').value.trim();
     const nota   = $('svNota').value.trim();
+    const numeroSerie = $('svNumeroSerie').value.trim();
     if(!/^\d{4}-\d{2}-\d{2}$/.test(cuando)){
       $('svCuando').setAttribute('aria-invalid','true'); $('svCuando').focus();
       aviso('Falta la fecha en que se hizo el servicio.', true); return;
+    }
+    if(numeroSerie && !/^[A-Za-z0-9-]+$/.test(numeroSerie)){
+      $('svNumeroSerie').setAttribute('aria-invalid','true'); $('svNumeroSerie').focus();
+      aviso('El número de serie solo lleva letras, números y guión.', true); return;
     }
     if(diasEntre(cuando, hoyISO()) < 0){
       $('svCuando').setAttribute('aria-invalid','true'); $('svCuando').focus();
@@ -8357,7 +8377,7 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
       aviso('Escribe qué refacción hace falta, o desmarca la casilla.', true); return;
     }
 
-    marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp,
+    marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp, numeroSerie,
       refaccion, refaccionCotizacionId: (cotOrigenExistente && cotOrigenExistente.id) || '' },
       motivo ? { motivo } : {}));
     if(!conCuenta) recordarCapturador(quien);
@@ -8376,7 +8396,8 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     const parcial = hechas < x.cantidad ? ' · ' + hechas + ' de ' + x.cantidad + ' · faltó: ' + motivo : '';
     guardarPoliza(p, yaHecho ? 'corrigió el servicio de' : 'registró el servicio de',
       x.concepto + ' · ' + etiqueta + ' · hecho el ' + fmtFecha(cuando) + ' · capturó ' + quien
-      + parcial + (nota ? ' · ' + nota : '') + (folioSolicitud ? ' · pidió refacción: ' + refaccion : ''));
+      + parcial + (numeroSerie ? ' · serie ' + numeroSerie : '') + (nota ? ' · ' + nota : '')
+      + (folioSolicitud ? ' · pidió refacción: ' + refaccion : ''));
     cerrarModal();
     render();
     aviso('Servicio de ' + x.concepto + ' en ' + etiqueta
@@ -8473,6 +8494,7 @@ function modalCalendario(id){
             ? 'Hecho el ' + fmtFecha(r.det.cuando) + (r.det.quien ? ' · ' + r.det.quien : '')
               + (parcial ? ' · ' + r.det.hechas + ' de ' + r.x.cantidad
                   + (r.det.motivo ? ' · faltó: ' + r.det.motivo : '') : '')
+              + (r.det.numeroSerie ? ' · serie ' + r.det.numeroSerie : '')
               + (r.det.nota ? ' · ' + r.det.nota : '')
               + (r.det.evidencias && r.det.evidencias.length
                   ? ' · ' + r.det.evidencias.length + ' ' + plural(r.det.evidencias.length,'foto','fotos') : '')
