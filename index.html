@@ -1157,7 +1157,6 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="archivoRestaurar" accept="application/json,.json" style="display:none">
 <input type="file" id="archivoPolizas" accept="application/json,.json" multiple style="display:none">
-<input type="file" id="archivoCostos" accept="application/json,.json" style="display:none">
 
 <script>
 /* =========================================================================
@@ -1316,6 +1315,79 @@ function polizaCongelada(p){
    cotización siempre manda sobre esto. Cortinas de aire y mini split entran en
    cero porque aparecen en las descripciones pero en ningún renglón con precio.
    --------------------------------------------------------------------------- */
+
+/* Hoja de costos 2025/2026 que Victor compartió (63 equipos: insumos + mano
+   de obra). Va EMBEBIDA aquí, no como un archivo que hay que ir a buscar:
+   el botón "Importar costos" de Lista de precios la aplica directo, de un
+   clic. Emparejar por nombre es cosa de importarCostosCatalogo(); un
+   equipo en cero aquí significa "todavía no costeado" en la hoja
+   original, así que esa fila NO pisa un costo que ya exista — se salta. */
+const COSTOS_CATALOGO_2026 = [
+  { concepto:'Amasadora Industrial', costoInsumos:151.2, costoManoObra:302.4 },
+  { concepto:'Anaqueles', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Banda Transportadora de Charola', costoInsumos:270, costoManoObra:540 },
+  { concepto:'Barra Caliente de Servicio Eléctrica', costoInsumos:486, costoManoObra:972 },
+  { concepto:'Barra Caliente de Servicio Gas', costoInsumos:486, costoManoObra:972 },
+  { concepto:'Barra Fría', costoInsumos:378.0, costoManoObra:756.0 },
+  { concepto:'Bascula de Cocina', costoInsumos:54, costoManoObra:108 },
+  { concepto:'Bascula de Recibo', costoInsumos:98.28, costoManoObra:196.56 },
+  { concepto:'Batidora Industrial', costoInsumos:91.8, costoManoObra:183.6 },
+  { concepto:'Boiler', costoInsumos:302.4, costoManoObra:604.8 },
+  { concepto:'Bowl Chino', costoInsumos:302.4, costoManoObra:604.8 },
+  { concepto:'Brujas', costoInsumos:102.6, costoManoObra:205.2 },
+  { concepto:'Calentón Doble', costoInsumos:518.4, costoManoObra:1036.8 },
+  { concepto:'Calentón Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Cámara de Congelación', costoInsumos:604.8, costoManoObra:1209.6 },
+  { concepto:'Cámara de Refrigeración', costoInsumos:604.8, costoManoObra:1209.6 },
+  { concepto:'Campana de Extracción', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Carritos de Servicio', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Congelador Horizontal', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Congelador Vertical', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Contra Barra', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Cortinas de Aire', costoInsumos:226.8, costoManoObra:453.6 },
+  { concepto:'Estufa', costoInsumos:302.4, costoManoObra:604.8 },
+  { concepto:'Estufón', costoInsumos:194.4, costoManoObra:388.8 },
+  { concepto:'Extracción', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Extractor de Jugos', costoInsumos:91.8, costoManoObra:183.6 },
+  { concepto:'Fermentadora', costoInsumos:302.4, costoManoObra:604.8 },
+  { concepto:'Freídora', costoInsumos:345.6, costoManoObra:691.2 },
+  { concepto:'Garabato', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Horno Convencional Doble', costoInsumos:442.8, costoManoObra:885.6 },
+  { concepto:'Horno Convencional Sencillo', costoInsumos:442.8, costoManoObra:885.6 },
+  { concepto:'Horno Rational', costoInsumos:604.8, costoManoObra:1209.6 },
+  { concepto:'Jaula de Quimicos', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Lavadero', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Licuadora Chica', costoInsumos:64.26, costoManoObra:128.52 },
+  { concepto:'Licuadora Industrial', costoInsumos:91.8, costoManoObra:183.6 },
+  { concepto:'Máquina de Agua Doble', costoInsumos:129.6, costoManoObra:259.2 },
+  { concepto:'Máquina de Agua Sencilla', costoInsumos:129.6, costoManoObra:259.2 },
+  { concepto:'Máquina de Agua Triple', costoInsumos:129.6, costoManoObra:259.2 },
+  { concepto:'Máquina de Hielo', costoInsumos:604.8, costoManoObra:1209.6 },
+  { concepto:'Máquina Lavaloza', costoInsumos:604.8, costoManoObra:1209.6 },
+  { concepto:'Marmita', costoInsumos:464.4, costoManoObra:928.8 },
+  { concepto:'Microondas', costoInsumos:81, costoManoObra:162 },
+  { concepto:'Mini Split', costoInsumos:162, costoManoObra:324 },
+  { concepto:'Molino', costoInsumos:226.8, costoManoObra:453.6 },
+  { concepto:'Pasarela Caliente Doble', costoInsumos:518.4, costoManoObra:1036.8 },
+  { concepto:'Pasarela Caliente Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Pasarela Fría Doble', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Pasarela Fría Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Plancha Industrial', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Procesador de Alimentos', costoInsumos:91.8, costoManoObra:183.6 },
+  { concepto:'Rebanadora', costoInsumos:64.26, costoManoObra:128.52 },
+  { concepto:'Refrigerador Doble', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Refrigerador Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Refrigerador Triple', costoInsumos:410.4, costoManoObra:820.8 },
+  { concepto:'Revolvedora', costoInsumos:91.8, costoManoObra:183.6 },
+  { concepto:'Sarteneta', costoInsumos:464.4, costoManoObra:928.8 },
+  { concepto:'Sistema de Filtrado', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Tarja', costoInsumos:0, costoManoObra:0 },
+  { concepto:'Trampa de Grasa', costoInsumos:313.2, costoManoObra:626.4 },
+  { concepto:'Triturador', costoInsumos:226.8, costoManoObra:453.6 },
+  { concepto:'Turbo Licuador', costoInsumos:91.8, costoManoObra:183.6 },
+  { concepto:'Vitrina de Postre', costoInsumos:410.4, costoManoObra:820.8 }
+];
+
 const CATALOGO_SEMILLA = [
   { id:'amasadora-industrial', concepto:'Amasadora industrial', precio:1512, frecuencia:3, costoInsumos:151.2, costoManoObra:302.4,
     descripcion:'' },
@@ -6449,7 +6521,9 @@ function vistaPrecios(){
      +   (puede ? ' · los precios y costos de aquí se sugieren al cotizar y siempre se pueden cambiar en el renglón'
               : ' · solo un Admin puede cambiarlos') + '</p>'
      + '</div><div class="acciones">'
-     +   (puede ? '<button type="button" class="btn btn-suave" data-accion="importar-costos">' + ICONO.mas + 'Importar costos</button>' : '')
+     +   (puede ? '<button type="button" class="btn btn-suave" data-accion="importar-costos" '
+          + 'title="Carga de un clic la hoja de costos 2026 que ya compartiste, sin tener que buscar el archivo">'
+          + ICONO.mas + 'Importar costos</button>' : '')
      +   (puede ? '<button type="button" class="btn btn-primario" data-accion="nuevo-equipo">' + ICONO.mas + 'Agregar equipo</button>' : '')
      + '</div></div>';
 
@@ -10361,7 +10435,14 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-agenda-pendiente') irAAgenda(true);
     else if(a === 'nuevo-equipo') modalEquipo(null);
     else if(a === 'guardar-catalogo') sembrarCatalogo();
-    else if(a === 'importar-costos'){ if(exigirAdmin('importar costos al catálogo')) $('archivoCostos').click(); }
+    else if(a === 'importar-costos'){
+      if(!exigirAdmin('importar costos al catálogo')) return;
+      confirmar('Cargar costos 2026',
+        'Se va a aplicar la hoja de costos que compartiste (' + COSTOS_CATALOGO_2026.length + ' equipos) a los que coincidan '
+        + 'por nombre en el catálogo. Los que ya tengan costo capturado se actualizan; los que vengan en cero en la hoja '
+        + 'se dejan como están.',
+        'Sí, cargar', ()=> importarCostosCatalogo(COSTOS_CATALOGO_2026));
+    }
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
     /* SIN exigirPermiso, a propósito: imprimir es solo lectura y el Viewer ya
@@ -10707,20 +10788,6 @@ $('archivoPolizas').addEventListener('change', ev=>{
   if(!fs.length) return;
   if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar pólizas.', true); return; }
   importarPolizas(fs);
-});
-
-$('archivoCostos').addEventListener('change', async ev=>{
-  const archivo = (ev.target.files || [])[0];
-  ev.target.value = '';
-  if(!archivo) return;
-  if(!exigirAdmin('importar costos al catálogo')) return;
-  try{
-    const texto = await archivo.text();
-    const datosCrudos = JSON.parse(texto);
-    importarCostosCatalogo(datosCrudos);
-  }catch(e){
-    aviso('Ese archivo no es un JSON válido: ' + (e && e.message ? e.message : 'error'), true);
-  }
 });
 
 /* ======================= GENERADOR DE ARCHIVO XLSX =======================
