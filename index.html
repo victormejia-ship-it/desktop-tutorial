@@ -3154,6 +3154,14 @@ function normalizarPoliza(p){
     /* Cuándo aceptó el cliente. Vacía mientras siga siendo cotización; con fecha
        significa que los precios ya quedaron congelados. */
     fechaCierre: /^\d{4}-\d{2}-\d{2}$/.test(p.fechaCierre||'') ? p.fechaCierre : '',
+    /* Quién paga esta póliza de verdad. La mayoría las paga el cliente —eso es
+       lo que hoy cuenta como ingreso en Resultados—, pero a veces la absorbemos
+       nosotros mismos (p.ej. "Plato Express"): ahí no entra ni un peso de un
+       cliente, así que calcularResultados() la excluye de ingresoPolizas. El
+       nombre de a quién se le carga es texto libre porque puede ser cualquier
+       empresa o centro de costo interno, no solo uno fijo. */
+    cargoA: p.cargoA === 'interno' ? 'interno' : 'cliente',
+    cargoAInterno: (p.cargoAInterno ? String(p.cargoAInterno) : '').trim(),
     notas: p.notas || ''
   };
 }
@@ -4553,8 +4561,12 @@ function calcularResultados(inicio, fin){
   });
 
   /* Pólizas: mismo criterio, con sus cobros (uno solo si es anual, doce si
-     es mensual). */
+     es mensual). Las de cargoA==='interno' NO entran: ese cobro marcado no
+     es dinero que haya puesto un cliente, es un gasto que absorbimos
+     nosotros mismos — contarlo aquí infla el ingreso con algo que nunca
+     entró. Ver normalizarPoliza(). */
   datos.polizas.forEach(p=>{
+    if(p.cargoA === 'interno') return;
     const c = calcularPoliza(p);
     p.cobros.forEach((cobrado, i)=>{
       if(!cobrado) return;
@@ -5076,8 +5088,8 @@ function tituloPoliza(p){
 /* Misma lista de pólizas, en tabla: cada <tr> lleva el mismo data-poliza que
    ya usan las tarjetas para abrir el detalle. */
 function tablaPolizas(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:820px"><thead><tr>'
-       +   '<th>Sitio</th><th>Cliente</th><th>Folio</th><th>Estado</th>'
+  return '<div class="rodillo"><table class="tabla" style="min-width:900px"><thead><tr>'
+       +   '<th>Sitio</th><th>Cliente</th><th>Folio</th><th>Estado</th><th>Cargo a</th>'
        +   '<th>Precio anual</th><th>Servicios</th>'
        + '</tr></thead><tbody>'
        + lista.map(p=>{
@@ -5088,6 +5100,9 @@ function tablaPolizas(lista){
                 +   '<td>' + esc(cli ? cli.nombre : 'Sin cliente ligado') + '</td>'
                 +   '<td>' + esc(p.folio || '—') + '</td>'
                 +   '<td><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></td>'
+                +   '<td>' + (p.cargoA === 'interno'
+                       ? '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span>'
+                       : '<span class="pista">Cliente</span>') + '</td>'
                 +   '<td>' + dineroCent(c.precioAnual) + '</td>'
                 +   '<td>' + c.hechos + ' de ' + c.programados + '</td>'
                 + '</tr>';
@@ -5196,6 +5211,10 @@ function vistaPolizas(){
     if(c.huerfanos) chips += '<span class="insignia i-info">' + c.huerfanos + ' fuera de calendario</span>';
     /* Una cotización que no cuadra no se puede cerrar; si ya se mandó, peor. */
     if(!c.cerrable && (p.estatus === 'cotizacion' || p.estatus === 'enviada')) chips += '<span class="insignia i-alerta">Renglones sin cuadrar</span>';
+    /* Que salte a la vista en la lista, no solo adentro del detalle: esta
+       póliza no cuenta como ingreso en Resultados porque la pagamos
+       nosotros. Sin chip aquí, un vistazo a la lista no lo dice. */
+    if(p.cargoA === 'interno') chips += '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span>';
 
     return '<div class="tarjeta tarjeta-clic t-' + c.tono + '" data-poliza="' + esc(p.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
          +   '<div class="t-cabeza">'
@@ -6176,6 +6195,9 @@ function vistaPoliza(){
      + (p.fechaCierre ? '<div class="c-fila"><span>Cerrada</span><b>' + fmtFecha(p.fechaCierre)
          + ' <span class="pista" style="display:inline">precios congelados</span></b></div>' : '')
      + '<div class="c-fila"><span>Facturación</span><b>' + (p.facturacion === 'mensual' ? 'Mensual — doce cobros' : 'Anual — un solo cobro') + '</b></div>'
+     + '<div class="c-fila"><span>Cargo a</span><b>' + (p.cargoA === 'interno'
+         ? '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span> <span class="pista" style="display:inline">no cuenta como ingreso en Resultados</span>'
+         : 'Cliente') + '</b></div>'
      + '<div class="c-fila"><span>Vendedor</span><b>' + esc(p.vendedor.nombre || '—')
      +   (p.vendedor.telefono ? ' · ' + esc(p.vendedor.telefono) : '') + '</b></div>'
      + (p.notas ? '<div class="c-fila"><span>Notas</span><b style="font-weight:500; text-align:right">' + esc(p.notas) + '</b></div>' : '')
@@ -8180,6 +8202,13 @@ function modalPoliza(id){
     +     '<option value="anual"' + (!p || p.facturacion === 'anual' ? ' selected' : '') + '>Anual — un solo cobro</option>'
     +     '<option value="mensual"' + (p && p.facturacion === 'mensual' ? ' selected' : '') + '>Mensual — doce cobros</option>'
     +   '</select></div>'
+    +   '<div class="campo"><label>Cargo a</label><select id="pCargoA">'
+    +     '<option value="cliente"' + (!p || p.cargoA === 'cliente' ? ' selected' : '') + '>Cliente — cuenta como ingreso</option>'
+    +     '<option value="interno"' + (p && p.cargoA === 'interno' ? ' selected' : '') + '>Interno — la absorbemos nosotros</option>'
+    +   '</select>'
+    +     '<div class="pista">Si la absorbemos nosotros, esta póliza deja de contar como ingreso en Resultados.</div></div>'
+    +   '<div class="campo" id="zonaCargoAInterno" hidden><label>¿A quién se le carga?</label>'
+    +     '<input type="text" id="pCargoAInterno" placeholder="Ej. Plato Express" value="' + esc(p ? p.cargoAInterno : '') + '"></div>'
     /* El descuento solo lo VE quien lo puede poner. A un Analyst no se le enseña
        una casilla que el servidor le va a negar; y si la póliza ya trae uno, se
        le muestra como texto para que sepa con qué está trabajando. */
@@ -8263,9 +8292,19 @@ function modalPoliza(id){
       fechaCierre: estatus === 'activa' ? ((p && p.fechaCierre) || hoyISO()) : '',
       vendedor: { uid: v.uid || '', nombre: $('pVendNombre').value.trim(),
                   correo: $('pVendCorreo').value.trim(), telefono: $('pVendTel').value.trim() },
+      cargoA: $('pCargoA').value,
+      cargoAInterno: $('pCargoAInterno').value.trim(),
       notas: $('pNotas').value.trim()
     };
   }
+
+  /* Muestra el nombre de a quién se le carga solo cuando de verdad hace
+     falta: con "Cliente" seleccionado, ese campo no significa nada. */
+  function pintarCargoA(){
+    $('zonaCargoAInterno').hidden = $('pCargoA').value !== 'interno';
+  }
+  pintarCargoA();
+  $('pCargoA').addEventListener('change', pintarCargoA);
 
   /* Los sitios de Forpass del cliente elegido. Se repinta solo este select. */
   function pintarSitios(){
