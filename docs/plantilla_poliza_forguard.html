@@ -637,7 +637,14 @@ function pageCalendario(){
 
 /* ========================= CONSIDERACIONES ========================= */
 function pageConsideraciones(){
+  /* Las notas que se capturan en el formulario de la póliza (campo "Notas",
+     opcional) — condiciones propias de ESTE contrato, no la letra chica
+     genérica de abajo. Se imprimen primero y en negritas, para que salten a
+     la vista antes que las cláusulas estándar. Si la póliza no trae notas,
+     esta cláusula simplemente no aparece. */
+  const notas = POLIZA && POLIZA.notas ? String(POLIZA.notas).trim() : '';
   const c=[
+    ...(notas ? [{h:"NOTAS DE ESTA PÓLIZA", p:`<b>${esc(notas).replace(/\n/g,'<br>')}</b>`}] : []),
     {h:"VISITAS NO PLANEADAS O PACTADAS (PRECIO ADICIONAL)",
      p:`<b>Aplicación:</b> toda visita solicitada por el cliente fuera del cronograma preventivo tendrá un precio adicional, excepto que sea por falla cubierta bajo garantía de reparación reciente (por ejemplo, dentro de los 15 días posteriores a una visita programada).`},
     {h:"EXCLUSIONES DE INFRAESTRUCTURA",

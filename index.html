@@ -3890,6 +3890,12 @@ function armarPayloadPoliza(p){
                           subtotal: c.subtotal, descuento: c.descuento,
                           montoDescuento: c.montoDescuento } },
 
+    /* Lo que el vendedor/analyst haya anotado en "Notas" del formulario de la
+       póliza (condiciones, accesos, contacto en sitio…). Se imprime como su
+       propia sección en Consideraciones Relevantes — ver pageConsideraciones()
+       en la plantilla — para que no se quede solo en el tablero. */
+    notas: (p.notas || '').trim(),
+
     pie: { iva: 'Precio más Iva.', tagline: 'Sostenemos a los que sostienen todo.' }
   };
 }
