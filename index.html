@@ -1157,6 +1157,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="archivoRestaurar" accept="application/json,.json" style="display:none">
 <input type="file" id="archivoPolizas" accept="application/json,.json" multiple style="display:none">
+<input type="file" id="archivoCostos" accept="application/json,.json" style="display:none">
 
 <script>
 /* =========================================================================
@@ -1316,87 +1317,87 @@ function polizaCongelada(p){
    cero porque aparecen en las descripciones pero en ningún renglón con precio.
    --------------------------------------------------------------------------- */
 const CATALOGO_SEMILLA = [
-  { id:'amasadora-industrial', concepto:'Amasadora industrial', precio:1512, frecuencia:3,
+  { id:'amasadora-industrial', concepto:'Amasadora industrial', precio:1512, frecuencia:3, costoInsumos:151.2, costoManoObra:302.4,
     descripcion:'' },
-  { id:'banda-transportadora-charola', concepto:'Banda transportadora de charola', precio:2700, frecuencia:3,
+  { id:'banda-transportadora-charola', concepto:'Banda transportadora de charola', precio:2700, frecuencia:3, costoInsumos:270, costoManoObra:540,
     descripcion:'' },
-  { id:'barra-caliente-electrica', concepto:'Barra caliente de servicio eléctrica', precio:5625, frecuencia:3,
+  { id:'barra-caliente-electrica', concepto:'Barra caliente de servicio eléctrica', precio:5625, frecuencia:3, costoInsumos:486, costoManoObra:972,
     descripcion:'Revisión de voltaje y amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
-  { id:'barra-caliente-gas', concepto:'Barra caliente de servicio de gas', precio:7200, frecuencia:3,
+  { id:'barra-caliente-gas', concepto:'Barra caliente de servicio de gas', precio:7200, frecuencia:3, costoInsumos:486, costoManoObra:972,
     descripcion:'Revisión de tubería, válvulas, estado de tanques de carga y descarga de agua y limpieza de quemadores y del equipo en general con ice machine.' },
-  { id:'barra-fria', concepto:'Barra fría', precio:5625, frecuencia:3,
+  { id:'barra-fria', concepto:'Barra fría', precio:5625, frecuencia:3, costoInsumos:378, costoManoObra:756,
     descripcion:'Revisión de tubería, válvulas, estado de tanques de carga y descarga de agua y limpieza de quemadores y del equipo en general con ice machine.' },
   { id:'barra-fria-4-insertos', concepto:'Barra fría 4 insertos', precio:6800, frecuencia:3,
     descripcion:'Revisión de tubería, válvulas, estado de tanques de carga y descarga de agua y limpieza de quemadores y del equipo en general con ice machine.' },
-  { id:'bascula-cocina', concepto:'Báscula de cocina', precio:540, frecuencia:3,
+  { id:'bascula-cocina', concepto:'Báscula de cocina', precio:540, frecuencia:3, costoInsumos:54, costoManoObra:108,
     descripcion:'Inspección del estado y funcionamiento de tarjeta y componentes, limpieza de componentes mecánicos.' },
-  { id:'bascula-recibo', concepto:'Báscula de recibo', precio:982.8, frecuencia:3,
+  { id:'bascula-recibo', concepto:'Báscula de recibo', precio:982.8, frecuencia:3, costoInsumos:98.28, costoManoObra:196.56,
     descripcion:'Inspección del estado y funcionamiento de tarjeta y componentes, limpieza de componentes mecánicos.' },
-  { id:'batidora-industrial', concepto:'Batidora industrial', precio:940, frecuencia:3,
+  { id:'batidora-industrial', concepto:'Batidora industrial', precio:940, frecuencia:3, costoInsumos:91.8, costoManoObra:183.6,
     descripcion:'' },
-  { id:'calenton-doble', concepto:'Calentón doble', precio:7200, frecuencia:3,
+  { id:'calenton-doble', concepto:'Calentón doble', precio:7200, frecuencia:3, costoInsumos:518.4, costoManoObra:1036.8,
     descripcion:'Revisión de voltaje y amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
-  { id:'camara-congelacion', concepto:'Cámara de congelación', precio:7000, frecuencia:3,
+  { id:'camara-congelacion', concepto:'Cámara de congelación', precio:7000, frecuencia:3, costoInsumos:604.8, costoManoObra:1209.6,
     descripcion:'Lavado de condensador y evaporador, inspección del funcionamiento correcto de motores y ventiladores, revisión de voltaje y amperaje así como verificación de presión de gas. Limpieza y ajuste de contactores y reapriete de terminales y tornillería.' },
-  { id:'camara-refrigeracion', concepto:'Cámara de refrigeración', precio:7000, frecuencia:3,
+  { id:'camara-refrigeracion', concepto:'Cámara de refrigeración', precio:7000, frecuencia:3, costoInsumos:604.8, costoManoObra:1209.6,
     descripcion:'Lavado de condensador y evaporador, inspección del funcionamiento correcto de motores y ventiladores, revisión de voltaje y amperaje así como verificación de presión de gas. Limpieza y ajuste de contactores y reapriete de terminales y tornillería.' },
-  { id:'campana-extraccion', concepto:'Campana de extracción', precio:16000, frecuencia:3,
+  { id:'campana-extraccion', concepto:'Campana de extracción', precio:16000, frecuencia:3, costoInsumos:0, costoManoObra:0,
     descripcion:'Limpieza a campana de extracción de humo con desengrasante y alta presión, incluye lavado de filtros.' },
-  { id:'congelador-horizontal', concepto:'Congelador horizontal', precio:4104, frecuencia:3,
+  { id:'congelador-horizontal', concepto:'Congelador horizontal', precio:4104, frecuencia:3, costoInsumos:410.4, costoManoObra:820.8,
     descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores y motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
-  { id:'cortinas-aire', concepto:'Cortinas de aire', precio:0, frecuencia:3,
+  { id:'cortinas-aire', concepto:'Cortinas de aire', precio:0, frecuencia:3, costoInsumos:226.8, costoManoObra:453.6,
     descripcion:'Limpieza de turbina, verificación eléctrica, limpieza eléctrica, lavado de carcasa y engrase de partes móviles.' },
-  { id:'estufa', concepto:'Estufa', precio:3024, frecuencia:3,
+  { id:'estufa', concepto:'Estufa', precio:3024, frecuencia:3, costoInsumos:302.4, costoManoObra:604.8,
     descripcion:'' },
-  { id:'estufon', concepto:'Estufón', precio:8500, frecuencia:3,
+  { id:'estufon', concepto:'Estufón', precio:8500, frecuencia:3, costoInsumos:194.4, costoManoObra:388.8,
     descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
   { id:'estufon-doble', concepto:'Estufón doble', precio:3000, frecuencia:3,
     descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
-  { id:'extraccion', concepto:'Extracción', precio:22000, frecuencia:3,
+  { id:'extraccion', concepto:'Extracción', precio:22000, frecuencia:3, costoInsumos:0, costoManoObra:0,
     descripcion:'Medición de amperaje y voltaje del equipo, así como la revisión de las condiciones y funcionamiento de bandas y componentes del equipo, lubricación de chumaceras y limpieza del equipo con desengrasante.' },
-  { id:'fermentadora', concepto:'Fermentadora', precio:3024, frecuencia:3,
+  { id:'fermentadora', concepto:'Fermentadora', precio:3024, frecuencia:3, costoInsumos:302.4, costoManoObra:604.8,
     descripcion:'' },
-  { id:'freidora', concepto:'Freidora', precio:1200, frecuencia:3,
+  { id:'freidora', concepto:'Freidora', precio:1200, frecuencia:3, costoInsumos:345.6, costoManoObra:691.2,
     descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
-  { id:'horno-convencional-doble', concepto:'Horno convencional doble', precio:4428, frecuencia:3,
+  { id:'horno-convencional-doble', concepto:'Horno convencional doble', precio:4428, frecuencia:3, costoInsumos:442.8, costoManoObra:885.6,
     descripcion:'' },
-  { id:'horno-rational', concepto:'Horno Rational', precio:7000, frecuencia:3,
+  { id:'horno-rational', concepto:'Horno Rational', precio:7000, frecuencia:3, costoInsumos:604.8, costoManoObra:1209.6,
     descripcion:'Revisión de voltaje, amperaje y conexiones, ajuste y reapriete de conexiones, limpieza mecánica, lubricación de componentes y revisión de funcionamiento de componentes.' },
-  { id:'licuadora-chica', concepto:'Licuadora chica', precio:450, frecuencia:3,
+  { id:'licuadora-chica', concepto:'Licuadora chica', precio:450, frecuencia:3, costoInsumos:64.26, costoManoObra:128.52,
     descripcion:'' },
-  { id:'licuadora-industrial', concepto:'Licuadora industrial', precio:920, frecuencia:3,
+  { id:'licuadora-industrial', concepto:'Licuadora industrial', precio:920, frecuencia:3, costoInsumos:91.8, costoManoObra:183.6,
     descripcion:'Revisión del voltaje y amperaje del equipo, inspección del estado físico de los componentes y comprobación del funcionamiento adecuado del equipo.' },
-  { id:'maquina-agua-doble', concepto:'Máquina de agua doble', precio:1296, frecuencia:3,
+  { id:'maquina-agua-doble', concepto:'Máquina de agua doble', precio:1296, frecuencia:3, costoInsumos:129.6, costoManoObra:259.2,
     descripcion:'' },
-  { id:'maquina-hielo', concepto:'Máquina de hielo', precio:7000, frecuencia:3,
+  { id:'maquina-hielo', concepto:'Máquina de hielo', precio:7000, frecuencia:3, costoInsumos:604.8, costoManoObra:1209.6,
     descripcion:'Limpieza del motor y abanico, y limpieza con ice machine del evaporador y condensador, así como la inspección del cableado eléctrico y ajuste de terminales.' },
-  { id:'maquina-lavaloza', concepto:'Máquina lavaloza', precio:7000, frecuencia:3,
+  { id:'maquina-lavaloza', concepto:'Máquina lavaloza', precio:7000, frecuencia:3, costoInsumos:604.8, costoManoObra:1209.6,
     descripcion:'Inspección visual de los componentes físicos del equipo, así como la revisión de mangueras y componentes hidráulicos, limpieza en general con desincrustante.' },
-  { id:'marmita', concepto:'Marmita', precio:8400, frecuencia:3,
+  { id:'marmita', concepto:'Marmita', precio:8400, frecuencia:3, costoInsumos:464.4, costoManoObra:928.8,
     descripcion:'' },
   { id:'mesa-fria', concepto:'Mesa fría', precio:4800, frecuencia:3,
     descripcion:'' },
-  { id:'mini-split', concepto:'Mini split', precio:0, frecuencia:3,
+  { id:'mini-split', concepto:'Mini split', precio:0, frecuencia:3, costoInsumos:162, costoManoObra:324,
     descripcion:'Limpieza de turbina, verificación eléctrica, limpieza eléctrica, lavado de carcasa y engrase de partes móviles.' },
-  { id:'pasarela-caliente-doble', concepto:'Pasarela caliente doble', precio:5625, frecuencia:3,
+  { id:'pasarela-caliente-doble', concepto:'Pasarela caliente doble', precio:5625, frecuencia:3, costoInsumos:518.4, costoManoObra:1036.8,
     descripcion:'Revisión de voltaje y amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
-  { id:'pasarela-fria-doble', concepto:'Pasarela fría doble', precio:5625, frecuencia:3,
+  { id:'pasarela-fria-doble', concepto:'Pasarela fría doble', precio:5625, frecuencia:3, costoInsumos:410.4, costoManoObra:820.8,
     descripcion:'' },
-  { id:'plancha-industrial', concepto:'Plancha industrial', precio:7500, frecuencia:3,
+  { id:'plancha-industrial', concepto:'Plancha industrial', precio:7500, frecuencia:3, costoInsumos:410.4, costoManoObra:820.8,
     descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
-  { id:'procesador-alimentos', concepto:'Procesador de alimentos', precio:918, frecuencia:3,
+  { id:'procesador-alimentos', concepto:'Procesador de alimentos', precio:918, frecuencia:3, costoInsumos:91.8, costoManoObra:183.6,
     descripcion:'' },
-  { id:'rebanadora', concepto:'Rebanadora', precio:650, frecuencia:3,
+  { id:'rebanadora', concepto:'Rebanadora', precio:650, frecuencia:3, costoInsumos:64.26, costoManoObra:128.52,
     descripcion:'' },
-  { id:'refrigerador-doble', concepto:'Refrigerador doble', precio:4800, frecuencia:3,
+  { id:'refrigerador-doble', concepto:'Refrigerador doble', precio:4800, frecuencia:3, costoInsumos:410.4, costoManoObra:820.8,
     descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores y motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
-  { id:'refrigerador-sencillo', concepto:'Refrigerador sencillo', precio:4800, frecuencia:3,
+  { id:'refrigerador-sencillo', concepto:'Refrigerador sencillo', precio:4800, frecuencia:3, costoInsumos:410.4, costoManoObra:820.8,
     descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores y motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
-  { id:'sarteneta', concepto:'Sarteneta', precio:4750, frecuencia:3,
+  { id:'sarteneta', concepto:'Sarteneta', precio:4750, frecuencia:3, costoInsumos:464.4, costoManoObra:928.8,
     descripcion:'' },
-  { id:'trampa-grasa', concepto:'Trampa de grasa', precio:3500, frecuencia:12,
+  { id:'trampa-grasa', concepto:'Trampa de grasa', precio:3500, frecuencia:12, costoInsumos:313.2, costoManoObra:626.4,
     descripcion:'Limpieza de trampa de grasa, raspado de paredes, deflectores y filtros para eliminar residuos, retiro de sólidos y revisión de tapa.' },
-  { id:'turbo-licuador', concepto:'Turbo licuador', precio:920, frecuencia:3,
+  { id:'turbo-licuador', concepto:'Turbo licuador', precio:920, frecuencia:3, costoInsumos:91.8, costoManoObra:183.6,
     descripcion:'' },
   { id:'ultracongelador', concepto:'Ultracongelador', precio:4800, frecuencia:3,
     descripcion:'' },
@@ -1408,7 +1409,7 @@ const CATALOGO_SEMILLA = [
     descripcion:'' },
   { id:'sistema-extraccion-mayor', concepto:'Sistema de extracción mayor', precio:52245, frecuencia:2,
     descripcion:'' },
-  { id:'sistema-filtrado', concepto:'Sistema de filtrado', precio:10400, frecuencia:2,
+  { id:'sistema-filtrado', concepto:'Sistema de filtrado', precio:10400, frecuencia:2, costoInsumos:0, costoManoObra:0,
     descripcion:'' },
   { id:'trabajos-inmueble', concepto:'Trabajos de inmueble', precio:28300, frecuencia:2,
     descripcion:'' }
@@ -1428,10 +1429,26 @@ function normalizarEquipo(e){
     precio: Math.max(0, Math.round((Number(e.precio) || 0) * 100) / 100),
     frecuencia: Math.max(1, Math.min(MESES_POLIZA, parseInt(e.frecuencia,10) || 1)),
     descripcion: (e.descripcion || '').trim(),
+    /* Lo que de verdad cuesta dar ese servicio, para poder comparar precio vs
+       costo vs margen — antes solo existía el precio de venta. Se captura
+       insumos y mano de obra por separado, como en la hoja de costos real; el
+       total con indirectos se deriva (ver costoTotalEquipo), nunca se guarda. */
+    costoInsumos: Math.max(0, Math.round((Number(e.costoInsumos) || 0) * 100) / 100),
+    costoManoObra: Math.max(0, Math.round((Number(e.costoManoObra) || 0) * 100) / 100),
     /* Un equipo que ya no se vende se apaga en vez de borrarse: las pólizas
        viejas siguen apuntando a su id y tienen que poder resolver su texto. */
     activo: e.activo !== false
   };
+}
+
+/* 10% de indirectos sobre insumos + mano de obra: así se arma el costo total
+   de un servicio en la hoja de costos 2025/2026 (verificado exacto en sus 63
+   renglones). Se deja como constante y no como número suelto para que, si el
+   porcentaje cambia, haya un solo lugar que tocar. */
+const COSTO_INDIRECTO_PCT = 10;
+function costoTotalEquipo(e){
+  const base = (e && e.costoInsumos || 0) + (e && e.costoManoObra || 0);
+  return Math.round(base * (1 + COSTO_INDIRECTO_PCT / 100) * 100) / 100;
 }
 
 /* La descripción va al revés que el precio: NO se copia al documento salvo que
@@ -2196,6 +2213,54 @@ function sembrarCatalogo(){
   guardarCatalogo('siembra inicial de las cotizaciones de MXGT01, MXNL02, INOAC y NGK');
   render();
   aviso('Lista de precios guardada con ' + datos.catalogo.length + ' equipos.');
+}
+
+/* Carga masiva de costos (insumos + mano de obra) desde un JSON —
+   [{concepto, costoInsumos, costoManoObra}, ...]— para no tener que teclear
+   equipo por equipo. Empareja por nombre normalizado (mismo criterio que
+   tituloPoliza y compañía: sin mayúsculas ni acentos). Solo TOCA el costo de
+   equipos que YA existen en el catálogo: un equipo nuevo se da de alta con
+   "Agregar equipo", no aparece solo porque venía en el archivo — así nunca
+   se cuela un nombre mal escrito como si fuera un equipo real. */
+function importarCostosCatalogo(datosCrudos){
+  if(!exigirAdmin('importar costos al catálogo')) return;
+  if(!Array.isArray(datosCrudos) || !datosCrudos.length){
+    aviso('Ese archivo no trae una lista de equipos con costo.', true);
+    return;
+  }
+  if(!datos.catalogo.length) datos.catalogo = CATALOGO_SEMILLA.map(normalizarEquipo);
+
+  const porLlave = new Map(datos.catalogo.map(e => [llaveTexto(e.concepto), e]));
+  let actualizados = 0, sinDatoDeCosto = 0;
+  const sinCoincidencia = [];
+
+  datosCrudos.forEach(fila=>{
+    const concepto = (fila && fila.concepto ? String(fila.concepto) : '').trim();
+    if(!concepto) return;
+    const eq = porLlave.get(llaveTexto(concepto));
+    if(!eq){ sinCoincidencia.push(concepto); return; }
+    /* Una fila en cero no es "este equipo cuesta cero" — en la hoja de origen
+       significa "todavía no lo costeamos". Importarla tal cual borraría un
+       costo real que alguien ya haya capturado a mano. Se salta, no se pisa. */
+    const insumos = Number(fila.costoInsumos) || 0, manoObra = Number(fila.costoManoObra) || 0;
+    if(!insumos && !manoObra){ sinDatoDeCosto++; return; }
+    Object.assign(eq, normalizarEquipo(Object.assign({}, eq, {
+      costoInsumos: insumos, costoManoObra: manoObra
+    })));
+    actualizados++;
+  });
+
+  if(!actualizados){
+    aviso('Ningún equipo del archivo trae costo y coincide con el catálogo. Revisa la ortografía o los importes.', true);
+    return;
+  }
+
+  guardarCatalogo('importó costos: ' + actualizados + ' ' + plural(actualizados,'equipo','equipos'));
+  render();
+  aviso('Costos actualizados en ' + actualizados + ' ' + plural(actualizados,'equipo','equipos') + '.'
+    + (sinDatoDeCosto ? ' ' + sinDatoDeCosto + ' venían en cero y se dejaron como estaban.' : '')
+    + (sinCoincidencia.length ? ' ' + sinCoincidencia.length + ' sin coincidencia en el catálogo: ' + sinCoincidencia.join(', ') + '.' : ''),
+    !!sinCoincidencia.length);
 }
 
 /* ===================== SEGMENTOS Y PARÁMETROS PERSONALIZADOS =====================
@@ -3210,6 +3275,12 @@ function normalizarPartida(x){
        exacto: si el precio trae milésimas, el anual las trae y el reparto en
        centavos ya no le cuadra. Redondear aquí es idempotente. */
     precioUnitario: Math.max(0, Math.round((Number(x.precioUnitario) || 0) * 100) / 100),
+    /* Lo que cuesta ESTE renglón, no el precio de venta. Se sugiere desde el
+       catálogo al agregar el equipo (ver costoTotalEquipo) y se puede ajustar
+       aquí igual que el precio, por si el costo real de este cliente/sitio es
+       distinto del estándar. Es lo que permite comparar costo vs precio vs
+       margen por póliza — ver calcularPoliza(). */
+    costoUnitario: Math.max(0, Math.round((Number(x.costoUnitario) || 0) * 100) / 100),
     frecuencia
   };
 }
@@ -3393,6 +3464,8 @@ function resumir(sitios){
 /* LA regla de oro, en un solo lugar. El total de un renglón jamás se captura.
    Está aquí y nada más aquí para que no pueda haber dos versiones. */
 const totalRenglon = x => x.precioUnitario * x.cantidad * x.frecuencia;
+/* Mismo cálculo, del lado del costo — para el análisis de margen. */
+const costoTotalRenglon = x => (x.costoUnitario || 0) * x.cantidad * x.frecuencia;
 
 /* ---------------------------- Centavos ----------------------------
    El dinero de las pólizas se reparte en CENTAVOS ENTEROS, no en pesos con
@@ -3561,6 +3634,16 @@ function calcularPoliza(p){
   const cuotaCent = Math.floor(precioAnualCent / MESES_POLIZA);
   const precioMensual = deCentavos(cuotaCent);
 
+  /* Costo real de dar el servicio, para el análisis costo vs precio vs
+     margen. SIN descuento: el descuento es una decisión comercial y no
+     cambia lo que de verdad cuesta operar la póliza. */
+  const costos = p.partidas.map(costoTotalRenglon);
+  const costoAnual = costos.reduce((t,n)=> t + n, 0);
+  const costoAnualCent = aCentavos(costoAnual);
+  const utilidadCent = precioAnualCent - costoAnualCent;
+  const utilidadAnual = deCentavos(utilidadCent);
+  const margenPct = precioAnualCent ? (utilidadCent / precioAnualCent * 100) : 0;
+
   const arranco = diasEntre(p.fechaInicio, hoy) >= 0;
   const mesesCumplidos = arranco ? mesesTranscurridos(p.fechaInicio, hoy) : 0;
   const mesActual = arranco ? Math.min(mesesCumplidos, MESES_POLIZA - 1) : -1;
@@ -3573,6 +3656,11 @@ function calcularPoliza(p){
      reparto es trivial; con mensual son doce y la última se lleva el residuo. */
   const montosCent = repartirCentavos(precioAnualCent, nCobros);
   const montos = montosCent.map(deCentavos);
+  /* Mismo reparto, del lado del costo: así el costo de CADA cobro se puede
+     comparar contra su ingreso — es lo que usa calcularResultados() para no
+     mezclar costo de un periodo con ingreso de otro. */
+  const costoMontosCent = repartirCentavos(costoAnualCent, nCobros);
+  const costoMontos = costoMontosCent.map(deCentavos);
   const cobrados = p.cobros.filter(Boolean).length;
   const debidos = arranco ? Math.min(nCobros, mesesCumplidos + 1) : 0;
   const cobrosAtrasados = Math.max(0, debidos - cobrados);
@@ -3633,7 +3721,9 @@ function calcularPoliza(p){
   return { hoy, fin, precioAnual, precioAnualCent, precioMensual, totales,
            subtotal, subtotalCent, descuento, descuentoCent,
            montoDescuento: deCentavos(descuentoCent),
-           montos, montosCent, cobrados, debidos, cobrosAtrasados, adeudo, cobrado, proximoCobro,
+           costos, costoAnual, costoAnualCent, utilidadAnual, margenPct,
+           montos, montosCent, costoMontos, costoMontosCent,
+           cobrados, debidos, cobrosAtrasados, adeudo, cobrado, proximoCobro,
            programados, hechos, pendientes, atrasados, tocanEsteMes, huerfanos,
            mesesCumplidos, mesActual, vigente, diasVigencia, diasEsperando,
            noCuadran, cerrable, estado, tono, activa };
@@ -4545,7 +4635,7 @@ function rangoPeriodoResultados(modo, desde, hasta){
 }
 
 function calcularResultados(inicio, fin){
-  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, costoCotizaciones:0,
+  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
               numPagosForpass:0, numCobrosPolizas:0, numCotizaciones:0 };
 
   /* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
@@ -4571,7 +4661,7 @@ function calcularResultados(inicio, fin){
     p.cobros.forEach((cobrado, i)=>{
       if(!cobrado) return;
       const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
-      if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.numCobrosPolizas++; }
+      if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.costoPolizas += c.costoMontos[i]; r.numCobrosPolizas++; }
     });
   });
 
@@ -4587,7 +4677,7 @@ function calcularResultados(inicio, fin){
   });
 
   r.ingresoTotal = r.ingresoForpass + r.ingresoPolizas + r.ingresoCotizaciones;
-  r.costoTotal = r.costoCotizaciones;
+  r.costoTotal = r.costoCotizaciones + r.costoPolizas;
   r.utilidadBruta = r.ingresoTotal - r.costoTotal;
   r.margenPct = r.ingresoTotal ? (r.utilidadBruta / r.ingresoTotal * 100) : 0;
   return r;
@@ -4618,7 +4708,7 @@ function vistaResultados(){
 
   h += '<div class="kpis">'
      + tarjetaKpi('Ingresos totales', dineroCent(r.ingresoTotal), 'Forpass + pólizas + cotizaciones', 'k-ok')
-     + tarjetaKpi('Costo capturado', dineroCent(r.costoTotal), 'Solo lo que traen las cotizaciones')
+     + tarjetaKpi('Costo capturado', dineroCent(r.costoTotal), 'Pólizas (costo por equipo) + cotizaciones')
      + tarjetaKpi('Utilidad bruta', dineroCent(r.utilidadBruta), r.margenPct.toFixed(1) + '% de margen sobre el ingreso',
          r.utilidadBruta >= 0 ? 'k-ok' : 'k-error')
      + '</div>';
@@ -4634,8 +4724,10 @@ function vistaResultados(){
      +   '<div class="tp-fila tp-total"><span>Total de ingresos</span><span class="tp-monto">' + dineroCent(r.ingresoTotal) + '</span></div>'
 
      +   '<div class="tp-seccion">Costos</div>'
+     +   '<div class="tp-fila tp-negativo"><span>Costo de pólizas · mismos cobros de arriba</span>'
+     +     '<span class="tp-monto">' + dineroCent(r.costoPolizas) + '</span></div>'
      +   '<div class="tp-fila tp-negativo"><span>Costo de las cotizaciones aprobadas</span>'
-     +     '<span class="tp-monto">' + dineroCent(r.costoTotal) + '</span></div>'
+     +     '<span class="tp-monto">' + dineroCent(r.costoCotizaciones) + '</span></div>'
      +   '<div class="tp-fila tp-total"><span>Total de costos</span><span class="tp-monto">' + dineroCent(r.costoTotal) + '</span></div>'
      + '</div>';
 
@@ -4644,8 +4736,9 @@ function vistaResultados(){
      +   '<span class="tp-monto" style="color:' + (r.utilidadBruta >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + dineroCent(r.utilidadBruta) + '</span>'
      + '</div>';
 
-  h += '<p class="pista" style="margin-top:14px">Forpass y pólizas no tienen un costo interno capturado en el sistema, '
-     + 'así que aquí solo aportan ingreso — no se les inventa un margen. El costo completo solo existe para cotizaciones.</p>';
+  h += '<p class="pista" style="margin-top:14px">Forpass no tiene un costo interno capturado en el sistema, así que aquí '
+     + 'solo aporta ingreso — no se le inventa un margen. Pólizas sí lo trae desde el costo de cada equipo en su renglón '
+     + '(ver Lista de precios); si un equipo quedó en $0 de costo, esa parte del margen sale de más.</p>';
 
   return h;
 }
@@ -6203,6 +6296,26 @@ function vistaPoliza(){
      + (p.notas ? '<div class="c-fila"><span>Notas</span><b style="font-weight:500; text-align:right">' + esc(p.notas) + '</b></div>' : '')
      + '</div>';
 
+  /* --- Análisis de margen: costo vs precio vs margen de ESTA póliza.
+     Mismo criterio que el resumen del formulario — SIN descuento, porque el
+     descuento es comercial y no cambia lo que de verdad cuesta operarla. Si
+     algún renglón no trae costo capturado, se avisa: el margen que se ve
+     aquí sale de más mientras eso no se llene (ver Lista de precios). */
+  const sinCosto = p.partidas.filter(x => x.precioUnitario && !x.costoUnitario).length;
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Análisis de margen</h3>'
+     +   '<p>Costo real de dar el servicio contra lo que se cobra por esta póliza.</p></div></div>'
+     +   '<div class="resumen">'
+     +     '<div><div class="d-label">Precio anual</div><div class="d-valor">' + dineroCent(c.precioAnual) + '</div></div>'
+     +     '<div><div class="d-label">Costo anual</div><div class="d-valor">' + dineroCent(c.costoAnual) + '</div></div>'
+     +     '<div><div class="d-label">Margen</div><div class="d-valor" style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+     +       dineroCent(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
+     +   '</div>'
+     +   (sinCosto
+         ? '<p class="pista" style="margin-top:10px; color:var(--alerta)">' + sinCosto + ' ' + plural(sinCosto,'renglón','renglones')
+           + ' sin costo capturado: el margen de arriba sale de más hasta que se llene.</p>'
+         : '')
+     + '</div>';
+
   /* --- Los renglones ---
      Los meses son BOTONES cuando se puede editar: es donde se marca que un
      mantenimiento ya se hizo. Mismo molde que las casillas de cobro. */
@@ -6212,7 +6325,7 @@ function vistaPoliza(){
      + (marcable ? ' Pica un mes para registrar que ese mantenimiento ya se hizo.' : '') + '</p>'
      + '</div></div><div class="rodillo"><table class="tabla">'
      + '<thead><tr><th>#</th><th>Concepto</th><th>Marca</th><th>Cant.</th>'
-     + '<th>P. unitario</th><th>Serv./año</th><th>Meses</th><th>Total</th></tr></thead><tbody>'
+     + '<th>P. unitario</th><th>Costo unit.</th><th>Serv./año</th><th>Meses</th><th>Total</th></tr></thead><tbody>'
      + p.partidas.map((x,i)=>{
          const fuera = serviciosFueraDeCalendario(p, x);
          const chip = (m, tono, aviso) => {
@@ -6251,6 +6364,7 @@ function vistaPoliza(){
            + '<td>' + esc(x.marca || '—') + '</td>'
            + '<td>' + numero(x.cantidad) + '</td>'
            + '<td>' + dineroCent(x.precioUnitario) + '</td>'
+           + '<td>' + (x.costoUnitario ? dineroCent(x.costoUnitario) : '<span class="pista">sin costo</span>') + '</td>'
            + '<td>' + x.frecuencia + (cuadraFrecuencia(x) ? '' : ' <b style="color:var(--error)">≠' + x.mesesServicio.length + '</b>') + '</td>'
            + '<td>' + meses + '</td>'
            + '<td><b>' + dineroCent(c.totales[i]) + '</b></td>'
@@ -6325,17 +6439,26 @@ function vistaPrecios(){
   const q = estado.busca.trim().toLowerCase();
   const vistos = q ? lista.filter(e => e.concepto.toLowerCase().includes(q)) : lista;
   const sinPrecio = lista.filter(e => !e.precio).length;
+  const sinCosto = lista.filter(e => e.activo && e.precio && !costoTotalEquipo(e)).length;
 
   let h = botonRegresarPolizas();
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Lista de precios</h2>'
      +   '<p>' + numero(lista.length) + ' ' + plural(lista.length,'equipo','equipos')
-     +   (puede ? ' · los precios de aquí se sugieren al cotizar y siempre se pueden cambiar en el renglón'
+     +   (puede ? ' · los precios y costos de aquí se sugieren al cotizar y siempre se pueden cambiar en el renglón'
               : ' · solo un Admin puede cambiarlos') + '</p>'
      + '</div><div class="acciones">'
+     +   (puede ? '<button type="button" class="btn btn-suave" data-accion="importar-costos">' + ICONO.mas + 'Importar costos</button>' : '')
      +   (puede ? '<button type="button" class="btn btn-primario" data-accion="nuevo-equipo">' + ICONO.mas + 'Agregar equipo</button>' : '')
      + '</div></div>';
+
+  if(sinCosto){
+    h += '<div class="aviso" style="border-left-color:var(--alerta)">' + ICONO.info
+       + '<div><b>' + sinCosto + ' ' + plural(sinCosto,'equipo','equipos') + ' con precio pero sin costo capturado.</b> '
+       + 'Su margen en el análisis va a salir de más hasta que les captures insumos y mano de obra, o los traigas con '
+       + '"Importar costos".</div></div>';
+  }
 
   if(sinPrecio){
     h += '<div class="aviso" style="border-left-color:var(--alerta)">' + ICONO.info
@@ -6367,12 +6490,21 @@ function vistaPrecios(){
            + 'y se puede volver a ofrecer cuando quieras.</p></div></div>'
          : '')
      + '<div class="rodillo"><table class="tabla">'
-     + '<thead><tr><th>Equipo</th><th>Precio unitario</th><th>Servicios/año</th><th>Descripción del trabajo</th>'
+     + '<thead><tr><th>Equipo</th><th>Precio unitario</th><th>Costo</th><th>Margen</th><th>Servicios/año</th><th>Descripción del trabajo</th>'
      + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
-     + (vistos.length ? vistos.map(e =>
-         '<tr' + (e.activo ? '' : ' style="opacity:.5"') + '>'
+     + (vistos.length ? vistos.map(e =>{
+         const costo = costoTotalEquipo(e);
+         const margen = e.precio - costo;
+         const margenPct = e.precio ? (margen / e.precio * 100) : 0;
+         return '<tr' + (e.activo ? '' : ' style="opacity:.5"') + '>'
        + '<td><b>' + esc(e.concepto) + '</b>' + (e.activo ? '' : ' <span class="pista" style="display:inline">(apagado)</span>') + '</td>'
        + '<td' + (e.precio ? '' : ' style="color:var(--error)"') + '>' + (e.precio ? dineroCent(e.precio) : 'sin precio') + '</td>'
+       + '<td>' + (costo ? dineroCent(costo) : '<span class="pista">sin costo</span>') + '</td>'
+       + '<td' + (e.precio && costo
+           ? ' style="color:' + (margen >= 0 ? 'var(--ok)' : 'var(--error)') + '"'
+           : '') + '>'
+         + (e.precio && costo ? dineroCent(margen) + ' <span class="pista" style="display:inline">(' + margenPct.toFixed(0) + '%)</span>' : '<span class="pista">—</span>')
+       + '</td>'
        + '<td>' + e.frecuencia + ' · cada ' + (MESES_POLIZA / e.frecuencia % 1 === 0 ? (MESES_POLIZA/e.frecuencia) + ' ' + plural(MESES_POLIZA/e.frecuencia,'mes','meses') : 'irregular') + '</td>'
        + '<td>' + (e.descripcion ? '<div class="pista">' + esc(e.descripcion) + '</div>' : '<span class="pista">— sin descripción —</span>') + '</td>'
        + (puede
@@ -6385,8 +6517,9 @@ function vistaPrecios(){
                + (e.activo ? 'Ya no ofrecer' : 'Volver a ofrecer') + '</button>'
              + '</td>'
            : '')
-       + '</tr>').join('')
-       : '<tr><td colspan="5"><span class="pista">Ningún equipo coincide con la búsqueda.</span></td></tr>')
+       + '</tr>';
+       }).join('')
+       : '<tr><td colspan="7"><span class="pista">Ningún equipo coincide con la búsqueda.</span></td></tr>')
      + '</tbody></table></div>'
      + (puede ? '<div class="pista" style="margin-top:10px">La lista es un solo documento: si dos administradores la editan al mismo tiempo, gana el último que guarde.</div>' : '')
      + '</div>';
@@ -6410,6 +6543,15 @@ function modalEquipo(id){
     +     '<input type="number" min="1" max="' + MESES_POLIZA + '" id="eqFrecuencia" value="' + (e ? e.frecuencia : 3) + '">'
     +     '<div class="pista" id="eqIntervalo"></div></div>'
     + '</div>'
+    + '<div class="seccion"><h4>Costo del servicio</h4>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Costo de insumos</label>'
+    +       '<input type="text" inputmode="decimal" id="eqCostoInsumos" value="' + (e && e.costoInsumos ? numero(e.costoInsumos) : '') + '"></div>'
+    +     '<div class="campo"><label>Costo de mano de obra</label>'
+    +       '<input type="text" inputmode="decimal" id="eqCostoManoObra" value="' + (e && e.costoManoObra ? numero(e.costoManoObra) : '') + '"></div>'
+    +   '</div>'
+    +   '<div class="pista" id="eqCostoResumen"></div>'
+    + '</div>'
     + '<div class="campo"><label>Descripción del trabajo (opcional)</label>'
     +   '<textarea id="eqDescripcion" placeholder="Lo que se le hace al equipo en cada visita. Sale impreso en la cotización.">' + esc(e ? e.descripcion : '') + '</textarea></div>';
 
@@ -6423,9 +6565,24 @@ function modalEquipo(id){
       ? 'Cada ' + (MESES_POLIZA/f) + ' ' + plural(MESES_POLIZA/f,'mes','meses') + '.'
       : 'Repartidos lo más parejo posible en el año: ' + mesesRegulares(0,f).map(m => m+1).join(', ') + '.';
   }
+  /* Costo total = (insumos + mano de obra) × (1 + COSTO_INDIRECTO_PCT). Se
+     enseña en vivo para que quien captura vea de una vez el margen que deja,
+     sin tener que ir a buscarlo a la lista después de guardar. */
+  function pintarCostoResumen(){
+    const insumos = aNumero($('eqCostoInsumos').value);
+    const manoObra = aNumero($('eqCostoManoObra').value);
+    const precio = aNumero($('eqPrecio').value);
+    const costo = costoTotalEquipo({ costoInsumos: insumos, costoManoObra: manoObra });
+    let texto = 'Costo total con ' + COSTO_INDIRECTO_PCT + '% de indirectos: ' + dineroCent(costo) + '.';
+    if(precio && costo) texto += ' Margen: ' + dineroCent(precio - costo) + ' (' + ((precio-costo)/precio*100).toFixed(0) + '%).';
+    $('eqCostoResumen').textContent = texto;
+  }
   $('eqFrecuencia').addEventListener('input', pintarIntervalo);
-  $('eqPrecio').addEventListener('input', ()=> formatearMiles($('eqPrecio')));
+  $('eqPrecio').addEventListener('input', ()=>{ formatearMiles($('eqPrecio')); pintarCostoResumen(); });
+  $('eqCostoInsumos').addEventListener('input', ()=>{ formatearMiles($('eqCostoInsumos')); pintarCostoResumen(); });
+  $('eqCostoManoObra').addEventListener('input', ()=>{ formatearMiles($('eqCostoManoObra')); pintarCostoResumen(); });
   pintarIntervalo();
+  pintarCostoResumen();
 
   cerrarModalActual = ()=>{
     const concepto = $('eqConcepto').value.trim();
@@ -6434,6 +6591,7 @@ function modalEquipo(id){
       id: e ? e.id : concepto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''),
       concepto, precio: aNumero($('eqPrecio').value),
       frecuencia: $('eqFrecuencia').value, descripcion: $('eqDescripcion').value.trim(),
+      costoInsumos: aNumero($('eqCostoInsumos').value), costoManoObra: aNumero($('eqCostoManoObra').value),
       activo: e ? e.activo : true
     });
     /* Si la lista todavía era la semilla, al primer cambio se materializa completa:
@@ -8348,6 +8506,7 @@ function modalPoliza(id){
         + '<td class="marca"><input type="text" data-campo="marca" value="' + esc(x.marca) + '" placeholder="—"' + soloL + '></td>'
         + '<td class="mini"><input type="number" min="1" step="1" data-campo="cantidad" value="' + x.cantidad + '"' + soloL + '></td>'
         + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioUnitario" value="' + numero(x.precioUnitario) + '"' + soloL + '></td>'
+        + '<td class="med"><input type="text" inputmode="decimal" data-campo="costoUnitario" value="' + numero(x.costoUnitario) + '"' + soloL + '></td>'
         + '<td class="mini"><input type="number" min="1" max="' + MESES_POLIZA + '" step="1" data-campo="frecuencia" value="' + x.frecuencia + '"' + soloL + '></td>'
         + '<td class="arr">' + arrHtml + '</td>'
         + '<td class="med"><input type="text" readonly data-total value=""></td>'
@@ -8369,7 +8528,7 @@ function modalPoliza(id){
         + 'aria-pressed="' + (lim.mesesServicio.includes(m) ? 'true' : 'false') + '"' + bloq + '>'
         + esc(etiquetaMesServicio(ini, m)) + '</button>').join('');
       return fila
-        + '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="8">'
+        + '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="9">'
         +   '<div class="pista" style="margin-bottom:7px">Meses de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
         +     'Los servicios al año se ajustan solos a los que marques, y el arranque pasa a «a mano».</div>'
         +   '<div class="meses-modal con-mes" data-meses>' + casillas + '</div>'
@@ -8379,7 +8538,7 @@ function modalPoliza(id){
 
     $('listaPartidas').innerHTML =
         '<div class="rodillo"><table class="tabla-renglones">'
-      + '<thead><tr><th></th><th class="equipo">Equipo</th><th class="marca">Marca</th><th>Cant.</th><th>P. unitario</th>'
+      + '<thead><tr><th></th><th class="equipo">Equipo</th><th class="marca">Marca</th><th>Cant.</th><th>P. unitario</th><th>Costo unit.</th>'
       +   '<th>Serv./año</th><th>Arranque</th><th>Total</th><th></th></tr></thead>'
       + '<tbody>' + filas + '</tbody></table></div>'
       /* El pie va FUERA del contenedor que se recorre a lo ancho: los totales son
@@ -8479,7 +8638,10 @@ function modalPoliza(id){
                 : iguales + ' de ' + dineroCent(c.montos[0]) + ' y uno de ' + dineroCent(ultimo))
             + '</span></div>'
           : '<div class="r-fila"><span>Cobros</span><span>uno solo, al inicio</span></div>')
-      + '<div class="r-fila r-total"><span>Precio anual</span><span>' + dineroCent(c.precioAnual) + '</span></div>';
+      + '<div class="r-fila r-total"><span>Precio anual</span><span>' + dineroCent(c.precioAnual) + '</span></div>'
+      + '<div class="r-fila"><span>Costo anual</span><span>' + dineroCent(c.costoAnual) + '</span></div>'
+      + '<div class="r-fila r-total"><span>Margen</span><span style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+      +   dineroCent(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</span></div>';
   }
 
   /* Agrega un renglón y deja el cursor donde toca seguir capturando. */
@@ -8521,6 +8683,7 @@ function modalPoliza(id){
       if(antes !== null && nuevos) { x.mesesServicio = nuevos; pintarPartidas(); return; }
     }
     else if(k === 'precioUnitario'){ formatearMiles(campo); x.precioUnitario = aNumero(campo.value); }
+    else if(k === 'costoUnitario'){ formatearMiles(campo); x.costoUnitario = aNumero(campo.value); }
     else x[k] = campo.value;
     refrescar(+fila.dataset.idx);
   });
@@ -8647,7 +8810,7 @@ function modalPoliza(id){
   function agregarDelEquipo(e){
     agregarRenglon({
       catalogoId: e.id, concepto: e.concepto, cantidad: 1,
-      precioUnitario: e.precio, frecuencia: e.frecuencia,
+      precioUnitario: e.precio, costoUnitario: costoTotalEquipo(e), frecuencia: e.frecuencia,
       /* Arranca en el primer mes; "Balancear calendario" los reparte después. */
       mesesServicio: mesesRegulares(0, e.frecuencia)
     }, null);
@@ -10198,6 +10361,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-agenda-pendiente') irAAgenda(true);
     else if(a === 'nuevo-equipo') modalEquipo(null);
     else if(a === 'guardar-catalogo') sembrarCatalogo();
+    else if(a === 'importar-costos'){ if(exigirAdmin('importar costos al catálogo')) $('archivoCostos').click(); }
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
     /* SIN exigirPermiso, a propósito: imprimir es solo lectura y el Viewer ya
@@ -10543,6 +10707,20 @@ $('archivoPolizas').addEventListener('change', ev=>{
   if(!fs.length) return;
   if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar pólizas.', true); return; }
   importarPolizas(fs);
+});
+
+$('archivoCostos').addEventListener('change', async ev=>{
+  const archivo = (ev.target.files || [])[0];
+  ev.target.value = '';
+  if(!archivo) return;
+  if(!exigirAdmin('importar costos al catálogo')) return;
+  try{
+    const texto = await archivo.text();
+    const datosCrudos = JSON.parse(texto);
+    importarCostosCatalogo(datosCrudos);
+  }catch(e){
+    aviso('Ese archivo no es un JSON válido: ' + (e && e.message ? e.message : 'error'), true);
+  }
 });
 
 /* ======================= GENERADOR DE ARCHIVO XLSX =======================
