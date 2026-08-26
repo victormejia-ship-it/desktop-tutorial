@@ -1316,76 +1316,76 @@ function polizaCongelada(p){
    cero porque aparecen en las descripciones pero en ningún renglón con precio.
    --------------------------------------------------------------------------- */
 
-/* Hoja de costos 2025/2026 que Victor compartió (63 equipos: insumos + mano
-   de obra). Va EMBEBIDA aquí, no como un archivo que hay que ir a buscar:
-   el botón "Importar costos" de Lista de precios la aplica directo, de un
-   clic. Emparejar por nombre es cosa de importarCostosCatalogo(); un
-   equipo en cero aquí significa "todavía no costeado" en la hoja
-   original, así que esa fila NO pisa un costo que ya exista — se salta. */
+/* Hoja de costos 2025/2026 que Victor compartió (63 equipos: insumos, mano
+   de obra y descripción del trabajo). Va EMBEBIDA aquí, no como un archivo
+   que hay que ir a buscar: el botón "Importar costos" de Lista de precios
+   la aplica directo, de un clic. Emparejar por nombre es cosa de
+   importarCostosCatalogo(); un costo en cero, o una descripción vacía,
+   significa "esta hoja no trae ese dato" — no pisa lo que ya exista. */
 const COSTOS_CATALOGO_2026 = [
-  { concepto:'Amasadora Industrial', costoInsumos:151.2, costoManoObra:302.4 },
-  { concepto:'Anaqueles', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Banda Transportadora de Charola', costoInsumos:270, costoManoObra:540 },
-  { concepto:'Barra Caliente de Servicio Eléctrica', costoInsumos:486, costoManoObra:972 },
-  { concepto:'Barra Caliente de Servicio Gas', costoInsumos:486, costoManoObra:972 },
-  { concepto:'Barra Fría', costoInsumos:378.0, costoManoObra:756.0 },
-  { concepto:'Bascula de Cocina', costoInsumos:54, costoManoObra:108 },
-  { concepto:'Bascula de Recibo', costoInsumos:98.28, costoManoObra:196.56 },
-  { concepto:'Batidora Industrial', costoInsumos:91.8, costoManoObra:183.6 },
-  { concepto:'Boiler', costoInsumos:302.4, costoManoObra:604.8 },
-  { concepto:'Bowl Chino', costoInsumos:302.4, costoManoObra:604.8 },
-  { concepto:'Brujas', costoInsumos:102.6, costoManoObra:205.2 },
-  { concepto:'Calentón Doble', costoInsumos:518.4, costoManoObra:1036.8 },
-  { concepto:'Calentón Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Cámara de Congelación', costoInsumos:604.8, costoManoObra:1209.6 },
-  { concepto:'Cámara de Refrigeración', costoInsumos:604.8, costoManoObra:1209.6 },
-  { concepto:'Campana de Extracción', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Carritos de Servicio', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Congelador Horizontal', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Congelador Vertical', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Contra Barra', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Cortinas de Aire', costoInsumos:226.8, costoManoObra:453.6 },
-  { concepto:'Estufa', costoInsumos:302.4, costoManoObra:604.8 },
-  { concepto:'Estufón', costoInsumos:194.4, costoManoObra:388.8 },
-  { concepto:'Extracción', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Extractor de Jugos', costoInsumos:91.8, costoManoObra:183.6 },
-  { concepto:'Fermentadora', costoInsumos:302.4, costoManoObra:604.8 },
-  { concepto:'Freídora', costoInsumos:345.6, costoManoObra:691.2 },
-  { concepto:'Garabato', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Horno Convencional Doble', costoInsumos:442.8, costoManoObra:885.6 },
-  { concepto:'Horno Convencional Sencillo', costoInsumos:442.8, costoManoObra:885.6 },
-  { concepto:'Horno Rational', costoInsumos:604.8, costoManoObra:1209.6 },
-  { concepto:'Jaula de Quimicos', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Lavadero', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Licuadora Chica', costoInsumos:64.26, costoManoObra:128.52 },
-  { concepto:'Licuadora Industrial', costoInsumos:91.8, costoManoObra:183.6 },
-  { concepto:'Máquina de Agua Doble', costoInsumos:129.6, costoManoObra:259.2 },
-  { concepto:'Máquina de Agua Sencilla', costoInsumos:129.6, costoManoObra:259.2 },
-  { concepto:'Máquina de Agua Triple', costoInsumos:129.6, costoManoObra:259.2 },
-  { concepto:'Máquina de Hielo', costoInsumos:604.8, costoManoObra:1209.6 },
-  { concepto:'Máquina Lavaloza', costoInsumos:604.8, costoManoObra:1209.6 },
-  { concepto:'Marmita', costoInsumos:464.4, costoManoObra:928.8 },
-  { concepto:'Microondas', costoInsumos:81, costoManoObra:162 },
-  { concepto:'Mini Split', costoInsumos:162, costoManoObra:324 },
-  { concepto:'Molino', costoInsumos:226.8, costoManoObra:453.6 },
-  { concepto:'Pasarela Caliente Doble', costoInsumos:518.4, costoManoObra:1036.8 },
-  { concepto:'Pasarela Caliente Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Pasarela Fría Doble', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Pasarela Fría Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Plancha Industrial', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Procesador de Alimentos', costoInsumos:91.8, costoManoObra:183.6 },
-  { concepto:'Rebanadora', costoInsumos:64.26, costoManoObra:128.52 },
-  { concepto:'Refrigerador Doble', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Refrigerador Sencillo', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Refrigerador Triple', costoInsumos:410.4, costoManoObra:820.8 },
-  { concepto:'Revolvedora', costoInsumos:91.8, costoManoObra:183.6 },
-  { concepto:'Sarteneta', costoInsumos:464.4, costoManoObra:928.8 },
-  { concepto:'Sistema de Filtrado', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Tarja', costoInsumos:0, costoManoObra:0 },
-  { concepto:'Trampa de Grasa', costoInsumos:313.2, costoManoObra:626.4 },
-  { concepto:'Triturador', costoInsumos:226.8, costoManoObra:453.6 },
-  { concepto:'Turbo Licuador', costoInsumos:91.8, costoManoObra:183.6 },
-  { concepto:'Vitrina de Postre', costoInsumos:410.4, costoManoObra:820.8 }
+  { concepto:'Amasadora Industrial', costoInsumos:151.2, costoManoObra:302.4, descripcion:'Engrasado de partes mecánicas, revisión del estado físico eléctrico, entrada de voltaje, revisión de transmisión y estado de bandas.' },
+  { concepto:'Anaqueles', costoInsumos:0, costoManoObra:0, descripcion:'' },
+  { concepto:'Banda Transportadora de Charola', costoInsumos:270, costoManoObra:540, descripcion:'' },
+  { concepto:'Barra Caliente de Servicio Eléctrica', costoInsumos:486, costoManoObra:972, descripcion:'Revisión de tubería, válvulas, estado de tanques de carga y descarga de agua y limpieza de quemadores y del equipo en general con ice machine.' },
+  { concepto:'Barra Caliente de Servicio Gas', costoInsumos:486, costoManoObra:972, descripcion:'Revisión de tubería, válvulas, estado de tanques de carga y descarga de agua y limpieza de quemadores y del equipo en general con ice machine.' },
+  { concepto:'Barra Fría', costoInsumos:378.0, costoManoObra:756.0, descripcion:'Revisión de tubería, válvulas, estado de tanques de carga y descarga de agua y limpieza en general del equipo con ice machine.' },
+  { concepto:'Bascula de Cocina', costoInsumos:54, costoManoObra:108, descripcion:'Inspección visual del estado y funcionamiento de tarjeta y componentes, limpieza de componentes mecánicos.' },
+  { concepto:'Bascula de Recibo', costoInsumos:98.28, costoManoObra:196.56, descripcion:'Inspección visual del estado y funcionamiento de tarjeta y componentes, limpieza de componentes mecánicos.' },
+  { concepto:'Batidora Industrial', costoInsumos:91.8, costoManoObra:183.6, descripcion:'Revisión del voltaje y amperaje, conexiones, ajustes y reapriete de conexiones, limpieza y lubricación del mecanismo, limpieza de tarjeta y en general del equipo. Inspección del estado físico de los componentes y comprobación del funcionamiento adecuado del equipo.' },
+  { concepto:'Boiler', costoInsumos:302.4, costoManoObra:604.8, descripcion:'Revisión de sistemas: de encendido, de ignición, de gas, revisión de carburación, revisión de manguera y regulador, chequeo de niveles de líquido y limpieza mecánica general. Revisión de componentes eléctricos (termostato, módulo, transformador y clavija).' },
+  { concepto:'Bowl Chino', costoInsumos:302.4, costoManoObra:604.8, descripcion:'Revisión de sistemas: de encendido, de ignición, de gas, revisión de carburación, revisión de manguera y regulador, chequeo de niveles de líquido y limpieza mecánica general. Revisión de componentes eléctricos (termostato, módulo, transformador y clavija).' },
+  { concepto:'Brujas', costoInsumos:102.6, costoManoObra:205.2, descripcion:'Revisión de sistemas: de encendido, de ignición, de gas, revisión de carburación, revisión de manguera y regulador, chequeo de niveles de líquido y limpieza mecánica general. Revisión de componentes eléctricos (termostato, módulo, transformador y clavija).' },
+  { concepto:'Calentón Doble', costoInsumos:518.4, costoManoObra:1036.8, descripcion:'Revisión de voltaje-amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
+  { concepto:'Calentón Sencillo', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Revisión de voltaje-amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
+  { concepto:'Cámara de Congelación', costoInsumos:604.8, costoManoObra:1209.6, descripcion:'Lavado de condensador y evaporador, inspección del funcionamiento correcto de motores y ventiladores, revisión de voltaje y amperaje así como verificación de presión de gas, limpieza y ajuste de contactores, y reapriete de terminales y tornillería.' },
+  { concepto:'Cámara de Refrigeración', costoInsumos:604.8, costoManoObra:1209.6, descripcion:'Lavado de condensador y evaporador, inspección del funcionamiento correcto de motores y ventiladores, revisión de voltaje y amperaje así como verificación de presión de gas, limpieza y ajuste de contactores, y reapriete de terminales y tornillería.' },
+  { concepto:'Campana de Extracción', costoInsumos:0, costoManoObra:0, descripcion:'Limpieza a campana de extracción de humo con desengrasante y alta presión, incluye lavado de filtros.' },
+  { concepto:'Carritos de Servicio', costoInsumos:0, costoManoObra:0, descripcion:'' },
+  { concepto:'Congelador Horizontal', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores, motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
+  { concepto:'Congelador Vertical', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores, motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
+  { concepto:'Contra Barra', costoInsumos:0, costoManoObra:0, descripcion:'' },
+  { concepto:'Cortinas de Aire', costoInsumos:226.8, costoManoObra:453.6, descripcion:'Limpieza de turbina, verificación eléctrica, limpieza eléctrica, lavado de carcasa y engrase de partes móviles.' },
+  { concepto:'Estufa', costoInsumos:302.4, costoManoObra:604.8, descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
+  { concepto:'Estufón', costoInsumos:194.4, costoManoObra:388.8, descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
+  { concepto:'Extracción', costoInsumos:0, costoManoObra:0, descripcion:'Medición de amperaje y voltaje del equipo, así como la revisión de las condiciones y funcionamiento de bandas y componentes del equipo, lubricación de chumaceras y limpieza del equipo con desengrasante.' },
+  { concepto:'Extractor de Jugos', costoInsumos:91.8, costoManoObra:183.6, descripcion:'Limpieza interna y externa de equipo, verificar colador de malla, revisión de cuchillas, discos o ralladores, inspección de cable de alimentación, funcionamiento de motor.' },
+  { concepto:'Fermentadora', costoInsumos:302.4, costoManoObra:604.8, descripcion:'Revisión del voltaje y amperaje, conexiones, ajustes y reapriete de conexiones, limpieza y lubricación del mecanismo, limpieza de tarjeta y en general del equipo. Inspección del estado físico de los componentes y comprobación del funcionamiento adecuado del equipo.' },
+  { concepto:'Freídora', costoInsumos:345.6, costoManoObra:691.2, descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
+  { concepto:'Garabato', costoInsumos:0, costoManoObra:0, descripcion:'' },
+  { concepto:'Horno Convencional Doble', costoInsumos:442.8, costoManoObra:885.6, descripcion:'Revisión de voltaje, amperaje, conexiones, ajuste y reapriete de conexiones, limpieza mecánica, lubricación de componentes y revisión de funcionamiento de componentes.' },
+  { concepto:'Horno Convencional Sencillo', costoInsumos:442.8, costoManoObra:885.6, descripcion:'Revisión de voltaje, amperaje, conexiones, ajuste y reapriete de conexiones, limpieza mecánica, lubricación de componentes y revisión de funcionamiento de componentes.' },
+  { concepto:'Horno Rational', costoInsumos:604.8, costoManoObra:1209.6, descripcion:'Revisión de voltaje, amperaje, conexiones, ajuste y reapriete de conexiones, limpieza mecánica, lubricación de componentes y revisión de funcionamiento de componentes.' },
+  { concepto:'Jaula de Quimicos', costoInsumos:0, costoManoObra:0, descripcion:'' },
+  { concepto:'Lavadero', costoInsumos:0, costoManoObra:0, descripcion:'' },
+  { concepto:'Licuadora Chica', costoInsumos:64.26, costoManoObra:128.52, descripcion:'Revisión del voltaje y amperaje del equipo, inspección del estado físico de los componentes y comprobación del funcionamiento adecuado del equipo.' },
+  { concepto:'Licuadora Industrial', costoInsumos:91.8, costoManoObra:183.6, descripcion:'Revisión del voltaje y amperaje del equipo, inspección del estado físico de los componentes y comprobación del funcionamiento adecuado del equipo.' },
+  { concepto:'Máquina de Agua Doble', costoInsumos:129.6, costoManoObra:259.2, descripcion:'Revisión y limpieza de condensador, motor, abanico, cableado eléctrico así como ajuste y reapriete de terminales.' },
+  { concepto:'Máquina de Agua Sencilla', costoInsumos:129.6, costoManoObra:259.2, descripcion:'Revisión y limpieza de condensador, motor, abanico, cableado eléctrico así como ajuste y reapriete de terminales.' },
+  { concepto:'Máquina de Agua Triple', costoInsumos:129.6, costoManoObra:259.2, descripcion:'Revisión y limpieza de condensador, motor, abanico, cableado eléctrico así como ajuste y reapriete de terminales.' },
+  { concepto:'Máquina de Hielo', costoInsumos:604.8, costoManoObra:1209.6, descripcion:'Limpieza del motor, abanico, y limpieza con ice machine el evaporador y condensador, así como la inspección del cableado eléctrico y ajuste de terminales.' },
+  { concepto:'Máquina Lavaloza', costoInsumos:604.8, costoManoObra:1209.6, descripcion:'Inspección visual de los componentes físicos del equipo, así como la revisión de mangueras, componentes hidráulicos, y limpieza en general con desincrustante.' },
+  { concepto:'Marmita', costoInsumos:464.4, costoManoObra:928.8, descripcion:'Revisión de sistemas: de encendido, de ignición, de gas, revisión de carburación, revisión de manguera y regulador, chequeo de niveles de líquido y limpieza mecánica general. Revisión de componentes eléctricos (termostato, módulo, transformador y clavija).' },
+  { concepto:'Microondas', costoInsumos:81, costoManoObra:162, descripcion:'Limpieza interna y externa de equipo, retiro de residuos, inspección de sellos de puerta, verificación de empaque en caso de aplicar, revisión de base giratoria, inspección de cable de alimentación, estado de fusible y tarjeta.' },
+  { concepto:'Mini Split', costoInsumos:162, costoManoObra:324, descripcion:'Limpieza de turbina, verificación eléctrica, limpieza eléctrica, lavado de carcasa y engrase de partes móviles.' },
+  { concepto:'Molino', costoInsumos:226.8, costoManoObra:453.6, descripcion:'Engrasado de partes mecánicas, revisión del estado físico eléctrico, entrada de voltaje, revisión de transmisión.' },
+  { concepto:'Pasarela Caliente Doble', costoInsumos:518.4, costoManoObra:1036.8, descripcion:'Revisión de voltaje-amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
+  { concepto:'Pasarela Caliente Sencillo', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Revisión de voltaje-amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
+  { concepto:'Pasarela Fría Doble', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Revisión de voltaje-amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
+  { concepto:'Pasarela Fría Sencillo', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Revisión de voltaje-amperaje del equipo y contacto, revisión de componentes eléctricos, verificación de funcionamiento y temperatura adecuada y revisión de empaques de puerta.' },
+  { concepto:'Plancha Industrial', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Revisión de válvulas de gas, perillas, quemadores (flautas), manguera de gas y regulador. Limpieza con desengrasante.' },
+  { concepto:'Procesador de Alimentos', costoInsumos:91.8, costoManoObra:183.6, descripcion:'Revisión del voltaje y amperaje del equipo, inspección del estado físico de los componentes y comprobación del funcionamiento adecuado del equipo.' },
+  { concepto:'Rebanadora', costoInsumos:64.26, costoManoObra:128.52, descripcion:'' },
+  { concepto:'Refrigerador Doble', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores, motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
+  { concepto:'Refrigerador Sencillo', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores, motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
+  { concepto:'Refrigerador Triple', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores, motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
+  { concepto:'Revolvedora', costoInsumos:91.8, costoManoObra:183.6, descripcion:'Revisión del voltaje y amperaje, conexiones, ajustes y reapriete de conexiones, limpieza y lubricación del mecanismo, limpieza de tarjeta y en general del equipo. Inspección del estado físico de los componentes y comprobación del funcionamiento adecuado del equipo.' },
+  { concepto:'Sarteneta', costoInsumos:464.4, costoManoObra:928.8, descripcion:'Revisión de sistemas: de encendido, de ignición, de gas, revisión de carburación, revisión de manguera y regulador, chequeo de niveles de líquido y limpieza mecánica general. Revisión de componentes eléctricos (termostato, módulo, transformador y clavija).' },
+  { concepto:'Sistema de Filtrado', costoInsumos:0, costoManoObra:0, descripcion:'Revisión e inspección de componentes mecánicos del equipo. Incluye pruebas de funcionalidad y limpieza del mismo.' },
+  { concepto:'Tarja', costoInsumos:0, costoManoObra:0, descripcion:'' },
+  { concepto:'Trampa de Grasa', costoInsumos:313.2, costoManoObra:626.4, descripcion:'Limpieza de trampa de grasa, raspado de paredes, deflectores y filtros para eliminar residuos, retiro de sólidos, revisión de tapa.' },
+  { concepto:'Triturador', costoInsumos:226.8, costoManoObra:453.6, descripcion:'Engrasado de partes mecánicas, revisión del estado físico eléctrico, entrada de voltaje, revisión de transmisión.' },
+  { concepto:'Turbo Licuador', costoInsumos:91.8, costoManoObra:183.6, descripcion:'Inspección interna, engrase de piezas electromecánicas, inspección de cableado eléctrico.' },
+  { concepto:'Vitrina de Postre', costoInsumos:410.4, costoManoObra:820.8, descripcion:'Inspección visual del estado y funcionamiento de empaques de puertas, lámparas, ventiladores, motores, así como la revisión de temperatura adecuada, medición del voltaje y amperaje y la limpieza de evaporador.' },
 ];
 
 const CATALOGO_SEMILLA = [
@@ -2303,7 +2303,7 @@ function importarCostosCatalogo(datosCrudos){
   if(!datos.catalogo.length) datos.catalogo = CATALOGO_SEMILLA.map(normalizarEquipo);
 
   const porLlave = new Map(datos.catalogo.map(e => [llaveTexto(e.concepto), e]));
-  let actualizados = 0, sinDatoDeCosto = 0;
+  let actualizados = 0, sinDatoDeCosto = 0, descripcionesLlenadas = 0;
   const sinCoincidencia = [];
 
   datosCrudos.forEach(fila=>{
@@ -2311,26 +2311,36 @@ function importarCostosCatalogo(datosCrudos){
     if(!concepto) return;
     const eq = porLlave.get(llaveTexto(concepto));
     if(!eq){ sinCoincidencia.push(concepto); return; }
+
+    const cambios = {};
     /* Una fila en cero no es "este equipo cuesta cero" — en la hoja de origen
        significa "todavía no lo costeamos". Importarla tal cual borraría un
        costo real que alguien ya haya capturado a mano. Se salta, no se pisa. */
     const insumos = Number(fila.costoInsumos) || 0, manoObra = Number(fila.costoManoObra) || 0;
-    if(!insumos && !manoObra){ sinDatoDeCosto++; return; }
-    Object.assign(eq, normalizarEquipo(Object.assign({}, eq, {
-      costoInsumos: insumos, costoManoObra: manoObra
-    })));
+    if(insumos || manoObra){ cambios.costoInsumos = insumos; cambios.costoManoObra = manoObra; }
+    else sinDatoDeCosto++;
+
+    /* Igual criterio con la descripción: solo RELLENA la que está vacía. Si
+       alguien ya escribió una propia para ese equipo, se respeta — la hoja
+       no la pisa. */
+    const descripcionNueva = (fila.descripcion ? String(fila.descripcion) : '').trim();
+    if(descripcionNueva && !eq.descripcion){ cambios.descripcion = descripcionNueva; descripcionesLlenadas++; }
+
+    if(!Object.keys(cambios).length) return;
+    Object.assign(eq, normalizarEquipo(Object.assign({}, eq, cambios)));
     actualizados++;
   });
 
   if(!actualizados){
-    aviso('Ningún equipo del archivo trae costo y coincide con el catálogo. Revisa la ortografía o los importes.', true);
+    aviso('Ningún equipo del archivo trae costo o descripción nueva y coincide con el catálogo. Revisa la ortografía.', true);
     return;
   }
 
   guardarCatalogo('importó costos: ' + actualizados + ' ' + plural(actualizados,'equipo','equipos'));
   render();
-  aviso('Costos actualizados en ' + actualizados + ' ' + plural(actualizados,'equipo','equipos') + '.'
-    + (sinDatoDeCosto ? ' ' + sinDatoDeCosto + ' venían en cero y se dejaron como estaban.' : '')
+  aviso(actualizados + ' ' + plural(actualizados,'equipo actualizado','equipos actualizados') + ' (costo y/o descripción).'
+    + (descripcionesLlenadas ? ' ' + descripcionesLlenadas + ' ' + plural(descripcionesLlenadas,'descripción rellenada','descripciones rellenadas') + '.' : '')
+    + (sinDatoDeCosto ? ' ' + sinDatoDeCosto + ' sin dato de costo en la hoja, se dejaron como estaban.' : '')
     + (sinCoincidencia.length ? ' ' + sinCoincidencia.length + ' sin coincidencia en el catálogo: ' + sinCoincidencia.join(', ') + '.' : ''),
     !!sinCoincidencia.length);
 }
@@ -10437,10 +10447,11 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'guardar-catalogo') sembrarCatalogo();
     else if(a === 'importar-costos'){
       if(!exigirAdmin('importar costos al catálogo')) return;
-      confirmar('Cargar costos 2026',
-        'Se va a aplicar la hoja de costos que compartiste (' + COSTOS_CATALOGO_2026.length + ' equipos) a los que coincidan '
-        + 'por nombre en el catálogo. Los que ya tengan costo capturado se actualizan; los que vengan en cero en la hoja '
-        + 'se dejan como están.',
+      confirmar('Cargar costos y descripciones 2026',
+        'Se va a aplicar la hoja que compartiste (' + COSTOS_CATALOGO_2026.length + ' equipos, con su costo y su descripción '
+        + 'de trabajo) a los que coincidan por nombre en el catálogo. El costo se actualiza siempre que la hoja traiga uno; '
+        + 'la descripción SOLO se rellena donde esté vacía, sin pisar una que ya hayas escrito. Lo que venga en blanco en la '
+        + 'hoja se deja como está.',
         'Sí, cargar', ()=> importarCostosCatalogo(COSTOS_CATALOGO_2026));
     }
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
