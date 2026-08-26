@@ -761,6 +761,8 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .c-admin  {background:#EAF1FC; color:#1B4FA8; border-color:#C6D8F5;}
 .c-analyst{background:#E8F5EE; color:#26714A; border-color:#C0E3D0;}
 .c-viewer {background:#F1F3F8; color:#5C6273; border-color:#DFE3EE;}
+.c-tecnico  {background:#FCEFDD; color:#9A5B12; border-color:#F0D9B4;}
+.c-reportero{background:#F1EAFB; color:#6A3FA0; border-color:#DCC9F2;}
 table.tabla select.sel-rol{font-weight:600;}
 @media (max-width:700px){ .pastilla span.txt{display:none;} .pastilla{padding:6px 8px;} }
 
@@ -1704,7 +1706,13 @@ const ROLES = {
   owner:   { nombre:'Owner',   desc:'Dueño del tablero: todo, y nadie lo puede bloquear ni degradar.' },
   admin:   { nombre:'Admin',   desc:'Todo, incluido el panel de administración y las cuentas.' },
   analyst: { nombre:'Analyst', desc:'Puede agregar y modificar clientes, sitios y pagos.' },
-  viewer:  { nombre:'Viewer',  desc:'Solo puede ver la información; no modifica nada.' }
+  viewer:  { nombre:'Viewer',  desc:'Solo puede ver la información; no modifica nada.' },
+  /* Los dos de abajo son roles "de piso", pensados solo para el módulo
+     Reportes (ver modulosPermitidos() y puedeGestionarReporte()): a alguien
+     que solo levanta o atiende tickets no le hace falta ver clientes,
+     pólizas ni cotizaciones — así que ni las ve. */
+  tecnico:   { nombre:'Técnico',   desc:'Solo ve Reportes: atiende los tickets asignados — cambia su estatus, sube evidencia y los resuelve.' },
+  reportero: { nombre:'Reportero', desc:'Solo ve Reportes: levanta tickets y sigue su estatus, pero no puede editar uno ya emitido.' }
 };
 /* Nombres viejos de una versión anterior, por si quedó alguna cuenta con ellos. */
 const ROLES_VIEJOS = { editor:'analyst', lector:'viewer' };
@@ -2565,9 +2573,23 @@ const TONO_ESTATUS_REPORTE = {
   resuelto:'ok', cerrado:'neutro', cancelado:'neutro'
 };
 
-/* Cualquiera con acceso reporta y da seguimiento — es el permiso "de piso".
-   `puedeEditar()` sigue siendo el que decide quién asigna técnicos. */
+/* Cualquiera con acceso levanta un reporte — es el permiso "de piso", a
+   propósito tan abierto: cualquiera que vea algo roto tiene que poder
+   avisar. Pero una vez emitido, SOLO puedeGestionarReporte() decide quién
+   lo toca (editarlo, moverle el estatus, asignar técnicos, subir o quitar
+   evidencia, resolverlo): un reportero puede levantar tickets y seguir su
+   estatus, pero no tocar uno que ya emitió — ver `ROLES.reportero`. */
 function puedeReportar(){ return !HAY_NUBE || haySesion(); }
+
+/* Quién puede trabajar un reporte ya emitido: administración (owner/admin),
+   analyst (ya tenía permiso general de edición desde antes de que existiera
+   este módulo, así que no se le quita nada) y el rol nuevo `tecnico`. */
+function puedeGestionarReporte(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function exigirGestionReporte(){
+  if(puedeGestionarReporte()) return true;
+  aviso('Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
+  return false;
+}
 
 function normalizarEvidencia(e){
   return {
@@ -4044,6 +4066,16 @@ function cargarModulo(){
 }
 function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo); }catch(e){} }
 
+/* Qué pestañas ve cada quien. `tecnico` y `reportero` son roles pensados
+   SOLO para Reportes (ver ROLES): a alguien que nada más levanta o atiende
+   tickets no le hace falta ver clientes, pólizas ni cotizaciones — así que
+   directamente no las ve. El resto de los roles (owner/admin/analyst/viewer,
+   y el modo local sin nube) sigue viendo todos los módulos, como siempre. */
+function modulosPermitidos(){
+  if(HAY_NUBE && haySesion() && (sesion.rol === 'tecnico' || sesion.rol === 'reportero')) return ['reportes'];
+  return MODULOS;
+}
+
 /* La pantalla de arranque de cada módulo. Una sola función para que el logo, el
    selector y el arranque no se desincronicen. */
 function inicioDelModulo(){
@@ -4131,6 +4163,11 @@ function verCotizacionesDe(texto){
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 function entrarCotizacion(id){
+  /* Sin esto, el puente "Ver cotización →" desde un reporte se quedaba en
+     el módulo Reportes: cambiaba `vista` y `cotizacionId`, pero como
+     `modulo` seguía en 'reportes', render() dibujaba la lista de reportes
+     en vez de la cotización. */
+  if(estado.modulo !== 'cotizaciones'){ estado.modulo = 'cotizaciones'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'cotizacion'; estado.cotizacionId = id;
   estado.ladoCotizacion = 'costo';
@@ -4158,6 +4195,9 @@ function verReportesDe(texto){
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 function entrarReporte(id){
+  /* Mismo caso que entrarCotizacion(): sin fijar `modulo`, el puente "Ver
+     reporte →" desde una cotización se quedaba dibujando Cotizaciones. */
+  if(estado.modulo !== 'reportes'){ estado.modulo = 'reportes'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'reporte'; estado.reporteId = id;
   render();
@@ -5622,7 +5662,7 @@ function vistaReporte(){
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Técnicos asignados</h3>'
      +   '<p>' + (rp.tecnicos.length ? numero(rp.tecnicos.length) + ' ' + plural(rp.tecnicos.length,'persona','personas') + ' a cargo' : 'Todavía sin asignar') + '</p></div>'
-     +   (puedeEditar()
+     +   (puedeGestionarReporte()
           ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="asignar-tecnicos">' + ICONO.persona + 'Asignar</button></div>'
           : '')
      + '</div>'
@@ -5632,7 +5672,7 @@ function vistaReporte(){
      + '</div>';
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Evidencia</h3><p>Fotos del problema, tomadas desde el celular.</p></div>'
-     +   (puedeReportar()
+     +   (puedeGestionarReporte()
           ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="subir-evidencia">' + ICONO.camara + 'Agregar foto</button></div>'
           : '')
      + '</div>'
@@ -5640,7 +5680,7 @@ function vistaReporte(){
           ? '<div class="galeria-evidencia">' + rp.evidencias.map(e=>
               '<div class="evidencia-foto">'
               +   '<img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy">'
-              +   (puedeEditar()
+              +   (puedeGestionarReporte()
                    ? '<button type="button" class="evidencia-quitar" data-accion="quitar-evidencia" data-evidencia="' + esc(e.id) + '" title="Quitar esta foto">' + ICONO.basura + '</button>'
                    : '')
               + '</div>'
@@ -5659,15 +5699,21 @@ function vistaReporte(){
        + '</div>';
   }
 
-  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cotización relacionada</h3></div></div>'
-     +   (cotizacionLigada
-          ? '<button type="button" class="btn btn-suave btn-mini" data-cotizacion="' + esc(cotizacionLigada.id) + '">'
-            + ICONO.credencial + 'Ver cotización ' + esc(cotizacionLigada.folio || '') + ' →</button>'
-          : (puedeEditar() && abierto
-              ? '<button type="button" class="btn btn-suave btn-mini" data-accion="generar-cotizacion-reporte">'
-                + ICONO.mas + 'Generar cotización desde este reporte</button>'
-              : '<p class="pista" style="margin:0">Este reporte no tiene ninguna cotización ligada.</p>'))
-     + '</div>';
+  /* Un técnico o reportero no ve el módulo Cotizaciones (ver
+     modulosPermitidos()): mostrarle este bloque sería un botón muerto que
+     lo regresa a Reportes en cuanto le da clic, así que directo no se
+     dibuja para esos roles. */
+  if(modulosPermitidos().includes('cotizaciones')){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cotización relacionada</h3></div></div>'
+       +   (cotizacionLigada
+            ? '<button type="button" class="btn btn-suave btn-mini" data-cotizacion="' + esc(cotizacionLigada.id) + '">'
+              + ICONO.credencial + 'Ver cotización ' + esc(cotizacionLigada.folio || '') + ' →</button>'
+            : (puedeEditar() && abierto
+                ? '<button type="button" class="btn btn-suave btn-mini" data-accion="generar-cotizacion-reporte">'
+                  + ICONO.mas + 'Generar cotización desde este reporte</button>'
+                : '<p class="pista" style="margin:0">Este reporte no tiene ninguna cotización ligada.</p>'))
+       + '</div>';
+  }
 
   if(rp.seguimiento.length){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Seguimiento</h3></div></div>'
@@ -5679,8 +5725,11 @@ function vistaReporte(){
   }
 
   h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
-  if(puedeReportar()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-reporte">' + ICONO.lapiz + 'Editar</button>';
-  if(puedeReportar()){
+  /* Un reportero levanta el ticket y de ahí en fuera solo lo ve: ni edita, ni
+     mueve su estatus. Eso lo deciden técnico o administración (ver
+     puedeGestionarReporte()). */
+  if(puedeGestionarReporte()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-reporte">' + ICONO.lapiz + 'Editar</button>';
+  if(puedeGestionarReporte()){
     if(rp.estatus === 'abierto' || rp.estatus === 'asignado'){
       h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="en_proceso">Marcar en proceso</button>';
     }
@@ -5909,7 +5958,7 @@ function modalReporte(id){
 async function modalTecnicosReporte(id){
   const rp = reportePorId(id);
   if(!rp) return;
-  if(!exigirPermiso()) return;
+  if(!exigirGestionReporte()) return;
 
   abrirModal('Técnicos de ' + (rp.folio || 'este reporte'),
     '<div class="vacio-chico">Cargando el equipo…</div>',
@@ -5972,7 +6021,7 @@ async function modalTecnicosReporte(id){
 function modalResolverReporte(id){
   const rp = reportePorId(id);
   if(!rp) return;
-  if(!exigirReportar()) return;
+  if(!exigirGestionReporte()) return;
 
   let evidenciasTmp = rp.evidencias.slice();
 
@@ -6602,6 +6651,18 @@ function avisoLocal(){
 let animarTarjetas = true;
 
 function render(){
+  /* Candado de verdad, no solo cosmético: si el módulo actual ya no está
+     permitido para este rol (cambiaron el rol de la cuenta a mitad de
+     sesión, o quedó guardado uno viejo en localStorage), se salta para
+     acá ANTES de dibujar nada — así el contenido nunca se asoma, no
+     nada más el botón de la pestaña. */
+  const permitidos = modulosPermitidos();
+  if(!permitidos.includes(estado.modulo)){
+    estado.modulo = permitidos[0];
+    guardarModulo();
+    estado.vista = inicioDelModulo();
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
+  }
   pintarEstadoNube();
   pintarCabecera();
   /* Se despacha primero por módulo y luego por vista. El panel de admin va antes
@@ -6751,8 +6812,12 @@ function pintarCabecera(){
 
   /* Pestaña encendida. Se pinta aquí y no al hacer clic para que el selector diga
      la verdad venga de donde venga el cambio: clic, arranque, o lo que se haya
-     recordado de la sesión pasada. */
+     recordado de la sesión pasada. De paso se esconden las pestañas que este
+     rol no debe ver (ver modulosPermitidos()): un técnico o un reportero
+     solo debe encontrar "Reportes" en el selector. */
+  const permitidos = modulosPermitidos();
   $('selectorModulo').querySelectorAll('[data-modulo]').forEach(b=>{
+    b.style.display = permitidos.includes(b.dataset.modulo) ? '' : 'none';
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
 
@@ -10026,22 +10091,22 @@ $('vista').addEventListener('click', ev=>{
     }
     else if(a === 'ir-reportes') irAReportes();
     else if(a === 'nuevo-reporte'){ if(exigirReportar()) modalReporte(null); }
-    else if(a === 'editar-reporte'){ if(exigirReportar()) modalReporte(estado.reporteId); }
+    else if(a === 'editar-reporte'){ if(exigirGestionReporte()) modalReporte(estado.reporteId); }
     else if(a === 'ver-reportes-cliente'){ const c = clientePorId(estado.clienteId); if(c) verReportesDe(c.nombre); }
     else if(a === 'ver-reportes-sitio') verReportesDe(acc.dataset.sitioNombre || '');
-    else if(a === 'asignar-tecnicos'){ if(exigirPermiso()) modalTecnicosReporte(estado.reporteId); }
-    else if(a === 'subir-evidencia'){ if(exigirReportar()) $('archivoEvidencia').click(); }
+    else if(a === 'asignar-tecnicos'){ if(exigirGestionReporte()) modalTecnicosReporte(estado.reporteId); }
+    else if(a === 'subir-evidencia'){ if(exigirGestionReporte()) $('archivoEvidencia').click(); }
     else if(a === 'quitar-evidencia'){
-      if(!exigirPermiso()) return;
+      if(!exigirGestionReporte()) return;
       const rp = reportePorId(estado.reporteId);
       if(!rp) return;
       rp.evidencias = rp.evidencias.filter(e => e.id !== acc.dataset.evidencia);
       anotarReporte(rp, 'Quitó una foto de evidencia.', 'quitó evidencia de', rp.folio);
       render(); aviso('Foto eliminada.');
     }
-    else if(a === 'resolver-reporte'){ if(exigirReportar()) modalResolverReporte(estado.reporteId); }
+    else if(a === 'resolver-reporte'){ if(exigirGestionReporte()) modalResolverReporte(estado.reporteId); }
     else if(a === 'cambiar-estatus-reporte'){
-      if(!exigirReportar()) return;
+      if(!exigirGestionReporte()) return;
       const rp = reportePorId(estado.reporteId);
       if(!rp) return;
       const nuevo = acc.dataset.estatus;
@@ -11157,6 +11222,7 @@ $('btnInicio').addEventListener('click', ()=>{
   if(estado.vista === inicioDelModulo()) return;
   if(estado.modulo === 'polizas') irAPolizas();
   else if(estado.modulo === 'cotizaciones') irACotizaciones();
+  else if(estado.modulo === 'reportes') irAReportes();
   else irAClientes();
 });
 
