@@ -4252,13 +4252,17 @@ function cargarModulo(){
 }
 function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo); }catch(e){} }
 
-/* Qué pestañas ve cada quien. `tecnico` y `reportero` son roles pensados
-   SOLO para Reportes (ver ROLES): a alguien que nada más levanta o atiende
-   tickets no le hace falta ver clientes, pólizas ni cotizaciones — así que
-   directamente no las ve. El resto de los roles (owner/admin/analyst/viewer,
-   y el modo local sin nube) sigue viendo todos los módulos, como siempre. */
+/* Qué pestañas ve cada quien. `reportero` sigue acotado SOLO a Reportes (ver
+   ROLES): a alguien que nada más levanta tickets no le hace falta ver nada
+   más. `tecnico` además de Reportes puede VER Pólizas y Cotizaciones —le
+   sirve saber qué equipos cubre una póliza o qué se cotizó en un sitio—,
+   pero solo para consultar: puedeEditar() no incluye a `tecnico`, así que
+   esos dos módulos se le siguen abriendo en modo lectura, igual que a un
+   Viewer. El resto de los roles (owner/admin/analyst/viewer, y el modo
+   local sin nube) sigue viendo todos los módulos, como siempre. */
 function modulosPermitidos(){
-  if(HAY_NUBE && haySesion() && (sesion.rol === 'tecnico' || sesion.rol === 'reportero')) return ['reportes'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'polizas', 'cotizaciones'];
   return MODULOS;
 }
 
