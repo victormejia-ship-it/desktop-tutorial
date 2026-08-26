@@ -1655,6 +1655,10 @@ const EVIDENCIA_LADO_MAX = 1000;                 /* lado mayor, en px */
 const EVIDENCIA_MAX_ENTRADA = 15 * 1024 * 1024;  /* 15 MB: una foto de celular pesa más que un logo */
 const EVIDENCIA_MAX_GUARDADO = 90 * 1024;        /* ~90 KB ya reducida */
 const EVIDENCIA_MAX_POR_REPORTE = 6;
+/* Evidencia de UN servicio de póliza (un equipo, un mes): menos cupo que un
+   reporte porque aquí es solo "prueba de que se hizo", no una investigación
+   completa. Mismo pipeline de compresión y mismo molde (normalizarEvidencia). */
+const EVIDENCIA_MAX_POR_SERVICIO = 4;
 
 /* ---- Respaldo de costo de una cotización (cotización de un proveedor
    externo que sustenta el costo interno mostrado) ----
@@ -2738,6 +2742,20 @@ function exigirGestionReporte(){
   return false;
 }
 
+/* Mismo criterio que puedeGestionarReporte(), aplicado a pólizas: un
+   `tecnico` con acceso de solo lectura al resto de la póliza (precios,
+   renglones, cobranza — todo eso sigue detrás de puedeEditar()) sí puede
+   registrar que un servicio ya se hizo, con fecha, quién lo atendió y
+   evidencia fotográfica. Es la misma idea que subir evidencia a un
+   reporte: quien está parado frente al equipo es quien puede probar que
+   se atendió. */
+function puedeRegistrarServicioPoliza(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function exigirRegistroServicio(){
+  if(puedeRegistrarServicioPoliza()) return true;
+  aviso('Tu cuenta no puede registrar servicios de esta póliza.', true);
+  return false;
+}
+
 function normalizarEvidencia(e){
   return {
     id: (e && e.id) || nuevoId(),
@@ -3259,7 +3277,9 @@ function normalizarPoliza(p){
           cuando: String(d.cuando),
           quien:  d.quien ? String(d.quien) : '',
           nota:   d.nota  ? String(d.nota)  : '',
-          hechas
+          hechas,
+          evidencias: (Array.isArray(d.evidencias) ? d.evidencias : [])
+            .map(normalizarEvidencia).filter(e => e.dataUrl).slice(0, EVIDENCIA_MAX_POR_SERVICIO)
         };
         if(hechas < tope && d.motivo) reg.motivo = String(d.motivo);
         limpio[String(m)] = reg;
@@ -6424,9 +6444,10 @@ function vistaPoliza(){
      + '</div>';
 
   /* --- Los renglones ---
-     Los meses son BOTONES cuando se puede editar: es donde se marca que un
-     mantenimiento ya se hizo. Mismo molde que las casillas de cobro. */
-  const marcable = puedeEditar();
+     Los meses son BOTONES cuando se puede editar (o cuando es un técnico:
+     puedeRegistrarServicioPoliza() incluye ese rol): es donde se marca que
+     un mantenimiento ya se hizo. Mismo molde que las casillas de cobro. */
+  const marcable = puedeRegistrarServicioPoliza();
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Equipos cotizados</h3>'
      + '<p>El total de cada renglón se calcula: precio × cantidad × servicios al año. Nunca se captura.'
      + (marcable ? ' Pica un mes para registrar que ese mantenimiento ya se hizo.' : '') + '</p>'
@@ -6453,6 +6474,8 @@ function vistaPoliza(){
                                             + (hecho.quien ? ' · ' + hecho.quien : '')
                                             + (parcial ? ' · ' + hecho.hechas + ' de ' + x.cantidad
                                                 + (hecho.motivo ? ' · faltó: ' + hecho.motivo : '') : '')
+                                            + (hecho.evidencias && hecho.evidencias.length
+                                                ? ' · ' + hecho.evidencias.length + ' ' + plural(hecho.evidencias.length,'foto','fotos') : '')
                                          : ' · pendiente')
                      + (aviso ? ' · fuera del calendario' : '')
                      + (marcable ? (hecho ? ' — pica para corregirlo' : ' — pica para marcarlo hecho') : '');
@@ -6810,7 +6833,7 @@ function vistaAgenda(){
    hace render() y esta vista se repinta con el servicio ya marcado. */
 function bloqueAgenda(titulo, lista, tono, explica){
   if(!lista.length) return '';
-  const puede = puedeEditar();
+  const puede = puedeRegistrarServicioPoliza();
   let h = '<div class="agenda-bloque a-' + tono + '">'
         + '<div class="agenda-cabeza"><h3>' + esc(titulo)
         +   ' <span class="agenda-cuenta">' + numero(lista.length) + '</span></h3>'
@@ -8047,10 +8070,11 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     aviso('El segurista es presencia incluida en la póliza: no lleva registro de mantenimiento.');
     return;
   }
-  if(!exigirPermiso()) return;
+  if(!exigirRegistroServicio()) return;
 
   const det = servicioDetalle(p, x, mes);
   const yaHecho = !!det;
+  let evidenciasTmp = (det && Array.isArray(det.evidencias)) ? det.evidencias.slice() : [];
   const conCuenta = HAY_NUBE && haySesion();
   const cli = clientePorId(p.clienteId);
   const enCalendario = x.mesesServicio.includes(mes);
@@ -8119,6 +8143,13 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     + '<div class="campo"><label>Nota (opcional)</label>'
     +   '<input type="text" id="svNota" placeholder="Ej. se cambió el empaque de la puerta" value="' + esc((det && det.nota) || '') + '">'
     +   '<div class="pista">Lo que valga la pena recordar del servicio: un refacción cambiada, algo que quedó pendiente.</div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Fotos de evidencia (opcional)</label>'
+    +   '<div class="galeria-evidencia" id="svGaleriaEvidencia"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="svBtnAgregarFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +   '<input type="file" id="svArchivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<div class="pista" id="svPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Se reducen solas para no pesar.</div>'
     + '</div>';
 
   /* Cancelar desde el calendario devuelve al calendario: si no, abrir un equipo
@@ -8155,6 +8186,43 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     /* Al reabrir un registro parcial, el campo del motivo ya debe verse. */
     if(det && (det.hechas || x.cantidad) < x.cantidad) $('svCampoMotivo').style.display = '';
   }
+
+  /* Misma galería-en-staging que el reporte nuevo (evidenciasTmp + repintar):
+     la foto se comprime y se agrega de inmediato, pero solo se guarda en la
+     póliza cuando se pica "Marcar como hecho" / "Guardar cambios". */
+  function pintarGaleriaSv(){
+    $('svGaleriaEvidencia').innerHTML = evidenciasTmp.map(e =>
+      '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
+      + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
+    ).join('');
+    $('svGaleriaEvidencia').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
+        pintarGaleriaSv();
+      });
+    });
+    $('svBtnAgregarFoto').disabled = evidenciasTmp.length >= EVIDENCIA_MAX_POR_SERVICIO;
+  }
+  pintarGaleriaSv();
+  $('svBtnAgregarFoto').addEventListener('click', ()=> $('svArchivoEvidencia').click());
+  $('svArchivoEvidencia').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length) return;
+    const cupo = EVIDENCIA_MAX_POR_SERVICIO - evidenciasTmp.length;
+    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Quita alguna para agregar otra.', true); return; }
+    $('svPistaEvidencia').textContent = 'Procesando fotos…';
+    for(const archivo of archivos.slice(0, cupo)){
+      try{
+        const img = await leerEvidencia(archivo);
+        const dataUrl = comprimirEvidencia(img);
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+      }catch(e){ aviso(e.message, true); }
+    }
+    $('svPistaEvidencia').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Se reducen solas para no pesar.';
+    pintarGaleriaSv();
+  });
+
   setTimeout(()=>{ const f = $('svCuando'); if(f) f.focus(); }, 70);
   cerrarModalActual = ()=>{
     /* Todo se lee ANTES de cerrar: cerrarModal reemplaza el contenedor por un
@@ -8192,7 +8260,7 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
       }
     }
 
-    marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas },
+    marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp },
       motivo ? { motivo } : {}));
     if(!conCuenta) recordarCapturador(quien);
 
@@ -8250,7 +8318,7 @@ function modalCalendario(id){
   const trans = mesesTranscurridos(p.fechaInicio, hoy);
   const mesActual = (diasEntre(p.fechaInicio, hoy) < 0 || trans >= MESES_POLIZA) ? -1 : trans;
 
-  const marcable = puedeEditar();
+  const marcable = puedeRegistrarServicioPoliza();
   const meses = Array.from({length:MESES_POLIZA}, (_,m)=>{
     const toca = [], seguristas = [];
     p.partidas.forEach(x=>{
@@ -8296,6 +8364,8 @@ function modalCalendario(id){
               + (parcial ? ' · ' + r.det.hechas + ' de ' + r.x.cantidad
                   + (r.det.motivo ? ' · faltó: ' + r.det.motivo : '') : '')
               + (r.det.nota ? ' · ' + r.det.nota : '')
+              + (r.det.evidencias && r.det.evidencias.length
+                  ? ' · ' + r.det.evidencias.length + ' ' + plural(r.det.evidencias.length,'foto','fotos') : '')
               + (marcable ? ' — pica para corregirlo' : '')
             : (marcable ? 'Registrar que ya se hizo' : 'Pendiente');
           return '<li' + (r.det ? ' class="hecho"' : '') + ' title="' + esc(tip) + '">'
