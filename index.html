@@ -5694,6 +5694,13 @@ function vistaReporte(){
     if(abierto){
       h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="cancelado">Cancelar</button>';
     }
+    /* Cerrado y cancelado también se pueden reabrir ("se puede reabrir
+       después si hace falta", como avisa el propio diálogo de cancelar):
+       vuelve a 'asignado' si ya tenía técnicos, o a 'abierto' si no. */
+    if(!abierto){
+      const destinoReabrir = rp.tecnicos.length ? 'asignado' : 'abierto';
+      h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="' + destinoReabrir + '">' + ICONO.atras + 'Reabrir</button>';
+    }
   }
   h += '<span class="espacio"></span>';
   if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-reporte">' + ICONO.basura + 'Eliminar</button>';
@@ -5850,13 +5857,26 @@ function modalReporte(id){
     }
 
     const sitio = sitioPorId(sitioId);
-    let reg;
+    let reg, cambios;
     if(rp){
+      /* Antes de pisar los datos viejos, se anota qué cambió: es lo que le
+         da sentido al seguimiento del reporte — no solo "se editó", sino
+         qué se editó. */
+      const descripcionNueva = $('rDescripcion').value.trim();
+      const prioridadNueva = $('rPrioridad').value;
+      cambios = [];
+      if(rp.titulo !== titulo) cambios.push('título: "' + rp.titulo + '" → "' + titulo + '"');
+      if(rp.sitioId !== sitioId) cambios.push('sitio: ' + (rp.sitioNombre || 'sin sitio') + ' → ' + (sitio ? sitio.nombre : 'sin sitio'));
+      if(rp.equipoNombre !== equipoNombre) cambios.push('equipo: ' + (rp.equipoNombre || '—') + ' → ' + (equipoNombre || '—'));
+      if(rp.prioridad !== prioridadNueva) cambios.push('prioridad: ' + ETIQUETA_PRIORIDAD[rp.prioridad] + ' → ' + ETIQUETA_PRIORIDAD[prioridadNueva]);
+      if(rp.descripcion !== descripcionNueva) cambios.push('descripción actualizada');
+      if(rp.evidencias.length !== evidenciasTmp.length) cambios.push('fotos: ' + rp.evidencias.length + ' → ' + evidenciasTmp.length);
+
       Object.assign(rp, {
         clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : rp.sitioNombre,
         equipoCatalogoId, equipoNombre,
-        titulo, descripcion: $('rDescripcion').value.trim(),
-        prioridad: $('rPrioridad').value,
+        titulo, descripcion: descripcionNueva,
+        prioridad: prioridadNueva,
         evidencias: evidenciasTmp
       });
       reg = rp;
@@ -5873,7 +5893,12 @@ function modalReporte(id){
       });
       datos.reportes.push(reg);
     }
-    guardarReporte(reg, rp ? 'editó' : 'creó');
+    if(rp){
+      if(cambios.length) anotarReporte(rp, 'Editó el reporte (' + cambios.join('; ') + ').', 'editó', reg.folio);
+      else guardarReporte(reg, 'editó');
+    }else{
+      guardarReporte(reg, 'creó');
+    }
     cerrarModal();
     entrarReporte(reg.id);
     aviso(rp ? 'Reporte actualizado.' : 'Reporte levantado: ' + reg.folio + '.');
@@ -10011,7 +10036,7 @@ $('vista').addEventListener('click', ev=>{
       const rp = reportePorId(estado.reporteId);
       if(!rp) return;
       rp.evidencias = rp.evidencias.filter(e => e.id !== acc.dataset.evidencia);
-      guardarReporte(rp, 'quitó evidencia de');
+      anotarReporte(rp, 'Quitó una foto de evidencia.', 'quitó evidencia de', rp.folio);
       render(); aviso('Foto eliminada.');
     }
     else if(a === 'resolver-reporte'){ if(exigirReportar()) modalResolverReporte(estado.reporteId); }
