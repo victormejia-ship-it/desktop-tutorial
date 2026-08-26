@@ -6574,7 +6574,7 @@ function vistaPrecios(){
            + 'y se puede volver a ofrecer cuando quieras.</p></div></div>'
          : '')
      + '<div class="rodillo"><table class="tabla">'
-     + '<thead><tr><th>Equipo</th><th>Precio unitario</th><th>Costo</th><th>Margen</th><th>Servicios/año</th><th>Descripción del trabajo</th>'
+     + '<thead><tr><th>Equipo</th><th>Costo</th><th>Precio unitario</th><th>Margen</th><th>Servicios/año</th><th>Descripción del trabajo</th>'
      + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
      + (vistos.length ? vistos.map(e =>{
          const costo = costoTotalEquipo(e);
@@ -6582,8 +6582,8 @@ function vistaPrecios(){
          const margenPct = e.precio ? (margen / e.precio * 100) : 0;
          return '<tr' + (e.activo ? '' : ' style="opacity:.5"') + '>'
        + '<td><b>' + esc(e.concepto) + '</b>' + (e.activo ? '' : ' <span class="pista" style="display:inline">(apagado)</span>') + '</td>'
-       + '<td' + (e.precio ? '' : ' style="color:var(--error)"') + '>' + (e.precio ? dineroCent(e.precio) : 'sin precio') + '</td>'
        + '<td>' + (costo ? dineroCent(costo) : '<span class="pista">sin costo</span>') + '</td>'
+       + '<td' + (e.precio ? '' : ' style="color:var(--error)"') + '>' + (e.precio ? dineroCent(e.precio) : 'sin precio') + '</td>'
        + '<td' + (e.precio && costo
            ? ' style="color:' + (margen >= 0 ? 'var(--ok)' : 'var(--error)') + '"'
            : '') + '>'
