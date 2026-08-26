@@ -4718,7 +4718,7 @@ function rangoPeriodoResultados(modo, desde, hasta){
 
 function calcularResultados(inicio, fin){
   const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
-              numPagosForpass:0, numCobrosPolizas:0, numCotizaciones:0 };
+              numPagosForpass:0, numCobrosPolizas:0, numServiciosPolizas:0, numCotizaciones:0 };
 
   /* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
      el mes al que corresponde (fechaInicio + su número de mes), no en el mes
@@ -4732,18 +4732,36 @@ function calcularResultados(inicio, fin){
     });
   });
 
-  /* Pólizas: mismo criterio, con sus cobros (uno solo si es anual, doce si
-     es mensual). Las de cargoA==='interno' NO entran: ese cobro marcado no
+  /* Pólizas: el INGRESO se cuenta cuando se COBRA (uno solo si es anual,
+     doce si es mensual) — cargoA==='interno' NO entra: ese cobro marcado no
      es dinero que haya puesto un cliente, es un gasto que absorbimos
-     nosotros mismos — contarlo aquí infla el ingreso con algo que nunca
-     entró. Ver normalizarPoliza(). */
+     nosotros mismos (ver normalizarPoliza()).
+
+     El COSTO en cambio se cuenta cuando se HACE el servicio, no cuando se
+     cobra: son dos calendarios distintos —facturación vs. mantenimiento
+     real— y mezclarlos dejaba meses sin costo (nada cobrado ese mes) al
+     lado de meses con el costo del año completo (cobro anual de golpe). El
+     costo de cada equipo se reconoce en CADA mes de su calendario que caiga
+     dentro del período, multiplicado por su cantidad — es lo que de verdad
+     se gasta ese mes en mantenerlo. Y SÍ entra aunque la póliza sea
+     cargoA='interno': el gasto de mandar al técnico es real aunque no se le
+     esté cobrando a un cliente. */
   datos.polizas.forEach(p=>{
-    if(p.cargoA === 'interno') return;
-    const c = calcularPoliza(p);
-    p.cobros.forEach((cobrado, i)=>{
-      if(!cobrado) return;
-      const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
-      if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.costoPolizas += c.costoMontos[i]; r.numCobrosPolizas++; }
+    if(p.cargoA !== 'interno'){
+      const c = calcularPoliza(p);
+      p.cobros.forEach((cobrado, i)=>{
+        if(!cobrado) return;
+        const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
+        if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.numCobrosPolizas++; }
+      });
+    }
+    p.partidas.forEach(x=>{
+      const costoServicio = (x.costoUnitario || 0) * x.cantidad;
+      if(!costoServicio) return;
+      x.mesesServicio.forEach(m=>{
+        const fecha = sumarMeses(p.fechaInicio, m);
+        if(fecha >= inicio && fecha <= fin){ r.costoPolizas += costoServicio; r.numServiciosPolizas++; }
+      });
     });
   });
 
@@ -4806,7 +4824,7 @@ function vistaResultados(){
      +   '<div class="tp-fila tp-total"><span>Total de ingresos</span><span class="tp-monto">' + dineroCent(r.ingresoTotal) + '</span></div>'
 
      +   '<div class="tp-seccion">Costos</div>'
-     +   '<div class="tp-fila tp-negativo"><span>Costo de pólizas · mismos cobros de arriba</span>'
+     +   '<div class="tp-fila tp-negativo"><span>Pólizas · servicios programados este período (' + numero(r.numServiciosPolizas) + ')</span>'
      +     '<span class="tp-monto">' + dineroCent(r.costoPolizas) + '</span></div>'
      +   '<div class="tp-fila tp-negativo"><span>Costo de las cotizaciones aprobadas</span>'
      +     '<span class="tp-monto">' + dineroCent(r.costoCotizaciones) + '</span></div>'
@@ -4819,8 +4837,11 @@ function vistaResultados(){
      + '</div>';
 
   h += '<p class="pista" style="margin-top:14px">Forpass no tiene un costo interno capturado en el sistema, así que aquí '
-     + 'solo aporta ingreso — no se le inventa un margen. Pólizas sí lo trae desde el costo de cada equipo en su renglón '
-     + '(ver Lista de precios); si un equipo quedó en $0 de costo, esa parte del margen sale de más.</p>';
+     + 'solo aporta ingreso — no se le inventa un margen. El costo de pólizas se cuenta por el calendario de '
+     + 'mantenimiento —cada equipo, en cada mes que le toca servicio dentro del período— y no por lo cobrado: son '
+     + 'calendarios distintos, y por eso puede haber costo en un mes sin ingreso de pólizas, o al revés. Viene del costo '
+     + 'de cada equipo en su renglón (ver Lista de precios); si un equipo quedó en $0 de costo, esa parte del margen '
+     + 'sale de más.</p>';
 
   return h;
 }
