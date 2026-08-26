@@ -2628,6 +2628,14 @@ function normalizarCotizacion(q){
        queda la liga hacia atrás — el reporte guarda la liga hacia adelante
        en su propio `cotizacionId`. */
     reporteOrigenId: (q && q.reporteOrigenId) || '',
+    /* Mismo criterio, pero cuando nace de una refacción pedida al registrar
+       un servicio de póliza (ver `refaccion`/`refaccionCotizacionId` en
+       `hechos`, dentro de normalizarPoliza): la liga hacia atrás queda aquí,
+       con el equipo y el mes exactos, no solo la póliza — un mismo equipo
+       puede pedir refacciones distintas en meses distintos. */
+    polizaOrigenId: (q && q.polizaOrigenId) || '',
+    polizaOrigenPartidaId: (q && q.polizaOrigenPartidaId) || '',
+    polizaOrigenMes: Number.isInteger(q && q.polizaOrigenMes) ? q.polizaOrigenMes : null,
     /* Cotización(es) de proveedor externo que sustentan el costo interno de
        arriba — solo se ven del lado "Costo interno", nunca en el documento
        para el cliente. */
@@ -3279,7 +3287,14 @@ function normalizarPoliza(p){
           nota:   d.nota  ? String(d.nota)  : '',
           hechas,
           evidencias: (Array.isArray(d.evidencias) ? d.evidencias : [])
-            .map(normalizarEvidencia).filter(e => e.dataUrl).slice(0, EVIDENCIA_MAX_POR_SERVICIO)
+            .map(normalizarEvidencia).filter(e => e.dataUrl).slice(0, EVIDENCIA_MAX_POR_SERVICIO),
+          /* La refacción que este servicio necesitó, y la cotización (borrador)
+             que se generó sola para pedirla — ver modalServicioPoliza(). La
+             liga se pone UNA sola vez, la primera vez que se guarda con texto:
+             volver a guardar (editar la nota, agregar fotos) no genera una
+             segunda solicitud ni borra la que ya existía. */
+          refaccion: d.refaccion ? String(d.refaccion) : '',
+          refaccionCotizacionId: d.refaccionCotizacionId ? String(d.refaccionCotizacionId) : ''
         };
         if(hechas < tope && d.motivo) reg.motivo = String(d.motivo);
         limpio[String(m)] = reg;
@@ -5646,6 +5661,19 @@ function vistaCotizacion(){
        + ' <button type="button" class="btn btn-suave btn-mini" data-reporte="' + esc(reporteOrigen.id) + '" style="margin-left:8px">Ver reporte →</button></div></div>';
   }
 
+  /* Mismo criterio que arriba, pero cuando nace de una refacción pedida al
+     registrar un servicio de póliza: la liga trae también el equipo y el mes
+     exactos, no solo la póliza. */
+  const polizaOrigen = cot.polizaOrigenId ? polizaPorId(cot.polizaOrigenId) : null;
+  if(polizaOrigen){
+    const xOrigen = polizaOrigen.partidas.find(q => q.id === cot.polizaOrigenPartidaId);
+    h += '<div class="aviso" style="margin-bottom:14px">' + ICONO.calendario
+       + '<div>Esta cotización es una refacción pedida en la póliza <b>' + esc(polizaOrigen.sitioNombre || polizaOrigen.folio || 'sin nombre') + '</b>'
+       + (xOrigen ? ', equipo <b>' + esc(xOrigen.concepto) + '</b>' : '')
+       + (Number.isInteger(cot.polizaOrigenMes) ? ' · ' + esc(etiquetaMesServicio(polizaOrigen.fechaInicio, cot.polizaOrigenMes)) : '') + '.'
+       + ' <button type="button" class="btn btn-suave btn-mini" data-ver-poliza="' + esc(polizaOrigen.id) + '" style="margin-left:8px">Ver póliza →</button></div></div>';
+  }
+
   h += '<div class="titulo-zona"><div>'
      +   '<h2>' + esc(s ? s.nombre : 'Sin sitio') + '</h2>'
      +   '<p>' + esc(cli ? cli.nombre : 'Sin cliente') + (cot.folio ? ' · ' + esc(cot.folio) : '')
@@ -6476,6 +6504,7 @@ function vistaPoliza(){
                                                 + (hecho.motivo ? ' · faltó: ' + hecho.motivo : '') : '')
                                             + (hecho.evidencias && hecho.evidencias.length
                                                 ? ' · ' + hecho.evidencias.length + ' ' + plural(hecho.evidencias.length,'foto','fotos') : '')
+                                            + (hecho.refaccion ? ' · pidió refacción: ' + hecho.refaccion : '')
                                          : ' · pendiente')
                      + (aviso ? ' · fuera del calendario' : '')
                      + (marcable ? (hecho ? ' — pica para corregirlo' : ' — pica para marcarlo hecho') : '');
@@ -6916,6 +6945,11 @@ function irAPolizas(){
   render();
 }
 function entrarPoliza(id){
+  /* Mismo caso que entrarCotizacion()/entrarReporte(): sin fijar `modulo`,
+     un puente "Ver póliza →" desde otro módulo (p.ej. la cotización que nació
+     de una refacción pedida al registrar un servicio) se quedaba dibujando
+     el módulo de origen en vez de la póliza. */
+  if(estado.modulo !== 'polizas'){ estado.modulo = 'polizas'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'poliza'; estado.polizaId = id;
   render();
@@ -8060,6 +8094,32 @@ function modalCobroPoliza(polizaId, idx){
      va un mes y atiende varios equipos— así que al guardar desde ahí se vuelve
      a abrir el calendario para seguir marcando sin salir y entrar.
    ------------------------------------------------------------------------- */
+
+/* Genera la solicitud de cotización (borrador) de una refacción pedida al
+   registrar un servicio: un renglón con el texto tal cual lo escribió quien
+   capturó, sitio de la póliza, y la liga hacia atrás (polizaOrigen*) para que
+   Cotizaciones sepa de dónde salió. Nace en 'borrador' con costo/margen en
+   cero: es un AVISO de que hace falta cotizar algo, no una cotización ya
+   armada — eso lo termina de llenar quien sí tiene permiso de precios. */
+function generarSolicitudCotizacionRefaccion(p, x, mes, texto){
+  const cot = normalizarCotizacion({
+    id: nuevoId(),
+    folio: generarFolioCotizacion(hoyISO()),
+    sitioId: p.sitioId,
+    tipoMtto: 'CORRECTIVO',
+    solicitud: 'Refacción · ' + x.concepto + ' · ' + etiquetaMesServicio(p.fechaInicio, mes),
+    notas: 'Refacción solicitada al registrar el servicio de "' + x.concepto + '" en la póliza '
+      + (p.sitioNombre || p.folio || '') + '.',
+    polizaOrigenId: p.id,
+    polizaOrigenPartidaId: x.id,
+    polizaOrigenMes: mes,
+    partidas: [normalizarPartidaCotizacion({ concepto: texto, cantidad: 1 })]
+  });
+  datos.cotizaciones.push(cot);
+  guardarCotizacion(cot, 'creó', 'solicitud de refacción para ' + x.concepto);
+  return cot.id;
+}
+
 function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
   const p = polizaPorId(polizaId);
   if(!p) return;
@@ -8091,6 +8151,7 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
      mes vive en UN lugar. */
   const dentroDelMes = diasEntre(inicioMes, hoy) >= 0 && mesesTranscurridos(p.fechaInicio, hoy) === mes;
   const propuesta = (det && det.cuando) || (dentroDelMes ? hoy : inicioMes);
+  const cotOrigenExistente = det && det.refaccionCotizacionId ? cotizacionPorId(det.refaccionCotizacionId) : null;
 
   const cuerpo =
       '<div class="resumen" style="margin-bottom:18px">'
@@ -8150,6 +8211,19 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     +   '<button type="button" class="btn btn-suave btn-mini" id="svBtnAgregarFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
     +   '<input type="file" id="svArchivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
     +   '<div class="pista" id="svPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Se reducen solas para no pesar.</div>'
+    + '</div>'
+
+    + '<div class="campo"><label class="casilla"><input type="checkbox" id="svRefaccionChk"'
+    +     ((det && det.refaccion) ? ' checked' : '') + '> ¿Necesita alguna refacción?</label>'
+    +   '<div id="svRefaccionZona"' + ((det && det.refaccion) ? '' : ' hidden') + '>'
+    +     '<input type="text" id="svRefaccionTexto" placeholder="Ej. Motor de ventilador del condensador" '
+    +       'value="' + esc((det && det.refaccion) || '') + '">'
+    +     '<div class="pista" id="svPistaRefaccion">' + (cotOrigenExistente
+            ? 'Ya se generó la solicitud de cotización <b>' + esc(cotOrigenExistente.folio || 'sin folio')
+              + '</b> para esto — se busca en el módulo Cotizaciones.'
+            : 'Al guardar se genera sola una solicitud de cotización (borrador) para esta refacción, ligada a este servicio.')
+    +     '</div>'
+    +   '</div>'
     + '</div>';
 
   /* Cancelar desde el calendario devuelve al calendario: si no, abrir un equipo
@@ -8223,6 +8297,22 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     pintarGaleriaSv();
   });
 
+  /* Si ya existe una solicitud generada, el texto queda de solo lectura: no
+     tiene caso reescribir la refacción sin que nadie más se entere — para
+     pedir algo distinto, mejor un registro nuevo del mes siguiente. */
+  /* Una vez generada la solicitud, la casilla y el texto quedan fijos: si se
+     pudiera desmarcar, el registro perdería la referencia a la refacción pero
+     la cotización ya generada seguiría ahí, huérfana. Para pedir otra cosa
+     distinta, es un registro nuevo de otro mes. */
+  if(cotOrigenExistente){
+    $('svRefaccionChk').setAttribute('disabled', 'true');
+    $('svRefaccionTexto').setAttribute('readonly', 'true');
+  }
+  $('svRefaccionChk').addEventListener('change', ev=>{
+    $('svRefaccionZona').hidden = !ev.target.checked;
+    if(ev.target.checked && !cotOrigenExistente) $('svRefaccionTexto').focus();
+  });
+
   setTimeout(()=>{ const f = $('svCuando'); if(f) f.focus(); }, 70);
   cerrarModalActual = ()=>{
     /* Todo se lee ANTES de cerrar: cerrarModal reemplaza el contenedor por un
@@ -8260,18 +8350,38 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
       }
     }
 
-    marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp },
+    const pideRefaccion = $('svRefaccionChk').checked;
+    const refaccion = pideRefaccion ? $('svRefaccionTexto').value.trim() : '';
+    if(pideRefaccion && !refaccion){
+      $('svRefaccionTexto').setAttribute('aria-invalid','true'); $('svRefaccionTexto').focus();
+      aviso('Escribe qué refacción hace falta, o desmarca la casilla.', true); return;
+    }
+
+    marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp,
+      refaccion, refaccionCotizacionId: (cotOrigenExistente && cotOrigenExistente.id) || '' },
       motivo ? { motivo } : {}));
     if(!conCuenta) recordarCapturador(quien);
+
+    /* La solicitud de cotización se genera UNA sola vez, justo aquí, después
+       de marcarServicio(): así usa el `det` recién guardado y no la copia
+       vieja que traía el modal al abrirse. */
+    let folioSolicitud = '';
+    if(refaccion && !cotOrigenExistente){
+      const detGuardado = servicioDetalle(p, x, mes);
+      const cotId = generarSolicitudCotizacionRefaccion(p, x, mes, refaccion);
+      detGuardado.refaccionCotizacionId = cotId;
+      folioSolicitud = (cotizacionPorId(cotId) || {}).folio || '';
+    }
 
     const parcial = hechas < x.cantidad ? ' · ' + hechas + ' de ' + x.cantidad + ' · faltó: ' + motivo : '';
     guardarPoliza(p, yaHecho ? 'corrigió el servicio de' : 'registró el servicio de',
       x.concepto + ' · ' + etiqueta + ' · hecho el ' + fmtFecha(cuando) + ' · capturó ' + quien
-      + parcial + (nota ? ' · ' + nota : ''));
+      + parcial + (nota ? ' · ' + nota : '') + (folioSolicitud ? ' · pidió refacción: ' + refaccion : ''));
     cerrarModal();
     render();
     aviso('Servicio de ' + x.concepto + ' en ' + etiqueta
-      + (hechas < x.cantidad ? ' registrado: ' + hechas + ' de ' + x.cantidad : (yaHecho ? ' actualizado' : ' registrado')) + '.');
+      + (hechas < x.cantidad ? ' registrado: ' + hechas + ' de ' + x.cantidad : (yaHecho ? ' actualizado' : ' registrado')) + '.'
+      + (folioSolicitud ? ' Se generó la solicitud de cotización ' + folioSolicitud + ' para la refacción.' : ''));
     volver();
   };
 }
@@ -8366,6 +8476,7 @@ function modalCalendario(id){
               + (r.det.nota ? ' · ' + r.det.nota : '')
               + (r.det.evidencias && r.det.evidencias.length
                   ? ' · ' + r.det.evidencias.length + ' ' + plural(r.det.evidencias.length,'foto','fotos') : '')
+              + (r.det.refaccion ? ' · pidió refacción: ' + r.det.refaccion : '')
               + (marcable ? ' — pica para corregirlo' : '')
             : (marcable ? 'Registrar que ya se hizo' : 'Pendiente');
           return '<li' + (r.det ? ' class="hecho"' : '') + ' title="' + esc(tip) + '">'
