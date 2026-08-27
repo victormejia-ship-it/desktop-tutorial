@@ -2649,10 +2649,17 @@ function normalizarCotizacion(q){
     polizaOrigenId: (q && q.polizaOrigenId) || '',
     polizaOrigenPartidaId: (q && q.polizaOrigenPartidaId) || '',
     polizaOrigenMes: Number.isInteger(q && q.polizaOrigenMes) ? q.polizaOrigenMes : null,
-    /* Mismo criterio otra vez, cuando nace de un hallazgo de un levantamiento
-       de sitio (ver módulo Levantamientos) que pidió cotizar algo. */
+    /* Mismo criterio otra vez, cuando nace de uno o varios hallazgos de un
+       levantamiento de sitio (ver módulo Levantamientos) que pidieron cotizar
+       algo — SIEMPRE arreglo, incluso cuando es un solo hallazgo, para que
+       "una cotización con varios hallazgos" (elegir "una sola" al generar)
+       y "una cotización por hallazgo" compartan el mismo campo. Migra sola
+       el formato viejo (un único id suelto, de antes de que existiera la
+       opción de combinar) al leer. */
     levantamientoOrigenId: (q && q.levantamientoOrigenId) || '',
-    levantamientoOrigenHallazgoId: (q && q.levantamientoOrigenHallazgoId) || '',
+    levantamientoOrigenHallazgoIds: Array.isArray(q && q.levantamientoOrigenHallazgoIds)
+      ? q.levantamientoOrigenHallazgoIds.slice()
+      : (q && q.levantamientoOrigenHallazgoId ? [q.levantamientoOrigenHallazgoId] : []),
     /* Cotización(es) de proveedor externo que sustentan el costo interno de
        arriba — solo se ven del lado "Costo interno", nunca en el documento
        para el cliente. */
@@ -3021,26 +3028,39 @@ function guardarLevantamiento(l, accion, detalle){
   anotar(accion || 'editó', 'levantamiento', l.folio || l.sitioNombre || 'sin folio', detalle);
 }
 
-/* Genera la solicitud de cotización (borrador) de lo que un hallazgo pidió
-   cotizar — mismo criterio exacto que generarSolicitudCotizacionRefaccion()
-   en pólizas: nace en 'borrador', con la liga hacia atrás
-   (levantamientoOrigenId/levantamientoOrigenHallazgoId) para que Cotizaciones
-   sepa de dónde salió. */
-function generarSolicitudCotizacionHallazgo(l, h, texto){
+/* Genera la solicitud de cotización (borrador) de lo que uno o VARIOS
+   hallazgos pidieron cotizar — mismo criterio de fondo que
+   generarSolicitudCotizacionRefaccion() en pólizas: nace en 'borrador', con
+   la liga hacia atrás (levantamientoOrigenId/levantamientoOrigenHallazgoIds)
+   para que Cotizaciones sepa de dónde salió.
+
+   A propósito NO se llama sola al guardar un hallazgo (a diferencia de la
+   refacción de pólizas): con un levantamiento de varios hallazgos, Victor
+   pidió poder juntar dos o más solicitudes en UNA sola cotización —o
+   mandarlas por separado, a su elección—, y eso solo se puede decidir una
+   vez que ya existen los hallazgos que se van a combinar. Por eso el
+   hallazgo solo guarda `cotizar` (el texto) al capturarse, y la cotización
+   de verdad se genera después, desde el bloque "Cotizaciones por generar"
+   en vistaLevantamiento(). */
+function generarSolicitudCotizacionHallazgos(l, hallazgos){
+  const varios = hallazgos.length > 1;
   const cot = normalizarCotizacion({
     id: nuevoId(),
     folio: generarFolioCotizacion(hoyISO()),
     sitioId: l.sitioId,
-    tipoMtto: h.accion === 'preventivo' ? 'PREVENTIVO' : 'CORRECTIVO',
-    solicitud: 'Levantamiento · ' + (h.ubicacion || h.equipoNombre || 'hallazgo') + ' · ' + (l.folio || ''),
-    notas: 'Cotización pedida desde un hallazgo del levantamiento ' + (l.folio || '') + ' en '
-      + (l.sitioNombre || '') + (h.ubicacion ? ' · ' + h.ubicacion : '') + '.',
+    tipoMtto: hallazgos.some(h => h.accion === 'correctivo') ? 'CORRECTIVO' : 'PREVENTIVO',
+    solicitud: 'Levantamiento · ' + (varios
+      ? hallazgos.length + ' hallazgos'
+      : (hallazgos[0].ubicacion || hallazgos[0].equipoNombre || 'hallazgo')) + ' · ' + (l.folio || ''),
+    notas: 'Cotización pedida desde ' + (varios ? hallazgos.length + ' hallazgos' : 'un hallazgo')
+      + ' del levantamiento ' + (l.folio || '') + ' en ' + (l.sitioNombre || '') + '.',
     levantamientoOrigenId: l.id,
-    levantamientoOrigenHallazgoId: h.id,
-    partidas: [normalizarPartidaCotizacion({ concepto: texto, cantidad: 1 })]
+    levantamientoOrigenHallazgoIds: hallazgos.map(h => h.id),
+    partidas: hallazgos.map(h => normalizarPartidaCotizacion({ concepto: h.cotizar, cantidad: 1 }))
   });
   datos.cotizaciones.push(cot);
-  guardarCotizacion(cot, 'creó', 'solicitud de cotización desde un hallazgo de levantamiento');
+  guardarCotizacion(cot, 'creó', 'solicitud de cotización desde ' + hallazgos.length + ' '
+    + plural(hallazgos.length,'hallazgo','hallazgos') + ' de levantamiento');
   return cot.id;
 }
 
@@ -5989,10 +6009,15 @@ function vistaCotizacion(){
      de sitio. */
   const levantamientoOrigen = cot.levantamientoOrigenId ? levantamientoPorId(cot.levantamientoOrigenId) : null;
   if(levantamientoOrigen){
-    const hzOrigen = levantamientoOrigen.hallazgos.find(x => x.id === cot.levantamientoOrigenHallazgoId);
+    const idsOrigen = cot.levantamientoOrigenHallazgoIds || [];
+    const hzsOrigen = levantamientoOrigen.hallazgos.filter(x => idsOrigen.includes(x.id));
+    const descHz = hzsOrigen.length === 1
+      ? ' · ' + esc(hzsOrigen[0].ubicacion || hzsOrigen[0].equipoNombre || 'hallazgo')
+      : (hzsOrigen.length > 1 ? ' · ' + hzsOrigen.length + ' hallazgos (' + hzsOrigen.map(x => esc(x.ubicacion || x.equipoNombre || 'hallazgo')).join(', ') + ')' : '');
     h += '<div class="aviso" style="margin-bottom:14px">' + ICONO.reporte
-       + '<div>Esta cotización viene de un hallazgo del levantamiento <b>' + esc(levantamientoOrigen.folio || 'sin folio') + '</b>'
-       + (hzOrigen ? ' · ' + esc(hzOrigen.ubicacion || hzOrigen.equipoNombre || 'hallazgo') : '') + ' en '
+       + '<div>Esta cotización viene de ' + (hzsOrigen.length === 1 ? 'un hallazgo' : hzsOrigen.length + ' hallazgos')
+       + ' del levantamiento <b>' + esc(levantamientoOrigen.folio || 'sin folio') + '</b>'
+       + descHz + ' en '
        + esc(levantamientoOrigen.sitioNombre || 'sin sitio') + '.'
        + ' <button type="button" class="btn btn-suave btn-mini" data-levantamiento="' + esc(levantamientoOrigen.id) + '" style="margin-left:8px">Ver levantamiento →</button></div></div>';
   }
@@ -7003,6 +7028,30 @@ function vistaLevantamiento(){
   }
   h += '</div>';
 
+  /* Cotizaciones por generar: hallazgos con algo que cotizar y todavía sin
+     cotizacionId. Antes cada uno generaba su propia solicitud al guardarse,
+     lo que partía en varias cotizaciones cosas que eran un solo trabajo
+     (mismo equipo, misma visita) — ahora se decide aquí, junta o separada. */
+  const pendientesCotizar = l.hallazgos.filter(hz => hz.cotizar && !hz.cotizacionId);
+  if(puede && pendientesCotizar.length){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cotizaciones por generar</h3>'
+       +   '<p>' + numero(pendientesCotizar.length) + ' ' + plural(pendientesCotizar.length,'hallazgo pide','hallazgos piden')
+       +   ' cotizar algo y aún no tiene solicitud. Elige cuáles van juntos y si va todo en una cotización o cada uno en la suya.</p></div></div>';
+    h += '<div class="lista-cot-pendiente">' + pendientesCotizar.map(hz =>
+      '<label class="casilla" style="display:flex; gap:8px; align-items:flex-start; margin-bottom:8px">'
+      +   '<input type="checkbox" class="chkCotPend" value="' + esc(hz.id) + '" checked>'
+      +   '<span><b>' + esc(hz.ubicacion || hz.equipoNombre || 'Hallazgo') + '</b> — ' + esc(hz.cotizar) + '</span>'
+      + '</label>'
+    ).join('') + '</div>';
+    h += '<div class="fila2" style="margin-top:6px">'
+       +   '<label class="casilla"><input type="radio" name="modoCotPend" value="una" checked> Una sola cotización con los seleccionados</label>'
+       +   '<label class="casilla"><input type="radio" name="modoCotPend" value="separadas"> Una cotización por cada seleccionado</label>'
+       + '</div>';
+    h += '<div class="acciones" style="margin-top:10px">'
+       +   '<button type="button" class="btn btn-primario btn-mini" data-accion="generar-cotizaciones-pendientes">' + ICONO.mas + 'Generar</button>'
+       + '</div></div>';
+  }
+
   /* El botón de generar póliza solo tiene sentido cuando el sitio TODAVÍA no
      trae una en curso — si ya hay cotización/enviada/activa, ese es el lugar
      donde seguir capturando equipos, no un segundo formulario suelto. */
@@ -7254,7 +7303,7 @@ function modalHallazgo(levantamientoId, hallazgoId){
     +       'value="' + esc((hz && hz.cotizar) || '') + '">'
     +     '<div class="pista" id="hzPistaCotizar">' + (cotLigada
             ? 'Ya se generó la solicitud de cotización <b>' + esc(cotLigada.folio || 'sin folio') + '</b> para esto — se busca en el módulo Cotizaciones.'
-            : 'Al guardar se genera sola una solicitud de cotización (borrador), ligada a este hallazgo.')
+            : 'Se guarda como pendiente de cotizar. La solicitud se genera desde el detalle del levantamiento — sola o junto con otros hallazgos.')
     +     '</div>'
     +   '</div>'
     + '</div>';
@@ -7366,19 +7415,14 @@ function modalHallazgo(levantamientoId, hallazgoId){
     if(hz) Object.assign(hz, nuevoHz);
     else l.hallazgos.push(nuevoHz);
 
-    /* La solicitud se genera UNA sola vez, después de tener el hallazgo ya
-       guardado en el arreglo, para usar el objeto vivo y no una copia. */
-    let folioSolicitud = '';
-    if(cotizar && !cotLigada){
-      const hzGuardado = l.hallazgos.find(x => x.id === nuevoHz.id);
-      const cotId = generarSolicitudCotizacionHallazgo(l, hzGuardado, cotizar);
-      hzGuardado.cotizacionId = cotId;
-      folioSolicitud = (cotizacionPorId(cotId) || {}).folio || '';
-    }
-
+    /* Ya NO se genera la cotización aquí: si hay varios hallazgos que
+       cotizar en el mismo levantamiento, generarla uno por uno duplicaba
+       solicitudes que debían ir juntas. La solicitud se arma después, desde
+       el detalle del levantamiento, donde se puede elegir combinar o
+       separar — ver el bloque "Cotizaciones por generar". */
     guardarLevantamiento(l, hz ? 'editó un hallazgo de' : 'agregó un hallazgo a',
-      (nuevoHz.ubicacion || nuevoHz.equipoNombre || 'hallazgo') + (folioSolicitud ? ' · pidió cotizar: ' + cotizar : ''));
-    return { nuevoHz, folioSolicitud };
+      (nuevoHz.ubicacion || nuevoHz.equipoNombre || 'hallazgo') + (cotizar && !cotLigada ? ' · pidió cotizar: ' + cotizar : ''));
+    return { nuevoHz };
   }
 
   /* Deja el formulario listo para el siguiente hallazgo, sin tocar los datos
@@ -7407,8 +7451,7 @@ function modalHallazgo(levantamientoId, hallazgoId){
     if(!resultado) return;
     cerrarModal();
     render();
-    aviso((hz ? 'Hallazgo actualizado.' : 'Hallazgo agregado.')
-      + (resultado.folioSolicitud ? ' Se generó la solicitud de cotización ' + resultado.folioSolicitud + '.' : ''));
+    aviso(hz ? 'Hallazgo actualizado.' : 'Hallazgo agregado.');
   };
 
   if(!hz){
@@ -7418,8 +7461,7 @@ function modalHallazgo(levantamientoId, hallazgoId){
       /* El modal se queda abierto: render() solo repinta la vista de ATRÁS
          (el detalle del levantamiento), nunca toca #modal/#modalCuerpo. */
       render();
-      aviso('Hallazgo agregado (van ' + numero(l.hallazgos.length) + '). Sigue con el siguiente.'
-        + (resultado.folioSolicitud ? ' Se generó la solicitud de cotización ' + resultado.folioSolicitud + '.' : ''));
+      aviso('Hallazgo agregado (van ' + numero(l.hallazgos.length) + '). Sigue con el siguiente.');
       limpiarFormularioHz();
     });
   }
@@ -11811,6 +11853,35 @@ $('vista').addEventListener('click', ev=>{
           estado.vista = 'levantamientos'; estado.levantamientoId = null;
           render(); aviso('Levantamiento eliminado.');
         });
+    }
+    else if(a === 'generar-cotizaciones-pendientes'){
+      if(!exigirGestionLevantamiento()) return;
+      const l = levantamientoPorId(estado.levantamientoId);
+      if(!l) return;
+      const ids = Array.from(document.querySelectorAll('.chkCotPend:checked')).map(c => c.value);
+      if(!ids.length){ aviso('Selecciona al menos un hallazgo.', true); return; }
+      const seleccionados = ids.map(id => l.hallazgos.find(x => x.id === id)).filter(Boolean);
+      const modoInput = document.querySelector('input[name="modoCotPend"]:checked');
+      const modo = modoInput ? modoInput.value : 'una';
+      if(modo === 'una'){
+        const cotId = generarSolicitudCotizacionHallazgos(l, seleccionados);
+        seleccionados.forEach(hz => { hz.cotizacionId = cotId; });
+        guardarLevantamiento(l, 'generó una cotización desde',
+          numero(seleccionados.length) + ' ' + plural(seleccionados.length,'hallazgo','hallazgos') + ' de levantamiento');
+        render();
+        aviso('Se generó la cotización ' + ((cotizacionPorId(cotId) || {}).folio || '') + ' con '
+          + numero(seleccionados.length) + ' ' + plural(seleccionados.length,'renglón','renglones') + '.');
+      }else{
+        const folios = seleccionados.map(hz=>{
+          const cotId = generarSolicitudCotizacionHallazgos(l, [hz]);
+          hz.cotizacionId = cotId;
+          return (cotizacionPorId(cotId) || {}).folio || '';
+        });
+        guardarLevantamiento(l, 'generó ' + numero(seleccionados.length) + ' cotizaciones separadas desde',
+          numero(seleccionados.length) + ' hallazgos de levantamiento');
+        render();
+        aviso('Se generaron ' + numero(seleccionados.length) + ' cotizaciones: ' + folios.join(', ') + '.');
+      }
     }
     else if(a === 'imprimir-levantamiento') abrirDocumentoLevantamiento(estado.levantamientoId);
     else if(a === 'generar-poliza-levantamiento'){
