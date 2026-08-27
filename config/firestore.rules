@@ -98,6 +98,21 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Levantamientos (recorridos de sitio) ---
+       Séptimo módulo: el registro de una visita completa, con varios
+       hallazgos (correctivos o preventivos) dentro. A propósito "para todos
+       los perfiles" — MÁS abierto todavía que /reportes: ahí un Viewer
+       levanta el ticket pero no lo gestiona; aquí cualquiera con acceso
+       levanta el recorrido Y da seguimiento a sus hallazgos por igual. Es un
+       registro de campo, no un documento de precios. Borrar, solo Admin,
+       mismo criterio que el resto del tablero. */
+    match /levantamientos/{id} {
+      allow read:   if conAcceso();
+      allow create: if conAcceso();
+      allow update: if conAcceso();
+      allow delete: if esAdmin();
+    }
+
     /* --- Pólizas de mantenimiento preventivo ---
        La cotización y la póliza activa son el MISMO documento en distintos
        momentos, separados por su campo 'estatus':

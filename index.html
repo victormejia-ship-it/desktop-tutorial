@@ -854,6 +854,7 @@ table.tabla select.sel-rol{font-weight:600;}
 .bloque-cabeza h3{font-size:15.5px; font-weight:700; color:var(--navy);}
 .bloque-cabeza p{font-size:12px; color:var(--gray); margin-top:2px;}
 .bloque-cabeza .der{margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;}
+.hallazgo-item.resuelto{opacity:.62;}
 /* Renglones de dato dentro de un bloque claro. La regla de .credencial .c-fila
    es para la tarjeta oscura de "cuenta creada" y no aplica aquí. */
 .bloque .c-fila{display:flex; justify-content:space-between; gap:12px; font-size:13px; padding:7px 0; align-items:center; border-bottom:1px solid var(--line);}
@@ -986,6 +987,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
     <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="true">Forpass</button>
     <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
+    <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
   </nav>
@@ -1535,7 +1537,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[] };
 
 function cargar(){
   try{
@@ -1555,7 +1557,8 @@ function cargar(){
         segmentos: normalizarSegmentos(d.segmentos),
         parametros: normalizarListaParametros(d.parametros),
         cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion),
-        reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte) };
+        reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
+        levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1939,9 +1942,9 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[] };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -2227,9 +2230,10 @@ async function bajarDeLaNube(){
      documento por equipo: así son 48 equipos por 1 lectura en vez de 48. Se
      edita poco y se lee en cada carga, así que el ahorro es todo. El costo es
      que dos admins editándola a la vez se pisan, y eso está anotado en la vista. */
-  const [cl, si, po, eq, sg, pr, co, rp] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
-    leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60)
+    leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
+    listarNube('levantamientos', 60)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -2244,7 +2248,7 @@ async function bajarDeLaNube(){
   datos = { v:1, clientes: cl.map(normalizarCliente), sitios: si.map(normalizarSitio),
             polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo),
             segmentos: sg, parametros: pr, cotizaciones: co.map(normalizarCotizacion),
-            reportes: rp.map(normalizarReporte) };
+            reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento) };
   guardarLocal();
   return 'ok';
 }
@@ -2636,6 +2640,10 @@ function normalizarCotizacion(q){
     polizaOrigenId: (q && q.polizaOrigenId) || '',
     polizaOrigenPartidaId: (q && q.polizaOrigenPartidaId) || '',
     polizaOrigenMes: Number.isInteger(q && q.polizaOrigenMes) ? q.polizaOrigenMes : null,
+    /* Mismo criterio otra vez, cuando nace de un hallazgo de un levantamiento
+       de sitio (ver módulo Levantamientos) que pidió cotizar algo. */
+    levantamientoOrigenId: (q && q.levantamientoOrigenId) || '',
+    levantamientoOrigenHallazgoId: (q && q.levantamientoOrigenHallazgoId) || '',
     /* Cotización(es) de proveedor externo que sustentan el costo interno de
        arriba — solo se ven del lado "Costo interno", nunca en el documento
        para el cliente. */
@@ -2747,6 +2755,22 @@ function puedeGestionarReporte(){ return puedeEditar() || sesion.rol === 'tecnic
 function exigirGestionReporte(){
   if(puedeGestionarReporte()) return true;
   aviso('Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
+  return false;
+}
+
+/* Levantamientos es "para todos los perfiles", a propósito distinto del resto
+   del tablero: no hay aquí un piso más abierto para crear y un techo más
+   cerrado para gestionar (como sí pasa en Reportes con puedeReportar() vs
+   puedeGestionarReporte()) — cualquiera con acceso, sea Viewer, Reportero o
+   Técnico, levanta el recorrido Y da seguimiento a sus hallazgos igual que
+   Owner/Admin/Analyst. Es un registro de campo, no un documento de precios:
+   no hay nada aquí que proteger de quien solo consulta el resto del tablero.
+   Borrar el levantamiento completo es la única excepción — eso sigue
+   reservado a Admin, como cualquier borrado del sistema. */
+function puedeGestionarLevantamiento(){ return !HAY_NUBE || haySesion(); }
+function exigirGestionLevantamiento(){
+  if(puedeGestionarLevantamiento()) return true;
+  aviso('Necesitas una sesión iniciada para levantar o dar seguimiento a un recorrido.', true);
   return false;
 }
 
@@ -2881,6 +2905,134 @@ function guardarReporte(r, accion, detalle){
 function anotarReporte(r, texto, accionGlobal, detalleGlobal){
   r.seguimiento.push(normalizarSeguimientoReporte({ quien: nombreDe(sesion) || 'Alguien del equipo', texto }));
   guardarReporte(r, accionGlobal, detalleGlobal);
+}
+
+/* ============================ Levantamientos ============================
+   Séptimo módulo: el recorrido de sitio. Distinto de un Reporte —que nace de
+   UN problema puntual que alguien reporta— un levantamiento nace de UNA
+   visita completa, y de esa visita pueden salir VARIOS hallazgos, cada uno
+   marcado como corrective (hay que arreglarlo ya) o preventivo (conviene
+   hacerlo antes de que truene). Es el "reporte detallado" pensado para
+   armar el plan de mantenimiento, no para atender una urgencia aislada.
+
+   Permisos: ver puedeGestionarLevantamiento(), arriba — "para todos los
+   perfiles", sin el piso/techo que sí tiene Reportes. */
+
+const ACCION_HALLAZGO = ['correctivo', 'preventivo'];
+const ETIQUETA_ACCION_HALLAZGO = { correctivo:'Correctivo', preventivo:'Preventivo' };
+
+const ESTATUS_HALLAZGO = ['pendiente', 'resuelto'];
+const ETIQUETA_ESTATUS_HALLAZGO = { pendiente:'Pendiente', resuelto:'Resuelto' };
+
+/* Menos cupo que la evidencia de un reporte (6): aquí es UN hallazgo de
+   VARIOS en la misma visita, no el caso completo. */
+const EVIDENCIA_MAX_POR_HALLAZGO = 4;
+
+function normalizarHallazgo(h){
+  return {
+    id: (h && h.id) || nuevoId(),
+    /* Dónde, dentro del sitio: "Cocina caliente", "Cámara 2", "Azotea" — texto
+       libre porque un levantamiento cubre instalaciones, no solo equipos. */
+    ubicacion: (h && h.ubicacion ? String(h.ubicacion) : '').trim(),
+    /* El equipo es OPCIONAL y, si aplica, viene del catálogo (id + nombre
+       copiado, mismo molde que en reportes/pólizas) o texto libre: un
+       hallazgo de "falta señalización de salida" no tiene equipo. */
+    equipoCatalogoId: (h && h.equipoCatalogoId ? String(h.equipoCatalogoId) : '').trim(),
+    equipoNombre: (h && h.equipoNombre ? String(h.equipoNombre) : '').trim(),
+    hallazgo: (h && h.hallazgo ? String(h.hallazgo) : '').trim(),
+    accion: ACCION_HALLAZGO.includes(h && h.accion) ? h.accion : 'correctivo',
+    prioridad: PRIORIDAD_REPORTE.includes(h && h.prioridad) ? h.prioridad : 'media',
+    /* Qué se recomienda hacer — distinto de `hallazgo` (eso es lo que SE
+       ENCONTRÓ), igual que reporteAtencion es distinto de descripcion en
+       Reportes. */
+    accionSugerida: (h && h.accionSugerida ? String(h.accionSugerida) : '').trim(),
+    estatus: ESTATUS_HALLAZGO.includes(h && h.estatus) ? h.estatus : 'pendiente',
+    resueltoNota: (h && h.resueltoNota ? String(h.resueltoNota) : '').trim(),
+    evidencias: (Array.isArray(h && h.evidencias) ? h.evidencias : [])
+      .map(normalizarEvidencia).filter(e => e.dataUrl).slice(0, EVIDENCIA_MAX_POR_HALLAZGO),
+    /* Qué hace falta cotizar (refacción, servicio, material) y la solicitud
+       de cotización (borrador) que se generó sola para pedirlo — mismo
+       criterio exacto que refaccion/refaccionCotizacionId en el servicio de
+       una póliza: la liga se pone UNA sola vez. */
+    cotizar: (h && h.cotizar ? String(h.cotizar) : '').trim(),
+    cotizacionId: (h && h.cotizacionId ? String(h.cotizacionId) : '').trim()
+  };
+}
+
+function normalizarLevantamiento(l){
+  /* Un hallazgo sin texto es una fila que alguien abrió y no llenó — se tira,
+     igual que un renglón sin concepto en una póliza. */
+  const hallazgos = (Array.isArray(l && l.hallazgos) ? l.hallazgos : [])
+    .map(normalizarHallazgo).filter(h => h.hallazgo);
+  return {
+    id: (l && l.id) || nuevoId(),
+    folio: (l && l.folio ? String(l.folio) : '').trim(),
+    clienteId: (l && l.clienteId) || '',
+    sitioId: (l && l.sitioId) || '',
+    sitioNombre: (l && l.sitioNombre ? String(l.sitioNombre) : '').trim(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(l && l.fecha) ? l.fecha : hoyISO(),
+    /* Quién hizo el recorrido — se copia el texto, no solo el uid, mismo
+       criterio que `vendedor` en pólizas: el papel tiene que seguir diciendo
+       lo mismo aunque esa persona ya no esté en el equipo. */
+    realizoNombre: (l && l.realizoNombre ? String(l.realizoNombre) : '').trim(),
+    notasGenerales: (l && l.notasGenerales ? String(l.notasGenerales) : '').trim(),
+    hallazgos
+  };
+}
+
+function levantamientoPorId(id){ return datos.levantamientos.find(l => l.id === id); }
+function levantamientosDeSitio(sitioId){ return datos.levantamientos.filter(l => l.sitioId === sitioId); }
+function levantamientosDeCliente(clienteId){ return datos.levantamientos.filter(l => l.clienteId === clienteId); }
+
+const hallazgosPendientes = l => l.hallazgos.filter(h => h.estatus === 'pendiente').length;
+/* Sin hallazgos todavía no cuenta como "cerrado": es un levantamiento a
+   medio llenar, no uno donde ya no falta nada. */
+const levantamientoCerrado = l => l.hallazgos.length > 0 && hallazgosPendientes(l) === 0;
+
+function tonoLevantamiento(l){
+  if(levantamientoCerrado(l)) return 'ok';
+  const hayUrgente = l.hallazgos.some(h => h.estatus === 'pendiente' && h.prioridad === 'urgente');
+  if(hayUrgente) return 'error';
+  const hayCorrectivoPendiente = l.hallazgos.some(h => h.estatus === 'pendiente' && h.accion === 'correctivo');
+  return hayCorrectivoPendiente ? 'alerta' : 'neutro';
+}
+
+/* LV-ddmmaa-NN: mismo molde que las cotizaciones — un levantamiento es una
+   visita completa, no un ticket suelto, así que su volumen es más parecido
+   al de cotizaciones que al de reportes (de ahí los dos dígitos, no cuatro). */
+function generarFolioLevantamiento(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  return 'LV-' + ddmmaa + '-' + String(datos.levantamientos.length + 1).padStart(2,'0');
+}
+
+function guardarLevantamiento(l, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'levantamientos', id:l.id, obj:l });
+  anotar(accion || 'editó', 'levantamiento', l.folio || l.sitioNombre || 'sin folio', detalle);
+}
+
+/* Genera la solicitud de cotización (borrador) de lo que un hallazgo pidió
+   cotizar — mismo criterio exacto que generarSolicitudCotizacionRefaccion()
+   en pólizas: nace en 'borrador', con la liga hacia atrás
+   (levantamientoOrigenId/levantamientoOrigenHallazgoId) para que Cotizaciones
+   sepa de dónde salió. */
+function generarSolicitudCotizacionHallazgo(l, h, texto){
+  const cot = normalizarCotizacion({
+    id: nuevoId(),
+    folio: generarFolioCotizacion(hoyISO()),
+    sitioId: l.sitioId,
+    tipoMtto: h.accion === 'preventivo' ? 'PREVENTIVO' : 'CORRECTIVO',
+    solicitud: 'Levantamiento · ' + (h.ubicacion || h.equipoNombre || 'hallazgo') + ' · ' + (l.folio || ''),
+    notas: 'Cotización pedida desde un hallazgo del levantamiento ' + (l.folio || '') + ' en '
+      + (l.sitioNombre || '') + (h.ubicacion ? ' · ' + h.ubicacion : '') + '.',
+    levantamientoOrigenId: l.id,
+    levantamientoOrigenHallazgoId: h.id,
+    partidas: [normalizarPartidaCotizacion({ concepto: texto, cantidad: 1 })]
+  });
+  datos.cotizaciones.push(cot);
+  guardarCotizacion(cot, 'creó', 'solicitud de cotización desde un hallazgo de levantamiento');
+  return cot.id;
 }
 
 /* Numera las partidas como en el documento: consecutivas con la misma
@@ -3038,6 +3190,7 @@ function subirTodo(){
   /* Los reportes tampoco tienen congelado por rol: cualquiera con acceso los
      puede subir, el mismo criterio que cotizaciones. */
   datos.reportes.forEach(r => encolar({ tipo:'poner', coleccion:'reportes', id:r.id, obj:r }));
+  datos.levantamientos.forEach(l => encolar({ tipo:'poner', coleccion:'levantamientos', id:l.id, obj:l }));
   /* `puedeCat` y no `admin`: ese nombre ya lo ocupa la caché del panel. */
   const puedeCat = esAdmin();
   let fuera = 0;
@@ -4267,6 +4420,7 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
+                 levantamientoId:null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
@@ -4276,6 +4430,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
+                 vistaLevantamientos:'tarjetas',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -4284,7 +4439,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'polizas', 'cotizaciones'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -4294,17 +4449,20 @@ function cargarModulo(){
 }
 function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo); }catch(e){} }
 
-/* Qué pestañas ve cada quien. `reportero` sigue acotado SOLO a Reportes (ver
-   ROLES): a alguien que nada más levanta tickets no le hace falta ver nada
-   más. `tecnico` además de Reportes puede VER Pólizas y Cotizaciones —le
-   sirve saber qué equipos cubre una póliza o qué se cotizó en un sitio—,
-   pero solo para consultar: puedeEditar() no incluye a `tecnico`, así que
-   esos dos módulos se le siguen abriendo en modo lectura, igual que a un
-   Viewer. El resto de los roles (owner/admin/analyst/viewer, y el modo
-   local sin nube) sigue viendo todos los módulos, como siempre. */
+/* Qué pestañas ve cada quien. `reportero` sigue acotado a Reportes y
+   Levantamientos (ver ROLES): a alguien que nada más levanta tickets o hace
+   recorridos de sitio no le hace falta ver nada más. `tecnico` además de eso
+   puede VER Pólizas y Cotizaciones —le sirve saber qué equipos cubre una
+   póliza o qué se cotizó en un sitio—, pero solo para consultar:
+   puedeEditar() no incluye a `tecnico`, así que esos dos módulos se le siguen
+   abriendo en modo lectura, igual que a un Viewer. Levantamientos es distinto
+   a propósito: es "para todos los perfiles" (owner/admin/analyst/viewer/
+   tecnico/reportero, y el modo local), no solo consulta — ver
+   puedeGestionarLevantamiento() más abajo, que es igual de abierta. El resto
+   de los módulos sigue viendo todo, como siempre. */
 function modulosPermitidos(){
-  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes'];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'polizas', 'cotizaciones'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones'];
   return MODULOS;
 }
 
@@ -4314,6 +4472,7 @@ function inicioDelModulo(){
   return estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'reportes' ? 'reportes'
+       : estado.modulo === 'levantamientos' ? 'levantamientos'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
        : 'clientes';
@@ -4364,7 +4523,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -4432,6 +4591,33 @@ function entrarReporte(id){
   if(estado.modulo !== 'reportes'){ estado.modulo = 'reportes'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'reporte'; estado.reporteId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function irALevantamientos(){
+  animarTarjetas = true;
+  estado.vista = 'levantamientos';
+  estado.levantamientoId = null;
+  estado.busca = '';
+  render();
+}
+/* Mismo puente que verReportesDe(), para consultar los levantamientos de un
+   cliente o sitio desde su ficha de Forpass. */
+function verLevantamientosDe(texto){
+  if(estado.modulo !== 'levantamientos'){ estado.modulo = 'levantamientos'; guardarModulo(); }
+  estado.vista = 'levantamientos';
+  estado.levantamientoId = null;
+  estado.filtro = 'todos';
+  estado.busca = texto || '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarLevantamiento(id){
+  if(estado.modulo !== 'levantamientos'){ estado.modulo = 'levantamientos'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'levantamiento'; estado.levantamientoId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -5681,6 +5867,18 @@ function vistaCotizacion(){
        + ' <button type="button" class="btn btn-suave btn-mini" data-ver-poliza="' + esc(polizaOrigen.id) + '" style="margin-left:8px">Ver póliza →</button></div></div>';
   }
 
+  /* Mismo criterio otra vez, cuando nace de un hallazgo de un levantamiento
+     de sitio. */
+  const levantamientoOrigen = cot.levantamientoOrigenId ? levantamientoPorId(cot.levantamientoOrigenId) : null;
+  if(levantamientoOrigen){
+    const hzOrigen = levantamientoOrigen.hallazgos.find(x => x.id === cot.levantamientoOrigenHallazgoId);
+    h += '<div class="aviso" style="margin-bottom:14px">' + ICONO.reporte
+       + '<div>Esta cotización viene de un hallazgo del levantamiento <b>' + esc(levantamientoOrigen.folio || 'sin folio') + '</b>'
+       + (hzOrigen ? ' · ' + esc(hzOrigen.ubicacion || hzOrigen.equipoNombre || 'hallazgo') : '') + ' en '
+       + esc(levantamientoOrigen.sitioNombre || 'sin sitio') + '.'
+       + ' <button type="button" class="btn btn-suave btn-mini" data-levantamiento="' + esc(levantamientoOrigen.id) + '" style="margin-left:8px">Ver levantamiento →</button></div></div>';
+  }
+
   h += '<div class="titulo-zona"><div>'
      +   '<h2>' + esc(s ? s.nombre : 'Sin sitio') + '</h2>'
      +   '<p>' + esc(cli ? cli.nombre : 'Sin cliente') + (cot.folio ? ' · ' + esc(cot.folio) : '')
@@ -6378,6 +6576,532 @@ function modalResolverReporte(id){
   };
 }
 
+/* ------------------------------- Levantamientos ------------------------------- */
+function botonRegresarLevantamientos(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-levantamientos">'
+       + ICONO.atras + 'Regresar a levantamientos</button></div>';
+}
+
+function resumirLevantamientos(lista){
+  const r = { total:lista.length, abiertos:0, hallazgosPend:0, urgentes:0 };
+  lista.forEach(l=>{
+    if(!levantamientoCerrado(l)) r.abiertos++;
+    r.hallazgosPend += hallazgosPendientes(l);
+    if(l.hallazgos.some(h => h.estatus === 'pendiente' && h.prioridad === 'urgente')) r.urgentes++;
+  });
+  return r;
+}
+
+function vistaLevantamientos(){
+  const r = resumirLevantamientos(datos.levantamientos);
+  let h = '';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Levantamientos</h2>'
+     +   '<p>' + numero(r.total) + ' ' + plural(r.total,'levantamiento','levantamientos') + '</p>'
+     + '</div><div class="acciones">'
+     +   (puedeGestionarLevantamiento()
+          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-levantamiento">' + ICONO.mas + 'Nuevo levantamiento</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Abiertos', numero(r.abiertos), 'Con hallazgos pendientes', r.abiertos ? 'k-alerta' : '')
+     + tarjetaKpi('Hallazgos pendientes', numero(r.hallazgosPend), 'En todos los levantamientos', r.hallazgosPend ? 'k-alerta' : '')
+     + tarjetaKpi('Con urgentes', numero(r.urgentes), 'Al menos un hallazgo urgente sin resolver', r.urgentes ? 'k-error' : '')
+     + '</div>';
+
+  if(!datos.levantamientos.length){
+    h += vistaVacia('reporte', 'Todavía no hay levantamientos',
+          'Un levantamiento documenta una visita completa a un sitio: varios hallazgos, cada uno correctivo o preventivo, para armar el plan de mantenimiento.',
+          puedeGestionarLevantamiento() ? 'nuevo-levantamiento' : '', 'Nuevo levantamiento');
+    return h;
+  }
+
+  const vistaTabla = estado.vistaLevantamientos === 'tabla';
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaLevantamiento" placeholder="Buscar por folio, sitio o cliente…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroLevantamiento">'
+     +     '<option value="todos">Todos</option>'
+     +     '<option value="abiertos">Con pendientes</option>'
+     +     '<option value="cerrados">Cerrados</option>'
+     +     '<option value="urgentes">Con urgentes</option>'
+     +   '</select>'
+     +   controlAlternaVista('vistaLevantamientos')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.levantamientos.filter(l=>{
+    if(q){
+      if(!(l.folio||'').toLowerCase().includes(q) && !(l.sitioNombre||'').toLowerCase().includes(q)){
+        const cli = clientePorId(l.clienteId);
+        if(!(cli && cli.nombre.toLowerCase().includes(q))) return false;
+      }
+    }
+    if(estado.filtro === 'urgentes') return l.hallazgos.some(h => h.estatus === 'pendiente' && h.prioridad === 'urgente');
+    if(estado.filtro === 'cerrados') return levantamientoCerrado(l);
+    if(estado.filtro === 'abiertos') return !levantamientoCerrado(l);
+    return true;
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún levantamiento coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenados = lista.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || b.folio.localeCompare(a.folio));
+
+  if(vistaTabla) return h + tablaLevantamientos(ordenados);
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((l,i)=>{
+    const cli = clientePorId(l.clienteId);
+    const tono = tonoLevantamiento(l);
+    const pend = hallazgosPendientes(l);
+    let chips = levantamientoCerrado(l)
+      ? '<span class="insignia i-ok"><span class="punto p-ok"></span>Cerrado</span>'
+      : '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + numero(pend) + ' ' + plural(pend,'pendiente','pendientes') + '</span>';
+    if(l.hallazgos.some(h => h.estatus === 'pendiente' && h.prioridad === 'urgente')) chips += '<span class="insignia i-error">Urgente</span>';
+
+    return '<div class="tarjeta tarjeta-clic t-' + tono + '" data-levantamiento="' + esc(l.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     (cli ? avatarCliente(cli) : '<div class="t-avatar">' + esc(iniciales(l.sitioNombre || l.folio)) + '</div>')
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(l.sitioNombre || 'Sin sitio') + '</div>'
+         +       '<div class="t-sub">' + esc(cli ? cli.nombre : 'Sin cliente') + (l.folio ? ' · ' + esc(l.folio) : '') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="t-chips">' + chips + '</div>'
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Hallazgos</div><div class="d-valor">' + numero(l.hallazgos.length) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Realizó</div><div class="d-valor chico">' + esc(l.realizoNombre || '—') + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">' + fmtFecha(l.fecha) + '</span></div>'
+         + '</div>';
+  }).join('') + '</div>';
+
+  return h;
+}
+
+function tablaLevantamientos(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:780px"><thead><tr>'
+       +   '<th>Folio</th><th>Sitio</th><th>Cliente</th><th>Hallazgos</th><th>Pendientes</th><th>Realizó</th><th>Fecha</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(l=>{
+           const cli = clientePorId(l.clienteId);
+           const tono = tonoLevantamiento(l);
+           const pend = hallazgosPendientes(l);
+           return '<tr class="fila-clic" data-levantamiento="' + esc(l.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(l.folio || '—') + '</td>'
+                +   '<td>' + esc(l.sitioNombre || 'Sin sitio') + '</td>'
+                +   '<td>' + esc(cli ? cli.nombre : '—') + '</td>'
+                +   '<td>' + numero(l.hallazgos.length) + '</td>'
+                +   '<td><span class="insignia i-' + (pend ? tono : 'ok') + '">' + numero(pend) + '</span></td>'
+                +   '<td>' + esc(l.realizoNombre || '—') + '</td>'
+                +   '<td>' + fmtFecha(l.fecha) + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
+/* Detalle de un levantamiento: datos generales + la lista de hallazgos, cada
+   uno con sus propias acciones (editar, marcar resuelto, quitar). A
+   diferencia de las partidas de una póliza, un hallazgo trae fotos y texto
+   largo, así que se pinta como tarjeta, no como renglón de tabla. */
+function vistaLevantamiento(){
+  const l = levantamientoPorId(estado.levantamientoId);
+  if(!l){ estado.vista = 'levantamientos'; return vistaLevantamientos(); }
+  const cli = clientePorId(l.clienteId);
+  const puede = puedeGestionarLevantamiento();
+  const pend = hallazgosPendientes(l);
+
+  let h = botonRegresarLevantamientos();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(l.sitioNombre || 'Levantamiento') + '</h2>'
+     +   '<p>' + esc(l.folio || 'Sin folio') + ' · ' + esc(cli ? cli.nombre : 'Sin cliente') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   (levantamientoCerrado(l)
+          ? '<span class="insignia i-ok"><span class="punto p-ok"></span>Cerrado</span>'
+          : '<span class="insignia i-' + tonoLevantamiento(l) + '"><span class="punto p-' + tonoLevantamiento(l) + '"></span>' + numero(pend) + ' ' + plural(pend,'hallazgo pendiente','hallazgos pendientes') + '</span>')
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Fecha de visita', fmtFecha(l.fecha), '')
+     + tarjetaKpi('Realizó', esc(l.realizoNombre || 'Sin especificar'), '')
+     + tarjetaKpi('Hallazgos', numero(l.hallazgos.length), pend ? numero(pend) + ' ' + plural(pend,'pendiente','pendientes') : 'Todos resueltos')
+     + '</div>';
+
+  if(l.notasGenerales){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Notas generales</h3></div></div>'
+       +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(l.notasGenerales) + '</p>'
+       + '</div>';
+  }
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Hallazgos</h3>'
+     +   '<p>Correctivo: hay que atenderlo ya. Preventivo: conviene hacerlo antes de que truene.</p></div>'
+     +   (puede ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="agregar-hallazgo">' + ICONO.mas + 'Agregar hallazgo</button></div>' : '')
+     + '</div>';
+
+  if(!l.hallazgos.length){
+    h += '<p class="pista" style="margin:0">Todavía no se ha agregado ningún hallazgo.</p>';
+  }else{
+    h += '<div class="lista-hallazgos">' + l.hallazgos.map(hz=>{
+      const resuelto = hz.estatus === 'resuelto';
+      const tonoAccion = hz.accion === 'preventivo' ? 'info' : 'alerta';
+      const cotLigada = hz.cotizacionId ? cotizacionPorId(hz.cotizacionId) : null;
+      return '<div class="bloque hallazgo-item' + (resuelto ? ' resuelto' : '') + '" style="margin-bottom:12px">'
+        +   '<div class="bloque-cabeza"><div>'
+        +     '<h3 style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">'
+        +       esc(hz.ubicacion || hz.equipoNombre || 'Hallazgo')
+        +       '<span class="insignia i-' + tonoAccion + '">' + esc(ETIQUETA_ACCION_HALLAZGO[hz.accion]) + '</span>'
+        +       (hz.prioridad === 'urgente' || hz.prioridad === 'alta'
+                  ? '<span class="insignia i-' + TONO_PRIORIDAD[hz.prioridad] + '">' + esc(ETIQUETA_PRIORIDAD[hz.prioridad]) + '</span>' : '')
+        +       '<span class="insignia i-' + (resuelto ? 'ok' : 'neutro') + '">' + esc(ETIQUETA_ESTATUS_HALLAZGO[hz.estatus]) + '</span>'
+        +     '</h3>'
+        +     (hz.equipoNombre && hz.ubicacion ? '<p>' + esc(hz.equipoNombre) + '</p>' : '')
+        +   '</div></div>'
+        +   '<p style="margin:0 0 8px">' + esc(hz.hallazgo) + '</p>'
+        +   (hz.accionSugerida ? '<p class="pista" style="margin:0 0 8px"><b>Acción sugerida:</b> ' + esc(hz.accionSugerida) + '</p>' : '')
+        +   (hz.estatus === 'resuelto' && hz.resueltoNota ? '<p class="pista" style="margin:0 0 8px; color:var(--ink)"><b>Resolución:</b> ' + esc(hz.resueltoNota) + '</p>' : '')
+        +   (hz.evidencias.length
+              ? '<div class="galeria-evidencia">' + hz.evidencias.map(e=>
+                  '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy"></div>').join('') + '</div>'
+              : '')
+        +   (hz.cotizar
+              ? '<p class="pista" style="margin:8px 0 0">'
+                + (cotLigada && modulosPermitidos().includes('cotizaciones')
+                    ? '<button type="button" class="btn btn-suave btn-mini" data-cotizacion="' + esc(cotLigada.id) + '">'
+                      + ICONO.credencial + 'Ver cotización ' + esc(cotLigada.folio || '') + ' →</button>'
+                    : (cotLigada ? 'Se pidió cotizar: ' + esc(hz.cotizar) : 'Pendiente de generar la solicitud: ' + esc(hz.cotizar)))
+                + '</p>'
+              : '')
+        +   (puede
+              ? '<div class="acciones" style="margin-top:10px">'
+                +   '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-hallazgo" data-hallazgo="' + esc(hz.id) + '">' + ICONO.lapiz + 'Editar</button>'
+                +   '<button type="button" class="btn btn-suave btn-mini" data-accion="alternar-hallazgo" data-hallazgo="' + esc(hz.id) + '">'
+                +     (resuelto ? ICONO.atras + 'Reabrir' : ICONO.cheque + 'Marcar resuelto') + '</button>'
+                +   '<span class="espacio"></span>'
+                +   '<button type="button" class="btn btn-peligro btn-mini" data-accion="quitar-hallazgo" data-hallazgo="' + esc(hz.id) + '">' + ICONO.basura + 'Quitar</button>'
+                + '</div>'
+              : '')
+        + '</div>';
+    }).join('') + '</div>';
+  }
+  h += '</div>';
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-levantamiento">' + ICONO.lapiz + 'Editar datos</button>';
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-levantamiento">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: datos generales del levantamiento ---------------------------- */
+function modalLevantamiento(id){
+  const l = id ? levantamientoPorId(id) : null;
+  if(!datos.clientes.length){
+    aviso('Primero da de alta un cliente: el levantamiento cuelga de un sitio suyo.', true);
+    return;
+  }
+
+  const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const opc = (lista, sel, texto, valor) => lista.map(o =>
+    '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
+  const conCuenta = HAY_NUBE && haySesion();
+
+  const cuerpo =
+      '<div class="campo"><label>Cliente *</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="lvCliente">' + opc(clientesOrd, l ? l.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoLV" '
+    +       'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaClienteNuevoLV" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del cliente nuevo *</label>'
+    +     '<input type="text" id="lvncNombre" placeholder="Ej. Mercado Libre" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="lvncCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="lvncCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="campo"><label>Sitio *</label><select id="lvSitio"></select>'
+    +   '<div class="pista" id="pistaSitioLV"></div></div>'
+    + '<div class="campo"><label>Fecha de la visita *</label>'
+    +   '<input type="date" id="lvFecha" value="' + esc(l ? l.fecha : hoyISO()) + '"></div>'
+    + '<div class="campo"><label>Realizó el recorrido *</label>'
+    +   (conCuenta
+          ? '<input type="text" id="lvRealizo" value="' + esc(l ? l.realizoNombre : nombreDe(sesion)) + '">'
+            + '<div class="pista">Se sugiere tu cuenta, pero se puede cambiar si el recorrido lo hizo alguien más.</div>'
+          : '<input type="text" id="lvRealizo" placeholder="Ej. Santiago Garza" value="' + esc(l ? l.realizoNombre : nombreCapturador()) + '">'
+            + '<div class="pista">Se guarda para las siguientes capturas de esta computadora.</div>')
+    + '</div>'
+    + '<div class="campo"><label>Notas generales (opcional)</label>'
+    +   '<textarea id="lvNotas" placeholder="Contexto de la visita, quién acompañó, cualquier cosa que valga la pena recordar…">' + esc(l ? l.notasGenerales : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (l ? 'Guardar cambios' : 'Crear levantamiento') + '</button>';
+
+  abrirModal(l ? 'Editar levantamiento' : 'Nuevo levantamiento', cuerpo, pie);
+
+  function pintarSitios(){
+    const clienteId = $('lvCliente').value;
+    const sitios = sitiosDe(clienteId).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+    $('lvSitio').innerHTML = opc(sitios, l ? l.sitioId : '', s=>s.nombre, s=>s.id);
+    $('pistaSitioLV').textContent = sitios.length
+      ? ''
+      : 'Este cliente no tiene sitios en Forpass todavía. Agrega uno ahí antes de levantar el recorrido.';
+  }
+  pintarSitios();
+  $('lvCliente').addEventListener('change', pintarSitios);
+
+  $('btnClienteNuevoLV').addEventListener('click', ()=>{
+    $('zonaClienteNuevoLV').hidden = false;
+    $('lvncNombre').focus();
+  });
+  $('lvncCancelar').addEventListener('click', ()=>{ $('zonaClienteNuevoLV').hidden = true; $('lvncNombre').value = ''; });
+  $('lvncCrear').addEventListener('click', ()=>{
+    const nombre = $('lvncNombre').value.trim();
+    if(!nombre){ aviso('Ponle un nombre al cliente nuevo.', true); return; }
+    const nuevo = normalizarCliente({ id:nuevoId(), nombre, usaForpass:'si' });
+    datos.clientes.push(nuevo);
+    guardarCliente(nuevo, 'creó');
+    $('lvCliente').insertAdjacentHTML('beforeend', '<option value="' + esc(nuevo.id) + '" selected>' + esc(nuevo.nombre) + '</option>');
+    $('lvCliente').value = nuevo.id;
+    $('zonaClienteNuevoLV').hidden = true;
+    pintarSitios();
+    aviso('Cliente agregado. Ahora agrégale un sitio en Forpass si hace falta.');
+  });
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('lvCliente').value;
+    const sitioId = $('lvSitio').value;
+    const fecha = $('lvFecha').value.trim();
+    const realizoNombre = $('lvRealizo').value.trim();
+    if(!sitioId){ aviso('Elige un sitio: el levantamiento necesita saber dónde fue.', true); return; }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){
+      $('lvFecha').setAttribute('aria-invalid','true'); $('lvFecha').focus();
+      aviso('Falta la fecha de la visita.', true); return;
+    }
+    if(!realizoNombre){
+      $('lvRealizo').setAttribute('aria-invalid','true'); $('lvRealizo').focus();
+      aviso('Falta el nombre de quien hizo el recorrido.', true); return;
+    }
+    if(!conCuenta) recordarCapturador(realizoNombre);
+
+    const sitio = sitioPorId(sitioId);
+    let reg;
+    if(l){
+      Object.assign(l, { clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : l.sitioNombre, fecha, realizoNombre,
+        notasGenerales: $('lvNotas').value.trim() });
+      reg = l;
+      guardarLevantamiento(reg, 'editó');
+    }else{
+      reg = normalizarLevantamiento({
+        id:nuevoId(), folio: generarFolioLevantamiento(fecha),
+        clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : '', fecha, realizoNombre,
+        notasGenerales: $('lvNotas').value.trim(), hallazgos: []
+      });
+      datos.levantamientos.push(reg);
+      guardarLevantamiento(reg, 'creó');
+    }
+    cerrarModal();
+    estado.modulo = 'levantamientos'; guardarModulo();
+    estado.vista = 'levantamiento'; estado.levantamientoId = reg.id;
+    render();
+    aviso(l ? 'Levantamiento actualizado.' : 'Levantamiento creado. Ahora agrega los hallazgos que encontraste.');
+  };
+}
+
+/* ---------------------------- Modal: hallazgo ---------------------------- */
+/* Mismo criterio exacto que modalServicioPoliza() para la refacción: la
+   evidencia se sube en staging (evidenciasTmp) y se comprime al elegirla, y
+   la solicitud de cotización se genera sola UNA vez, la primera vez que se
+   guarda con texto en "cotizar" — reabrir el hallazgo después deja ese
+   campo de solo lectura para no duplicar ni perder la solicitud. */
+function modalHallazgo(levantamientoId, hallazgoId){
+  const l = levantamientoPorId(levantamientoId);
+  if(!l) return;
+  const hz = hallazgoId ? l.hallazgos.find(x => x.id === hallazgoId) : null;
+  if(!exigirGestionLevantamiento()) return;
+
+  let evidenciasTmp = hz ? hz.evidencias.slice() : [];
+  const cat = catalogo().slice().sort((a,b)=> a.concepto.localeCompare(b.concepto,'es'));
+  const opc = (lista, sel, texto, valor) => lista.map(o =>
+    '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
+  const equipoEsDelCatalogo = hz && hz.equipoCatalogoId;
+  const cotLigada = hz && hz.cotizacionId ? cotizacionPorId(hz.cotizacionId) : null;
+
+  const cuerpo =
+      '<div class="campo"><label>Ubicación / área</label>'
+    +   '<input type="text" id="hzUbicacion" placeholder="Ej. Cocina caliente, Cámara 2, Azotea…" value="' + esc(hz ? hz.ubicacion : '') + '"></div>'
+    + '<div class="campo"><label>Equipo (opcional)</label><select id="hzEquipoId">'
+    +   '<option value="">— No aplica / elegir de la lista —</option>'
+    +   opc(cat, equipoEsDelCatalogo ? hz.equipoCatalogoId : '', e=>e.concepto, e=>e.id)
+    +   '<option value="__otro__"' + (hz && !equipoEsDelCatalogo && hz.equipoNombre ? ' selected' : '') + '>Otro / no está en la lista</option>'
+    + '</select></div>'
+    + '<div class="campo" id="zonaEquipoTextoHZ" hidden><label>Nombre del equipo</label>'
+    +   '<input type="text" id="hzEquipoTexto" placeholder="Ej. Refrigerador de postres" '
+    +     'value="' + esc(hz && !equipoEsDelCatalogo ? hz.equipoNombre : '') + '"></div>'
+    + '<div class="campo"><label>¿Qué se encontró? *</label>'
+    +   '<textarea id="hzHallazgo" placeholder="Describe la condición encontrada…">' + esc(hz ? hz.hallazgo : '') + '</textarea></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Tipo de acción</label><select id="hzAccion">'
+    +     ACCION_HALLAZGO.map(a => '<option value="' + a + '"' + ((hz ? hz.accion : 'correctivo') === a ? ' selected' : '') + '>' + esc(ETIQUETA_ACCION_HALLAZGO[a]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Prioridad</label><select id="hzPrioridad">'
+    +     PRIORIDAD_REPORTE.map(p => '<option value="' + p + '"' + ((hz ? hz.prioridad : 'media') === p ? ' selected' : '') + '>' + esc(ETIQUETA_PRIORIDAD[p]) + '</option>').join('')
+    +   '</select></div>'
+    + '</div>'
+    + '<div class="campo"><label>Acción sugerida (opcional)</label>'
+    +   '<input type="text" id="hzAccionSugerida" placeholder="Ej. Cambiar empaque de puerta, dar mantenimiento preventivo trimestral…" value="' + esc(hz ? hz.accionSugerida : '') + '"></div>'
+
+    + '<div class="campo"><label>Nota de resolución (opcional)</label>'
+    +   '<input type="text" id="hzResueltoNota" placeholder="Qué se hizo para atenderlo, si ya se resolvió" value="' + esc(hz ? hz.resueltoNota : '') + '">'
+    +   '<div class="pista">Se llena cuando ya se atendió el hallazgo — igual se puede marcar "Resuelto" sin escribir nada aquí.</div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Fotos de evidencia (opcional)</label>'
+    +   '<div class="galeria-evidencia" id="hzGaleriaEvidencia"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="hzBtnAgregarFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +   '<input type="file" id="hzArchivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<div class="pista" id="hzPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Se reducen solas para no pesar.</div>'
+    + '</div>'
+
+    + '<div class="campo"><label class="casilla"><input type="checkbox" id="hzCotizarChk"'
+    +     ((hz && hz.cotizar) ? ' checked' : '') + '> ¿Hay que cotizar algo para esto?</label>'
+    +   '<div id="hzCotizarZona"' + ((hz && hz.cotizar) ? '' : ' hidden') + '>'
+    +     '<input type="text" id="hzCotizarTexto" placeholder="Ej. Refacción, material, servicio de terceros…" '
+    +       'value="' + esc((hz && hz.cotizar) || '') + '">'
+    +     '<div class="pista" id="hzPistaCotizar">' + (cotLigada
+            ? 'Ya se generó la solicitud de cotización <b>' + esc(cotLigada.folio || 'sin folio') + '</b> para esto — se busca en el módulo Cotizaciones.'
+            : 'Al guardar se genera sola una solicitud de cotización (borrador), ligada a este hallazgo.')
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (hz ? 'Guardar cambios' : 'Agregar hallazgo') + '</button>';
+
+  abrirModal(hz ? 'Editar hallazgo' : 'Nuevo hallazgo', cuerpo, pie);
+
+  function pintarEquipoTexto(){
+    $('zonaEquipoTextoHZ').hidden = $('hzEquipoId').value !== '__otro__';
+  }
+  pintarEquipoTexto();
+  $('hzEquipoId').addEventListener('change', pintarEquipoTexto);
+
+  function pintarGaleriaHz(){
+    $('hzGaleriaEvidencia').innerHTML = evidenciasTmp.map(e =>
+      '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
+      + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
+    ).join('');
+    $('hzGaleriaEvidencia').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
+        pintarGaleriaHz();
+      });
+    });
+    $('hzBtnAgregarFoto').disabled = evidenciasTmp.length >= EVIDENCIA_MAX_POR_HALLAZGO;
+  }
+  pintarGaleriaHz();
+  $('hzBtnAgregarFoto').addEventListener('click', ()=> $('hzArchivoEvidencia').click());
+  $('hzArchivoEvidencia').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length) return;
+    const cupo = EVIDENCIA_MAX_POR_HALLAZGO - evidenciasTmp.length;
+    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Quita alguna para agregar otra.', true); return; }
+    $('hzPistaEvidencia').textContent = 'Procesando fotos…';
+    for(const archivo of archivos.slice(0, cupo)){
+      try{
+        const img = await leerEvidencia(archivo);
+        const dataUrl = comprimirEvidencia(img);
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+      }catch(e){ aviso(e.message, true); }
+    }
+    $('hzPistaEvidencia').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Se reducen solas para no pesar.';
+    pintarGaleriaHz();
+  });
+
+  /* Igual que en modalServicioPoliza: una vez generada la solicitud, la
+     casilla y el texto quedan fijos para no dejarla huérfana. */
+  if(cotLigada){
+    $('hzCotizarChk').setAttribute('disabled', 'true');
+    $('hzCotizarTexto').setAttribute('readonly', 'true');
+  }
+  $('hzCotizarChk').addEventListener('change', ev=>{
+    $('hzCotizarZona').hidden = !ev.target.checked;
+    if(ev.target.checked && !cotLigada) $('hzCotizarTexto').focus();
+  });
+
+  setTimeout(()=>{ const f = $('hzUbicacion'); if(f) f.focus(); }, 70);
+  cerrarModalActual = ()=>{
+    const hallazgo = $('hzHallazgo').value.trim();
+    if(!hallazgo){
+      $('hzHallazgo').setAttribute('aria-invalid','true'); $('hzHallazgo').focus();
+      aviso('Describe qué se encontró.', true); return;
+    }
+    const pideCotizar = $('hzCotizarChk').checked;
+    const cotizar = pideCotizar ? $('hzCotizarTexto').value.trim() : '';
+    if(pideCotizar && !cotizar){
+      $('hzCotizarTexto').setAttribute('aria-invalid','true'); $('hzCotizarTexto').focus();
+      aviso('Escribe qué hay que cotizar, o desmarca la casilla.', true); return;
+    }
+
+    const equipoId = $('hzEquipoId').value;
+    let equipoCatalogoId = '', equipoNombre = '';
+    if(equipoId === '__otro__'){
+      equipoNombre = $('hzEquipoTexto').value.trim();
+    }else if(equipoId){
+      const eq = catalogo().find(e => e.id === equipoId);
+      equipoCatalogoId = equipoId;
+      equipoNombre = eq ? eq.concepto : '';
+    }
+
+    const datosHz = {
+      id: hz ? hz.id : nuevoId(),
+      ubicacion: $('hzUbicacion').value.trim(),
+      equipoCatalogoId, equipoNombre,
+      hallazgo,
+      accion: $('hzAccion').value,
+      prioridad: $('hzPrioridad').value,
+      accionSugerida: $('hzAccionSugerida').value.trim(),
+      estatus: hz ? hz.estatus : 'pendiente',
+      resueltoNota: $('hzResueltoNota').value.trim(),
+      evidencias: evidenciasTmp,
+      cotizar,
+      cotizacionId: (cotLigada && cotLigada.id) || ''
+    };
+    const nuevoHz = normalizarHallazgo(datosHz);
+
+    if(hz) Object.assign(hz, nuevoHz);
+    else l.hallazgos.push(nuevoHz);
+
+    /* La solicitud se genera UNA sola vez, después de tener el hallazgo ya
+       guardado en el arreglo, para usar el objeto vivo y no una copia. */
+    let folioSolicitud = '';
+    if(cotizar && !cotLigada){
+      const hzGuardado = l.hallazgos.find(x => x.id === nuevoHz.id);
+      const cotId = generarSolicitudCotizacionHallazgo(l, hzGuardado, cotizar);
+      hzGuardado.cotizacionId = cotId;
+      folioSolicitud = (cotizacionPorId(cotId) || {}).folio || '';
+    }
+
+    guardarLevantamiento(l, hz ? 'editó un hallazgo de' : 'agregó un hallazgo a',
+      (nuevoHz.ubicacion || nuevoHz.equipoNombre || 'hallazgo') + (folioSolicitud ? ' · pidió cotizar: ' + cotizar : ''));
+    cerrarModal();
+    render();
+    aviso((hz ? 'Hallazgo actualizado.' : 'Hallazgo agregado.')
+      + (folioSolicitud ? ' Se generó la solicitud de cotización ' + folioSolicitud + '.' : ''));
+  };
+}
+
 /* Detalle de una póliza. ESTE es el único lugar donde se pintan las partidas:
    en la lista serían miles de renglones de HTML en cada render(). */
 function vistaPoliza(){
@@ -7021,7 +7745,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -7036,6 +7760,7 @@ function render(){
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
+    : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
@@ -7062,6 +7787,13 @@ function render(){
     const fpR = $('filtroReporte');
     fpR.value = estado.filtro;
     fpR.addEventListener('change', ()=>{ estado.filtro = fpR.value; render(); });
+  }
+  const bpL = $('buscaLevantamiento');
+  if(bpL){
+    bpL.addEventListener('input', ()=>{ estado.busca = bpL.value; renderConservandoFoco(bpL, 'buscaLevantamiento'); });
+    const fpL = $('filtroLevantamiento');
+    fpL.value = estado.filtro;
+    fpL.addEventListener('change', ()=>{ estado.filtro = fpL.value; render(); });
   }
   /* Subir evidencia directo desde el detalle del reporte, sin abrir el modal
      completo de edición: la foto se comprime y se agrega de inmediato. */
@@ -7186,7 +7918,8 @@ function pintarCabecera(){
      además estorbaría en el recorrido del teclado. */
   const inicio = $('btnInicio');
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
-                 : estado.modulo === 'reportes' ? 'Reportes' : 'Clientes';
+                 : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
+                 : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
   inicio.disabled = enPortada;
   inicio.title = enPortada ? '' : 'Volver a ' + destino;
@@ -10667,6 +11400,52 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso('Reporte eliminado.');
         });
     }
+    else if(a === 'ir-levantamientos') irALevantamientos();
+    else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
+    else if(a === 'editar-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(estado.levantamientoId); }
+    else if(a === 'agregar-hallazgo'){ if(exigirGestionLevantamiento()) modalHallazgo(estado.levantamientoId, null); }
+    else if(a === 'editar-hallazgo'){ if(exigirGestionLevantamiento()) modalHallazgo(estado.levantamientoId, acc.dataset.hallazgo); }
+    else if(a === 'alternar-hallazgo'){
+      if(!exigirGestionLevantamiento()) return;
+      const l = levantamientoPorId(estado.levantamientoId);
+      if(!l) return;
+      const hz = l.hallazgos.find(x => x.id === acc.dataset.hallazgo);
+      if(!hz) return;
+      hz.estatus = hz.estatus === 'resuelto' ? 'pendiente' : 'resuelto';
+      guardarLevantamiento(l, hz.estatus === 'resuelto' ? 'marcó resuelto un hallazgo de' : 'reabrió un hallazgo de',
+        hz.ubicacion || hz.equipoNombre || 'hallazgo');
+      render();
+      aviso('Hallazgo marcado como "' + ETIQUETA_ESTATUS_HALLAZGO[hz.estatus] + '".');
+    }
+    else if(a === 'quitar-hallazgo'){
+      if(!exigirGestionLevantamiento()) return;
+      const l = levantamientoPorId(estado.levantamientoId);
+      if(!l) return;
+      const hz = l.hallazgos.find(x => x.id === acc.dataset.hallazgo);
+      if(!hz) return;
+      confirmar('Quitar hallazgo',
+        'Se va a quitar el hallazgo <b>' + esc(hz.ubicacion || hz.equipoNombre || 'este hallazgo') + '</b> de este levantamiento.'
+        + (hz.cotizacionId ? ' La solicitud de cotización que generó no se borra, se queda como está.' : ''),
+        'Sí, quitar', ()=>{
+          l.hallazgos = l.hallazgos.filter(x => x.id !== hz.id);
+          guardarLevantamiento(l, 'quitó un hallazgo de', hz.ubicacion || hz.equipoNombre || 'hallazgo');
+          render(); aviso('Hallazgo eliminado.');
+        });
+    }
+    else if(a === 'borrar-levantamiento'){
+      if(!exigirAdmin('eliminar un levantamiento')) return;
+      const l = levantamientoPorId(estado.levantamientoId);
+      if(!l) return;
+      confirmar('Eliminar levantamiento',
+        'Se va a eliminar el levantamiento <b>' + esc(l.folio || 'sin folio') + '</b> y todos sus hallazgos. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.levantamientos = datos.levantamientos.filter(x => x.id !== l.id);
+          borrarRegistro('levantamientos', l.id);
+          anotar('eliminó', 'levantamiento', l.folio || 'sin folio');
+          estado.vista = 'levantamientos'; estado.levantamientoId = null;
+          render(); aviso('Levantamiento eliminado.');
+        });
+    }
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-agenda') irAAgenda(false);
@@ -10901,6 +11680,9 @@ $('vista').addEventListener('click', ev=>{
   const tarR = t.closest('[data-reporte]');
   if(tarR){ entrarReporte(tarR.dataset.reporte); return; }
 
+  const tarL = t.closest('[data-levantamiento]');
+  if(tarL){ entrarLevantamiento(tarL.dataset.levantamiento); return; }
+
   const lado = t.closest('[data-lado-cotizacion]');
   if(lado){ estado.ladoCotizacion = lado.dataset.ladoCotizacion; render(); return; }
 
@@ -10931,6 +11713,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarQ){ ev.preventDefault(); entrarCotizacion(tarQ.dataset.cotizacion); return; }
   const tarR = ev.target.closest('[data-reporte]');
   if(tarR){ ev.preventDefault(); entrarReporte(tarR.dataset.reporte); return; }
+  const tarL = ev.target.closest('[data-levantamiento]');
+  if(tarL){ ev.preventDefault(); entrarLevantamiento(tarL.dataset.levantamiento); return; }
   const tarCR = ev.target.closest('[data-cliente-resumen]');
   if(tarCR){ ev.preventDefault(); entrarResumenCliente(tarCR.dataset.clienteResumen); return; }
   const irSR = ev.target.closest('[data-ir-sitio-resumen]');
@@ -10963,7 +11747,8 @@ function descargarRespaldo(){
   const blob = new Blob([JSON.stringify({ v:1, generado:new Date().toISOString(),
                           clientes:datos.clientes, sitios:datos.sitios, polizas:datos.polizas,
                           catalogo:datos.catalogo, segmentos:datos.segmentos, parametros:datos.parametros,
-                          cotizaciones:datos.cotizaciones, reportes:datos.reportes }, null, 2)],
+                          cotizaciones:datos.cotizaciones, reportes:datos.reportes,
+                          levantamientos:datos.levantamientos }, null, 2)],
                         { type:'application/json' });
   descargar(blob, 'Respaldo_Control_Forpass_' + selloFecha() + '.json');
   aviso('Respaldo descargado.');
@@ -10990,24 +11775,27 @@ $('archivoRestaurar').addEventListener('change', ev=>{
       + (HAY_NUBE ? ' para todo el equipo' : '') + '.'
       + (!d.polizas ? '<br><br>Ojo: este respaldo es <b>anterior al módulo de pólizas</b>, así que restaurarlo va a dejar el tablero <b>sin ninguna póliza</b>.' : ''),
       'Sí, restaurar', async ()=>{
-        const previos = { clientes:datos.clientes.map(c=>c.id), sitios:datos.sitios.map(s=>s.id), polizas:datos.polizas.map(p=>p.id), reportes:datos.reportes.map(r=>r.id) };
+        const previos = { clientes:datos.clientes.map(c=>c.id), sitios:datos.sitios.map(s=>s.id), polizas:datos.polizas.map(p=>p.id), reportes:datos.reportes.map(r=>r.id), levantamientos:datos.levantamientos.map(l=>l.id) };
         datos = { v:1, clientes:d.clientes.map(normalizarCliente), sitios:d.sitios.map(normalizarSitio),
                   polizas:dPolizas.map(normalizarPoliza),
                   catalogo:(Array.isArray(d.catalogo) ? d.catalogo : datos.catalogo).map(normalizarEquipo),
                   segmentos: d.segmentos !== undefined ? normalizarSegmentos(d.segmentos) : datos.segmentos,
                   parametros: d.parametros !== undefined ? normalizarListaParametros(d.parametros) : datos.parametros,
                   cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : datos.cotizaciones).map(normalizarCotizacion),
-                  reportes: (Array.isArray(d.reportes) ? d.reportes : datos.reportes).map(normalizarReporte) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
+                  reportes: (Array.isArray(d.reportes) ? d.reportes : datos.reportes).map(normalizarReporte),
+                  levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : datos.levantamientos).map(normalizarLevantamiento) };
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
           const vivos = { clientes:new Set(datos.clientes.map(c=>c.id)), sitios:new Set(datos.sitios.map(s=>s.id)),
-                          polizas:new Set(datos.polizas.map(p=>p.id)), reportes:new Set(datos.reportes.map(r=>r.id)) };
+                          polizas:new Set(datos.polizas.map(p=>p.id)), reportes:new Set(datos.reportes.map(r=>r.id)),
+                          levantamientos:new Set(datos.levantamientos.map(l=>l.id)) };
           previos.clientes.filter(id => !vivos.clientes.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'clientes', id }));
           previos.sitios.filter(id => !vivos.sitios.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'sitios', id }));
           previos.polizas.filter(id => !vivos.polizas.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'polizas', id }));
           previos.reportes.filter(id => !vivos.reportes.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'reportes', id }));
+          previos.levantamientos.filter(id => !vivos.levantamientos.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'levantamientos', id }));
           subirTodo();
           anotar('restauró', 'respaldo', 'archivo JSON',
                  datos.clientes.length + ' clientes, ' + datos.sitios.length + ' sitios y ' + datos.polizas.length + ' pólizas');
@@ -11660,9 +12448,9 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
     sincronizado = false;
   }
 }
@@ -11752,6 +12540,7 @@ $('btnInicio').addEventListener('click', ()=>{
   if(estado.modulo === 'polizas') irAPolizas();
   else if(estado.modulo === 'cotizaciones') irACotizaciones();
   else if(estado.modulo === 'reportes') irAReportes();
+  else if(estado.modulo === 'levantamientos') irALevantamientos();
   else irAClientes();
 });
 
