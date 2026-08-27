@@ -1511,9 +1511,18 @@ function normalizarEquipo(e){
     costoManoObra: Math.max(0, Math.round((Number(e.costoManoObra) || 0) * 100) / 100),
     /* Un equipo que ya no se vende se apaga en vez de borrarse: las pólizas
        viejas siguen apuntando a su id y tienen que poder resolver su texto. */
-    activo: e.activo !== false
+    activo: e.activo !== false,
+    /* Qué tanto pesa este equipo en el % de funcionamiento de una cocina
+       (ver calcularFuncionamientoLevantamiento, módulo Levantamientos): 1
+       (apenas afecta operar, ej. un carrito) a 5 (para la cocina, ej. una
+       cámara de refrigeración). Entero, 3 = importancia media por default —
+       así un equipo recién dado de alta ya entra al cálculo sin que alguien
+       tenga que ponderarlo primero a mano. */
+    ponderacion: Math.max(1, Math.min(5, parseInt(e.ponderacion, 10) || 3))
   };
 }
+
+const ETIQUETA_PONDERACION = { 1:'Muy baja', 2:'Baja', 3:'Media', 4:'Alta', 5:'Crítica' };
 
 /* 10% de indirectos sobre insumos + mano de obra: así se arma el costo total
    de un servicio en la hoja de costos 2025/2026 (verificado exacto en sus 63
@@ -3035,6 +3044,51 @@ function generarSolicitudCotizacionHallazgo(l, h, texto){
   return cot.id;
 }
 
+/* ---- Análisis de funcionamiento (Levantamientos) ----
+   Cuánto "pesa" un hallazgo correctivo pendiente, según prioridad: entre más
+   grave, más baja el score del equipo. Preventivo (aunque esté pendiente) y
+   cualquier hallazgo ya resuelto NUNCA bajan el score — no es una falla de
+   operación, es mantenimiento recomendado o ya atendido. */
+const FACTOR_HALLAZGO_CORRECTIVO_PENDIENTE = { urgente:0, alta:0.25, media:0.5, baja:0.75 };
+function scoreHallazgo(h){
+  if(h.accion === 'preventivo' || h.estatus === 'resuelto') return 1;
+  const f = FACTOR_HALLAZGO_CORRECTIVO_PENDIENTE[h.prioridad];
+  return f === undefined ? 0.5 : f;
+}
+
+/* % de funcionamiento de la cocina/sitio en este levantamiento — a propósito
+   SOLO cuenta los equipos que tienen algún hallazgo ligado (equipoCatalogoId
+   o equipoNombre): un hallazgo de infraestructura sin equipo (ej. "falta
+   señalización") se puede cotizar, pero no afecta si la cocina opera, así
+   que no entra a la cuenta (decisión de Victor, 27-ago-2026, para no
+   necesitar un inventario completo de equipos por sitio: el % se arma con lo
+   que el recorrido de verdad encontró). Cada equipo distinto toma el peor de
+   sus hallazgos (el score más bajo), ponderado por su "peso" del catálogo —
+   un equipo fuera de catálogo (texto libre, no encontrado por id) pesa 3
+   (media) por default, igual que un equipo recién dado de alta. */
+function calcularFuncionamientoLevantamiento(l){
+  const porEquipo = new Map();
+  l.hallazgos.forEach(h=>{
+    const key = h.equipoCatalogoId || (h.equipoNombre ? 'texto:' + llaveTexto(h.equipoNombre) : '');
+    if(!key) return;
+    const eq = h.equipoCatalogoId ? equipoDeCatalogo(h.equipoCatalogoId) : null;
+    const peso = eq ? eq.ponderacion : 3;
+    const score = scoreHallazgo(h);
+    const actual = porEquipo.get(key);
+    if(!actual || score < actual.peorScore){
+      porEquipo.set(key, { nombre: h.equipoNombre || (eq && eq.concepto) || 'Equipo', peso, peorScore: score, peorHallazgo: h });
+    }
+  });
+  if(!porEquipo.size) return null;
+  const equipos = Array.from(porEquipo.values());
+  const sumaPeso = equipos.reduce((s,x)=> s + x.peso, 0);
+  const sumaPonderada = equipos.reduce((s,x)=> s + x.peso * x.peorScore, 0);
+  return {
+    pct: Math.round((sumaPonderada / sumaPeso) * 100),
+    equipos: equipos.sort((a,b)=> a.peorScore - b.peorScore)
+  };
+}
+
 /* Numera las partidas como en el documento: consecutivas con la misma
    sección comparten grupo (1.1, 1.2…); sin sección, número simple (2, 3…).
    Se calcula aquí y nunca se guarda — es de exhibición, como las letras de
@@ -4409,6 +4463,70 @@ function modalPreviaCotizacion(id, lado){
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>';
   abrirModal('Vista previa · ' + (lado === 'cliente' ? 'Cotización cliente' : 'Costo interno'), cuerpo, pie);
   $('modal').classList.add('doc-previa');
+}
+
+/* -------------------- Documento imprimible de un levantamiento --------------------
+   Mismo criterio que armarPayloadPoliza()/armarPayloadCotizacion(): esta función
+   entrega TODO ya resuelto (el % de calcularFuncionamientoLevantamiento(), las
+   etiquetas de cada catálogo) — la plantilla solo formatea y concatena. Las
+   fotos de evidencia viajan como dataURL tal cual (ya vienen comprimidas a
+   ~90 KB cada una desde el propio módulo), así que un levantamiento con muchos
+   hallazgos con foto puede pesar varios MB en sessionStorage; es el mismo
+   límite que ya acepta el resto del tablero para evidencia embebida. */
+function armarPayloadLevantamiento(l){
+  const cli = clientePorId(l.clienteId);
+  const an = calcularFuncionamientoLevantamiento(l);
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
+    folio: l.folio || '',
+    fecha: fechaDocumento(l.fecha),
+    cliente: cli ? cli.nombre : '',
+    sitio: l.sitioNombre || '',
+    realizo: l.realizoNombre || '',
+    notasGenerales: l.notasGenerales || '',
+    analisis: an ? {
+      pct: an.pct,
+      equipos: an.equipos.map(eq => ({
+        nombre: eq.nombre,
+        peso: eq.peso,
+        pesoEtiqueta: ETIQUETA_PONDERACION[eq.peso],
+        scorePct: Math.round(eq.peorScore * 100),
+        peorHallazgo: ETIQUETA_ACCION_HALLAZGO[eq.peorHallazgo.accion] + ' · ' + ETIQUETA_PRIORIDAD[eq.peorHallazgo.prioridad]
+          + ' · ' + ETIQUETA_ESTATUS_HALLAZGO[eq.peorHallazgo.estatus]
+      })),
+      sinEquipo: l.hallazgos.filter(h => !h.equipoCatalogoId && !h.equipoNombre).length
+    } : null,
+    hallazgos: l.hallazgos.map(h => ({
+      ubicacion: h.ubicacion || '',
+      equipoNombre: h.equipoNombre || '',
+      hallazgo: h.hallazgo,
+      accionEtiqueta: ETIQUETA_ACCION_HALLAZGO[h.accion],
+      prioridadEtiqueta: ETIQUETA_PRIORIDAD[h.prioridad],
+      esCorrectivo: h.accion === 'correctivo',
+      estatusEtiqueta: ETIQUETA_ESTATUS_HALLAZGO[h.estatus],
+      resuelto: h.estatus === 'resuelto',
+      accionSugerida: h.accionSugerida || '',
+      resueltoNota: h.resueltoNota || '',
+      cotizar: h.cotizar || '',
+      evidencias: h.evidencias.map(e => e.dataUrl)
+    }))
+  };
+}
+
+const LLAVE_DOC_LEVANTAMIENTO = 'forguard.documento.levantamiento';
+
+function abrirDocumentoLevantamiento(id){
+  const l = levantamientoPorId(id);
+  if(!l) return;
+  try{
+    sessionStorage.setItem(LLAVE_DOC_LEVANTAMIENTO, JSON.stringify(armarPayloadLevantamiento(l)));
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return;
+  }
+  const w = window.open('docs/plantilla_levantamiento.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
 }
 
 /* Gemelos de sitiosDe() / sitioPorId(): join en memoria, sin consulta. */
@@ -6755,6 +6873,50 @@ function tablaLevantamientos(lista){
    uno con sus propias acciones (editar, marcar resuelto, quitar). A
    diferencia de las partidas de una póliza, un hallazgo trae fotos y texto
    largo, así que se pinta como tarjeta, no como renglón de tabla. */
+/* "Análisis de funcionamiento": el % ponderado de calcularFuncionamientoLevantamiento(),
+   con el detalle equipo por equipo que lo arma. Solo aparece si hay al menos
+   un hallazgo ligado a un equipo — si el levantamiento nada más trae temas
+   de infraestructura (sin equipo), no hay base para un porcentaje y se avisa
+   en vez de fingir un número. */
+function bloqueFuncionamiento(l){
+  const an = calcularFuncionamientoLevantamiento(l);
+  const sinEquipo = l.hallazgos.filter(h => !h.equipoCatalogoId && !h.equipoNombre).length;
+  let h = '<div class="bloque"><div class="bloque-cabeza"><div><h3>Análisis de funcionamiento</h3>'
+    +   '<p>% ponderado de los equipos con hallazgo en este recorrido — entre más crítico el equipo y más grave lo '
+    +   'encontrado, más pesa en contra.</p></div></div>';
+
+  if(!an){
+    h += '<p class="pista" style="margin:0">Todavía no hay hallazgos ligados a un equipo del catálogo — agrega uno con '
+      + '"Equipo" para que aquí salga el %.</p></div>';
+    return h;
+  }
+
+  const tono = an.pct >= 80 ? 'ok' : an.pct >= 50 ? 'alerta' : 'error';
+  h += '<div class="resumen" style="margin-bottom:14px">'
+    +   '<div class="r-fila r-total"><span>Funcionamiento estimado</span>'
+    +     '<span style="color:var(--' + tono + '); font-size:22px; font-weight:800">' + an.pct + '%</span></div>'
+    + '</div>'
+    + '<div class="rodillo"><table class="tabla"><thead><tr><th>Equipo</th><th>Peso</th><th>Peor hallazgo</th><th>Score</th></tr></thead><tbody>'
+    + an.equipos.map(eq=>{
+        const h2 = eq.peorHallazgo;
+        const tonoScore = eq.peorScore >= 0.75 ? 'ok' : eq.peorScore >= 0.5 ? 'alerta' : 'error';
+        return '<tr><td><b>' + esc(eq.nombre) + '</b></td>'
+          + '<td>' + eq.peso + ' · ' + esc(ETIQUETA_PONDERACION[eq.peso]) + '</td>'
+          + '<td>' + esc(ETIQUETA_ACCION_HALLAZGO[h2.accion]) + ' · ' + esc(ETIQUETA_PRIORIDAD[h2.prioridad])
+          +   ' · ' + esc(ETIQUETA_ESTATUS_HALLAZGO[h2.estatus]) + '</td>'
+          + '<td><span class="insignia i-' + tonoScore + '">' + Math.round(eq.peorScore * 100) + '%</span></td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table></div>';
+
+  if(sinEquipo > 0){
+    h += '<div class="pista" style="margin-top:10px">' + sinEquipo + ' ' + plural(sinEquipo,'hallazgo','hallazgos')
+      + ' sin equipo ligado (infraestructura) no ' + plural(sinEquipo,'entra','entran') + ' en este %, aunque sí se pueden cotizar.</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
 function vistaLevantamiento(){
   const l = levantamientoPorId(estado.levantamientoId);
   if(!l){ estado.vista = 'levantamientos'; return vistaLevantamientos(); }
@@ -6786,6 +6948,8 @@ function vistaLevantamiento(){
        +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(l.notasGenerales) + '</p>'
        + '</div>';
   }
+
+  h += bloqueFuncionamiento(l);
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Hallazgos</h3>'
      +   '<p>Correctivo: hay que atenderlo ya. Preventivo: conviene hacerlo antes de que truene.</p></div>'
@@ -6839,8 +7003,25 @@ function vistaLevantamiento(){
   }
   h += '</div>';
 
+  /* El botón de generar póliza solo tiene sentido cuando el sitio TODAVÍA no
+     trae una en curso — si ya hay cotización/enviada/activa, ese es el lugar
+     donde seguir capturando equipos, no un segundo formulario suelto. */
+  const sitioSinPoliza = l.sitioId
+    && !datos.polizas.some(p => p.sitioId === l.sitioId && ['cotizacion','enviada','activa'].includes(p.estatus));
+
   h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  h += '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-levantamiento" '
+    + 'title="Abre el PDF en otra pestaña, listo para guardarse o compartirse">' + ICONO.imprimir + 'Generar PDF</button>';
   if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-levantamiento">' + ICONO.lapiz + 'Editar datos</button>';
+  /* puedeEditar(), no la abierta puedeGestionarLevantamiento(): armar una
+     póliza sí es "editar precios", y un técnico/viewer/reportero con acceso
+     de lectura a Pólizas (ver modulosPermitidos()) no debe ver un botón que
+     modalPoliza() de todos modos le va a rechazar. */
+  if(puedeEditar() && sitioSinPoliza && modulosPermitidos().includes('polizas')){
+    h += '<button type="button" class="btn btn-suave btn-mini" data-accion="generar-poliza-levantamiento" '
+      + 'title="Arma una póliza nueva con los equipos revisados, para completar precios y frecuencia">'
+      + ICONO.mas + 'Generar póliza desde este levantamiento</button>';
+  }
   h += '<span class="espacio"></span>';
   if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-levantamiento">' + ICONO.basura + 'Eliminar</button>';
   h += '</div>';
@@ -7525,7 +7706,9 @@ function vistaPrecios(){
            + 'y se puede volver a ofrecer cuando quieras.</p></div></div>'
          : '')
      + '<div class="rodillo"><table class="tabla">'
-     + '<thead><tr><th>Equipo</th><th>Costo</th><th>Precio unitario</th><th>Margen</th><th>Servicios/año</th><th>Descripción del trabajo</th>'
+     + '<thead><tr><th>Equipo</th><th>Costo</th><th>Precio unitario</th><th>Margen</th><th>Servicios/año</th>'
+     + '<th title="Qué tanto pesa este equipo en el % de funcionamiento de un levantamiento de sitio">Peso</th>'
+     + '<th>Descripción del trabajo</th>'
      + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
      + (vistos.length ? vistos.map(e =>{
          const costo = costoTotalEquipo(e);
@@ -7541,6 +7724,7 @@ function vistaPrecios(){
          + (e.precio && costo ? dineroCent(margen) + ' <span class="pista" style="display:inline">(' + margenPct.toFixed(0) + '%)</span>' : '<span class="pista">—</span>')
        + '</td>'
        + '<td>' + e.frecuencia + ' · cada ' + (MESES_POLIZA / e.frecuencia % 1 === 0 ? (MESES_POLIZA/e.frecuencia) + ' ' + plural(MESES_POLIZA/e.frecuencia,'mes','meses') : 'irregular') + '</td>'
+       + '<td><span class="pista" title="' + esc(ETIQUETA_PONDERACION[e.ponderacion]) + '">' + e.ponderacion + ' · ' + esc(ETIQUETA_PONDERACION[e.ponderacion]) + '</span></td>'
        + '<td>' + (e.descripcion ? '<div class="pista">' + esc(e.descripcion) + '</div>' : '<span class="pista">— sin descripción —</span>') + '</td>'
        + (puede
            ? '<td class="acciones">'
@@ -7554,7 +7738,7 @@ function vistaPrecios(){
            : '')
        + '</tr>';
        }).join('')
-       : '<tr><td colspan="7"><span class="pista">Ningún equipo coincide con la búsqueda.</span></td></tr>')
+       : '<tr><td colspan="' + (puede ? 8 : 7) + '"><span class="pista">Ningún equipo coincide con la búsqueda.</span></td></tr>')
      + '</tbody></table></div>'
      + (puede ? '<div class="pista" style="margin-top:10px">La lista es un solo documento: si dos administradores la editan al mismo tiempo, gana el último que guarde.</div>' : '')
      + '</div>';
@@ -7587,6 +7771,12 @@ function modalEquipo(id){
     +   '</div>'
     +   '<div class="pista" id="eqCostoResumen"></div>'
     + '</div>'
+    + '<div class="campo"><label>Peso en el % de funcionamiento</label><select id="eqPonderacion">'
+    +   [1,2,3,4,5].map(n => '<option value="' + n + '"' + ((e ? e.ponderacion : 3) === n ? ' selected' : '') + '>'
+        + n + ' · ' + esc(ETIQUETA_PONDERACION[n]) + '</option>').join('')
+    + '</select>'
+    +   '<div class="pista">Qué tanto pesa este equipo en el análisis de un levantamiento de sitio: 1 (apenas afecta operar '
+    +     'la cocina) a 5 (crítico, ej. una cámara de refrigeración). No afecta precios ni cotizaciones.</div></div>'
     + '<div class="campo"><label>Descripción del trabajo (opcional)</label>'
     +   '<textarea id="eqDescripcion" placeholder="Lo que se le hace al equipo en cada visita. Sale impreso en la cotización.">' + esc(e ? e.descripcion : '') + '</textarea></div>';
 
@@ -7627,6 +7817,7 @@ function modalEquipo(id){
       concepto, precio: aNumero($('eqPrecio').value),
       frecuencia: $('eqFrecuencia').value, descripcion: $('eqDescripcion').value.trim(),
       costoInsumos: aNumero($('eqCostoInsumos').value), costoManoObra: aNumero($('eqCostoManoObra').value),
+      ponderacion: $('eqPonderacion').value,
       activo: e ? e.activo : true
     });
     /* Si la lista todavía era la semilla, al primer cambio se materializa completa:
@@ -9439,7 +9630,16 @@ function etiquetaMesServicio(fechaInicio, i){
   return MES_CORTO[q.m - 1] + ' ' + String(q.a).slice(2);
 }
 
-function modalPoliza(id){
+/* `origenLevantamiento` es opcional: cuando la póliza nace de un levantamiento
+   (botón "Generar póliza desde este levantamiento", solo visible si el sitio
+   no tiene ya una en curso), llega el levantamiento completo para prellenar
+   cliente, sitio y un renglón por cada equipo distinto que tuvo hallazgo —
+   con precio y frecuencia sugeridos si el equipo está en catálogo. El resto
+   (precios definitivos, vendedor, vigencia) se termina de capturar aquí,
+   igual que cualquier póliza nueva; no hay liga guardada hacia atrás como en
+   reportes/cotizaciones porque una póliza no es "de" un levantamiento, nada
+   más se armó a partir de uno. */
+function modalPoliza(id, origenLevantamiento){
   const p = id ? polizaPorId(id) : null;
   if(!datos.clientes.length){
     aviso('Primero da de alta un cliente: la póliza cuelga de uno.', true);
@@ -9450,6 +9650,30 @@ function modalPoliza(id){
      de verdad. hechosDetalle viaja adentro sin que el formulario lo toque — si
      no se arrastrara, editar una póliza borraría su historial de servicios. */
   let partidasTmp = (p ? p.partidas : []).map(x => Object.assign({}, x, { mesesServicio: x.mesesServicio.slice() }));
+  if(!p && origenLevantamiento){
+    /* Un renglón por equipo DISTINTO con hallazgo (mismo criterio de "clave"
+       que calcularFuncionamientoLevantamiento): dos hallazgos del mismo
+       equipo no duplican renglón. Precio/costo/frecuencia se sugieren del
+       catálogo cuando el equipo vino de ahí; si es texto libre, arrancan en
+       cero/1 para que se capturen a mano, igual que un renglón nuevo. */
+    const vistos = new Set();
+    origenLevantamiento.hallazgos.forEach(h=>{
+      const key = h.equipoCatalogoId || (h.equipoNombre ? 'texto:' + llaveTexto(h.equipoNombre) : '');
+      if(!key || vistos.has(key)) return;
+      vistos.add(key);
+      const eq = h.equipoCatalogoId ? equipoDeCatalogo(h.equipoCatalogoId) : null;
+      const frecuencia = eq ? eq.frecuencia : 1;
+      partidasTmp.push(normalizarPartida({
+        catalogoId: h.equipoCatalogoId || '',
+        concepto: h.equipoNombre || (eq && eq.concepto) || '',
+        cantidad: 1,
+        precioUnitario: eq ? eq.precio : 0,
+        costoUnitario: eq ? costoTotalEquipo(eq) : 0,
+        frecuencia,
+        mesesServicio: mesesRegulares(0, frecuencia)
+      }));
+    });
+  }
 
   /* Lo que el servidor NO va a dejar guardar en esta póliza a esta persona. No es
      cosmético: sin esto el formulario ofrece la tabla completa sobre una póliza
@@ -9482,7 +9706,7 @@ function modalPoliza(id){
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Cliente *</label>'
     +       '<div class="cliente-zona">'
-    +         '<select id="pCliente">' + opc(clientesOrd, p ? p.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +         '<select id="pCliente">' + opc(clientesOrd, p ? p.clienteId : (origenLevantamiento ? origenLevantamiento.clienteId : ''), c=>c.nombre, c=>c.id) + '</select>'
     +         '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevo" '
     +           'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
     +       '</div>'
@@ -9508,7 +9732,7 @@ function modalPoliza(id){
     +     '</div>'
     +     '</div>'
     +     '<div class="campo"><label>Sitio *</label>'
-    +       '<input type="text" id="pSitioNombre" placeholder="Ej. MXNL02" value="' + esc(p ? p.sitioNombre : '') + '">'
+    +       '<input type="text" id="pSitioNombre" placeholder="Ej. MXNL02" value="' + esc(p ? p.sitioNombre : (origenLevantamiento ? origenLevantamiento.sitioNombre : '')) + '">'
     +       '<div class="pista">Es lo que sale impreso. Se guarda como texto para que sobreviva aunque el sitio no exista en Forpass.</div></div>'
     +   '</div>'
     +   '<div class="campo"><label>Ligar a un kiosco de Forpass (opcional)</label>'
@@ -9605,7 +9829,7 @@ function modalPoliza(id){
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Crear cotización') + '</button>';
 
-  abrirModal(p ? 'Editar póliza' : 'Nueva cotización de póliza', cuerpo, pie);
+  abrirModal(p ? 'Editar póliza' : (origenLevantamiento ? 'Nueva póliza desde el levantamiento ' + (origenLevantamiento.folio || '') : 'Nueva cotización de póliza'), cuerpo, pie);
   $('modal').classList.add('enorme');
 
   /* Si la cuenta no trae teléfono, se dice de frente y se sigue: la póliza guarda
@@ -9655,7 +9879,7 @@ function modalPoliza(id){
   function pintarSitios(){
     const cli = $('pCliente').value;
     const suyos = sitiosDe(cli);
-    const actual = p ? p.sitioId : '';
+    const actual = p ? p.sitioId : (origenLevantamiento ? origenLevantamiento.sitioId : '');
     $('pSitioId').innerHTML = '<option value="">— Sin kiosco Forpass —</option>'
       + suyos.map(s => '<option value="' + esc(s.id) + '"' + (s.id === actual ? ' selected' : '') + '>' + esc(s.nombre) + '</option>').join('');
   }
@@ -11587,6 +11811,13 @@ $('vista').addEventListener('click', ev=>{
           estado.vista = 'levantamientos'; estado.levantamientoId = null;
           render(); aviso('Levantamiento eliminado.');
         });
+    }
+    else if(a === 'imprimir-levantamiento') abrirDocumentoLevantamiento(estado.levantamientoId);
+    else if(a === 'generar-poliza-levantamiento'){
+      if(!exigirPermiso()) return;
+      const l = levantamientoPorId(estado.levantamientoId);
+      if(!l) return;
+      modalPoliza(null, l);
     }
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
     else if(a === 'ver-precios') irAPrecios();
