@@ -267,24 +267,25 @@ if(!LV){
     let out = '<div class="score-caja">'
       + '<div class="score-num ' + tono + '">' + an.pct + '%</div>'
       + '<div><div class="score-tit">Análisis de funcionamiento</div>'
-      + '<div class="score-sub">No es un promedio simple de los hallazgos: cada equipo pesa según qué tan crítico es '
-      +   'para operar la cocina — ' + an.equipos.length + ' ' + (an.equipos.length === 1 ? 'equipo evaluado' : 'equipos evaluados')
+      + '<div class="score-sub">No es un promedio simple de los hallazgos: el 100% se reparte entre los equipos según '
+      +   'qué tan crítico es cada uno — ' + an.equipos.length + ' ' + (an.equipos.length === 1 ? 'equipo evaluado' : 'equipos evaluados')
       +   (an.sinEquipo
             ? '. ' + an.sinEquipo + ' ' + (an.sinEquipo === 1 ? 'hallazgo de infraestructura no entra' : 'hallazgos de infraestructura no entran') + ' en el %.'
             : '.')
       + '</div></div></div>';
     /* A propósito NUNCA se pinta un % por equipo: era justo lo que hacía
        pensar que "todos dicen 50%" quería decir "la cocina está al 50%".
-       Lo encontrado se muestra como etiqueta de gravedad en palabras, y lo
-       único numérico por renglón es cuánto sube el % general si se resuelve
-       — eso sí deja ver que el peso importa, sin tener que explicarlo. */
+       Cada equipo tiene un presupuesto de puntos (según qué tan crítico es)
+       y aporta menos de ese presupuesto si tiene un hallazgo grave — sumando
+       lo que aporta CADA UNO se llega exacto al % de arriba. */
     out += '<table class="eq-tabla"><thead><tr><th>Equipo</th><th>Qué tan crítico es</th>'
-      +   '<th>Qué se encontró</th><th>Cuánto sube el % si se resuelve</th></tr></thead><tbody>'
+      +   '<th>Qué se encontró</th><th>Puntos que aporta al % de arriba</th></tr></thead><tbody>'
       + an.equipos.map(eq=>
           '<tr><td><b>' + esc(eq.nombre) + '</b></td>'
-            + '<td>' + esc(eq.pesoEtiqueta) + '<br><span class="eq-nota">' + eq.pesoPct + '% del peso del recorrido</span></td>'
+            + '<td>' + esc(eq.pesoEtiqueta) + '</td>'
             + '<td><span class="pastilla ' + esc(eq.severidadTono) + '">' + esc(eq.severidadTexto) + '</span></td>'
-            + '<td>' + (eq.impactoPct > 0 ? '<b class="eq-impacto">+' + eq.impactoPct + ' puntos</b>' : '<span class="eq-nota">Ya no le resta al %</span>') + '</td></tr>'
+            + '<td><b>' + eq.puntosActuales + ' de ' + eq.puntosPosibles + '</b> puntos'
+            +   (eq.puntosFaltan > 0 ? '<br><span class="eq-impacto">+' + eq.puntosFaltan + ' si se resuelve</span>' : '<br><span class="eq-nota">Ya aporta su máximo</span>') + '</td></tr>'
         ).join('')
       + '</tbody></table>';
     return out;

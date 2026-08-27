@@ -3122,17 +3122,17 @@ function calcularFuncionamientoLevantamiento(l){
   const sumaPonderada = equipos.reduce((s,x)=> s + x.peso * x.peorScore, 0);
   const pct = Math.round((sumaPonderada / sumaPeso) * 100);
 
-  /* pesoPct: qué tanto del peso total representa este equipo — para que se
-     vea, sin hacer cuentas, que un equipo crítico (peso 5) jala mucho más
-     que uno de peso bajo (peso 1), aunque su Score sea igual.
-     impactoPct: cuántos puntos sube el % del levantamiento si ESTE equipo en
-     particular quedara resuelto (score 1) y los demás siguen igual — la
-     forma más directa de demostrar que el peso "significa" algo concreto en
-     el resultado, no solo una etiqueta. */
+  /* Reparte el 100% en un "presupuesto de puntos" por equipo, según su peso
+     — y muestra cuántos de esos puntos ya trae y cuántos le faltan. Es la
+     misma cuenta de siempre, nada más partida para que se pueda leer sin
+     explicar la ponderación: sumando puntosActuales de todos los equipos da
+     exactamente el % de arriba, y puntosPosibles de todos suma 100 (con el
+     redondeo normal de repartir enteros). Así "le faltan 40 puntos de 40
+     para llegar a su máximo" es tan directo como se puede poner. */
   equipos.forEach(eq=>{
-    eq.pesoPct = Math.round((eq.peso / sumaPeso) * 100);
-    const sumaPonderadaResuelto = sumaPonderada - (eq.peso * eq.peorScore) + eq.peso;
-    eq.impactoPct = Math.round((sumaPonderadaResuelto / sumaPeso) * 100) - pct;
+    eq.puntosPosibles = Math.round((eq.peso / sumaPeso) * 100);
+    eq.puntosActuales = Math.round((eq.peso * eq.peorScore / sumaPeso) * 100);
+    eq.puntosFaltan = eq.puntosPosibles - eq.puntosActuales;
     const sev = etiquetaSeveridadHallazgo(eq.peorHallazgo);
     eq.severidadTexto = sev.texto;
     eq.severidadTono = sev.tono;
@@ -4545,8 +4545,9 @@ function armarPayloadLevantamiento(l){
       equipos: an.equipos.map(eq => ({
         nombre: eq.nombre,
         pesoEtiqueta: ETIQUETA_PONDERACION[eq.peso],
-        pesoPct: eq.pesoPct,
-        impactoPct: eq.impactoPct,
+        puntosPosibles: eq.puntosPosibles,
+        puntosActuales: eq.puntosActuales,
+        puntosFaltan: eq.puntosFaltan,
         severidadTexto: eq.severidadTexto,
         severidadTono: eq.severidadTono
       })),
@@ -6942,8 +6943,8 @@ function bloqueFuncionamiento(l){
   const an = calcularFuncionamientoLevantamiento(l);
   const sinEquipo = l.hallazgos.filter(h => !h.equipoCatalogoId && !h.equipoNombre).length;
   let h = '<div class="bloque"><div class="bloque-cabeza"><div><h3>Análisis de funcionamiento</h3>'
-    +   '<p>No es un promedio simple de los hallazgos: cada equipo pesa según qué tan crítico es para operar la '
-    +   'cocina, así que uno solo (ej. un horno) puede pesar más que varios equipos menores juntos.</p></div></div>';
+    +   '<p>No es un promedio simple de los hallazgos: el 100% se reparte entre los equipos según qué tan crítico es '
+    +   'cada uno para operar la cocina, y cada uno aporta menos de su parte si tiene un hallazgo grave.</p></div></div>';
 
   if(!an){
     h += '<p class="pista" style="margin:0">Todavía no hay hallazgos ligados a un equipo del catálogo — agrega uno con '
@@ -6957,23 +6958,24 @@ function bloqueFuncionamiento(l){
     +     '<span style="color:var(--' + tono + '); font-size:22px; font-weight:800">' + an.pct + '%</span></div>'
     + '</div>'
     /* Ojo: aquí NUNCA se pinta un % por equipo — fue justo lo que confundía
-       ("todos dicen 50%, ¿entonces la cocina está al 50%?"). Lo que se
-       encontró se muestra como etiqueta de gravedad (palabras, no número) y
-       lo único cuantitativo por renglón es "cuánto sube el % general si se
-       resuelve", que dejacla que el peso importa sin tener que explicarlo. */
+       ("todos dicen 50%, ¿entonces la cocina está al 50%?"). Cada equipo
+       tiene un presupuesto de puntos (según qué tan crítico es) y aporta
+       menos de ese presupuesto si tiene un hallazgo grave; sumando lo que
+       CADA UNO aporta ahora mismo se llega exacto al % de arriba, así que
+       "tiene X de Y puntos, le faltan Z para su máximo" se entiende solo. */
     + '<div class="rodillo"><table class="tabla"><thead><tr><th>Equipo</th>'
     +   '<th>Qué tan crítico es</th>'
     +   '<th>Qué se encontró</th>'
-    +   '<th>Cuánto sube el % si se resuelve</th>'
+    +   '<th>Puntos que aporta al % de arriba</th>'
     + '</tr></thead><tbody>'
     + an.equipos.map(eq=>{
         return '<tr><td><b>' + esc(eq.nombre) + '</b></td>'
-          + '<td>' + esc(ETIQUETA_PONDERACION[eq.peso])
-          +   '<br><span class="pista" style="margin:0">' + eq.pesoPct + '% del peso del recorrido</span></td>'
+          + '<td>' + esc(ETIQUETA_PONDERACION[eq.peso]) + '</td>'
           + '<td><span class="insignia i-' + esc(eq.severidadTono) + '">' + esc(eq.severidadTexto) + '</span></td>'
-          + '<td>' + (eq.impactoPct > 0
-                ? '<b style="color:var(--ok)">+' + eq.impactoPct + ' puntos</b>'
-                : '<span class="pista" style="margin:0">Ya no le resta al %</span>') + '</td>'
+          + '<td><b>' + eq.puntosActuales + ' de ' + eq.puntosPosibles + '</b> puntos'
+          +   (eq.puntosFaltan > 0
+                ? '<br><span style="color:var(--ok)">+' + eq.puntosFaltan + ' si se resuelve</span>'
+                : '<br><span class="pista" style="margin:0">Ya aporta su máximo</span>') + '</td>'
           + '</tr>';
       }).join('')
     + '</tbody></table></div>';
