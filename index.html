@@ -1168,6 +1168,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <input type="file" id="archivoRestaurar" accept="application/json,.json" style="display:none">
 <input type="file" id="archivoPolizas" accept="application/json,.json" multiple style="display:none">
+<input type="file" id="archivoProyectoImagenExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 
 <script>
 /* =========================================================================
@@ -3189,6 +3190,11 @@ const IMAGENES_MAX_POR_PROYECTO = 12;
 function normalizarConceptoProyecto(x){
   return {
     id: (x && x.id) || nuevoId(),
+    /* Opcional: quién lo surte. No se exige porque un concepto capturado a
+       mano casi nunca trae proveedor todavía (se cotiza después) — pero SÍ
+       viaja completo cuando se importa de un desglose como el de Excel, que
+       trae un proveedor por renglón. */
+    proveedor: (x && x.proveedor ? String(x.proveedor) : '').trim(),
     concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
     cantidad: Math.max(0, numDef(x && x.cantidad, 1)),
     precioUnitario: Math.max(0, numDef(x && x.precioUnitario, 0))
@@ -3246,6 +3252,288 @@ function guardarProyectoImagen(p, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'proyectosImagen', id:p.id, obj:p });
   anotar(accion || 'editó', 'proyecto de imagen', p.folio || p.nombreProyecto || 'sin folio', detalle);
+}
+
+/* ===================== Importar Excel (Imagen/Aperturas) =====================
+   Victor comparte los presupuestos de remodelación/apertura en un Excel como
+   ARCHIVO_DE_INVERSION_ADIANT.xlsx: una tabla con PROVEEDOR/CONCEPTOS/UD/
+   CANT/PRECIO UNITARIO/… — y pidió poder subirlo tal cual en vez de
+   recapturar renglón por renglón.
+
+   Un .xlsx es un ZIP con XML adentro. En vez de traer una librería externa
+   (SheetJS y similares, fuera de las reglas de esta app: un solo archivo,
+   sin CDN ni build), se lee a mano con lo que YA trae el navegador:
+   DecompressionStream('deflate-raw') para inflar el DEFLATE del ZIP, y
+   DOMParser para leer el XML de cada hoja. Alcance a propósito acotado: nada
+   más lo que hace falta para reconocer ESTA tabla de costos (sea cual sea
+   el nombre o la posición de la hoja), no un lector de Excel genérico. */
+
+async function inflarDeflateRaw(bytes){
+  if(typeof DecompressionStream === 'undefined'){
+    throw new Error('Este navegador no puede leer archivos comprimidos aquí. Actualiza Chrome/Edge/Firefox a una versión reciente.');
+  }
+  const ds = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  writer.write(bytes);
+  writer.close();
+  return new Uint8Array(await new Response(ds.readable).arrayBuffer());
+}
+
+/* Lector de ZIP mínimo (sin ZIP64: de sobra para un .xlsx real) — regresa un
+   Map nombre de archivo -> bytes YA descomprimidos. Lee el directorio
+   central desde el final del archivo (firma 0x06054b50), y por cada entrada
+   busca su cabecera local (su nombre/extra pueden medir distinto ahí) para
+   saber dónde empiezan los datos de verdad. */
+async function leerZip(buffer){
+  const dv = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  let eocd = -1;
+  const desde = Math.max(0, bytes.length - 22 - 65536);
+  for(let i = bytes.length - 22; i >= desde; i--){
+    if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error('No se reconoce el archivo como .xlsx (no es un ZIP válido).');
+  const totalEntradas = dv.getUint16(eocd + 10, true);
+  let offset = dv.getUint32(eocd + 16, true);
+
+  const archivos = new Map();
+  for(let i = 0; i < totalEntradas; i++){
+    if(dv.getUint32(offset, true) !== 0x02014b50) break;
+    const metodo = dv.getUint16(offset + 10, true);
+    const compSize = dv.getUint32(offset + 20, true);
+    const nombreLen = dv.getUint16(offset + 28, true);
+    const extraLen = dv.getUint16(offset + 30, true);
+    const comentLen = dv.getUint16(offset + 32, true);
+    const localOffset = dv.getUint32(offset + 42, true);
+    const nombre = new TextDecoder('utf-8').decode(bytes.subarray(offset + 46, offset + 46 + nombreLen));
+
+    const nombreLenL = dv.getUint16(localOffset + 26, true);
+    const extraLenL = dv.getUint16(localOffset + 28, true);
+    const inicioDatos = localOffset + 30 + nombreLenL + extraLenL;
+    const datosComprimidos = bytes.subarray(inicioDatos, inicioDatos + compSize);
+
+    if(metodo === 0) archivos.set(nombre, datosComprimidos);
+    else if(metodo === 8) archivos.set(nombre, await inflarDeflateRaw(datosComprimidos));
+    /* Otros métodos de compresión son rarísimos en un .xlsx real (todo lo
+       genera Excel/Sheets con 0 u 8) — si aparece uno, ese archivo del ZIP
+       simplemente no queda disponible, y como no es ninguno de los que se
+       leen abajo (sharedStrings/workbook/hojas), no hace falta. */
+
+    offset += 46 + nombreLen + extraLen + comentLen;
+  }
+  return archivos;
+}
+
+function textoDeArchivoZip(mapaZip, nombre){
+  const bytes = mapaZip.get(nombre);
+  return bytes ? new TextDecoder('utf-8').decode(bytes) : '';
+}
+
+function leerSharedStringsXlsx(mapaZip){
+  const xml = textoDeArchivoZip(mapaZip, 'xl/sharedStrings.xml');
+  if(!xml) return [];
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  return Array.from(doc.getElementsByTagName('si')).map(si =>
+    Array.from(si.getElementsByTagName('t')).map(t => t.textContent).join(''));
+}
+
+/* Nombre de hoja -> archivo real (sheet1.xml, sheet2.xml…): el orden y los
+   nombres de archivo NO siempre coinciden con el orden de las pestañas, hay
+   que seguir workbook.xml + su .rels. */
+function mapaHojasXlsx(mapaZip){
+  const wbDoc = new DOMParser().parseFromString(textoDeArchivoZip(mapaZip, 'xl/workbook.xml'), 'application/xml');
+  const relsDoc = new DOMParser().parseFromString(textoDeArchivoZip(mapaZip, 'xl/_rels/workbook.xml.rels'), 'application/xml');
+  const relPorId = new Map();
+  Array.from(relsDoc.getElementsByTagName('Relationship')).forEach(r => relPorId.set(r.getAttribute('Id'), r.getAttribute('Target')));
+  const NS_R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  return Array.from(wbDoc.getElementsByTagName('sheet')).map(s=>{
+    const rid = s.getAttribute('r:id') || s.getAttributeNS(NS_R, 'id');
+    const target = relPorId.get(rid) || '';
+    return { nombre: s.getAttribute('name'), ruta: 'xl/' + target.replace(/^\/?/, '') };
+  }).filter(h => h.ruta !== 'xl/');
+}
+
+function columnaXlsxANumero(ref){
+  const letras = /^([A-Z]+)/.exec(ref)[1];
+  let n = 0;
+  for(const ch of letras) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+/* Una hoja como una matriz de valores YA resueltos (texto de sharedStrings
+   o inline, número tal cual) — cada fila es un arreglo alineado por columna
+   (fila[0] = columna A, fila[1] = columna B…), con huecos para columnas sin
+   valor. */
+function leerHojaXlsxComoFilas(mapaZip, ruta, sharedStrings){
+  const xml = textoDeArchivoZip(mapaZip, ruta);
+  if(!xml) return [];
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const filas = [];
+  Array.from(doc.getElementsByTagName('row')).forEach(rowEl=>{
+    const numFila = parseInt(rowEl.getAttribute('r'), 10) - 1;
+    const fila = filas[numFila] = filas[numFila] || [];
+    Array.from(rowEl.getElementsByTagName('c')).forEach(cEl=>{
+      const ref = cEl.getAttribute('r');
+      if(!ref) return;
+      const col = columnaXlsxANumero(ref) - 1;
+      const tipo = cEl.getAttribute('t');
+      const vEl = cEl.getElementsByTagName('v')[0];
+      let valor = null;
+      if(tipo === 's') valor = vEl ? (sharedStrings[parseInt(vEl.textContent, 10)] || '') : '';
+      else if(tipo === 'inlineStr'){
+        const isEl = cEl.getElementsByTagName('is')[0];
+        valor = isEl ? Array.from(isEl.getElementsByTagName('t')).map(t => t.textContent).join('') : '';
+      }
+      else if(tipo === 'str') valor = vEl ? vEl.textContent : '';
+      else valor = vEl && vEl.textContent !== '' ? parseFloat(vEl.textContent) : null;
+      fila[col] = valor;
+    });
+  });
+  for(let i = 0; i < filas.length; i++) if(!filas[i]) filas[i] = [];
+  return filas;
+}
+
+async function leerLibroXlsx(archivo){
+  const buffer = await archivo.arrayBuffer();
+  const mapaZip = await leerZip(buffer);
+  const sharedStrings = leerSharedStringsXlsx(mapaZip);
+  return mapaHojasXlsx(mapaZip).map(h => ({ nombre: h.nombre, filas: leerHojaXlsxComoFilas(mapaZip, h.ruta, sharedStrings) }));
+}
+
+/* ---- De filas crudas a conceptos: encuentra la tabla sin importar en qué
+   hoja ni en qué posición esté ---- */
+const ALIAS_COLUMNA_COSTOS_PROYECTO = {
+  proveedor: ['PROVEEDOR'],
+  concepto: ['CONCEPTOS', 'CONCEPTO', 'DESCRIPCION'],
+  cantidad: ['CANT', 'CANT.', 'CANTIDAD'],
+  precioUnitario: ['PRECIO UNITARIO', 'P. UNITARIO', 'PRECIO UNIT']
+};
+
+function normalizarTextoEncabezadoXlsx(s){
+  return String(s == null ? '' : s).toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
+/* Busca, en TODAS las hojas y TODOS los renglones, el que más se parezca a
+   un encabezado de tabla de costos — entre más columnas conocidas reconoce,
+   mejor candidato. Así no importa si la hoja se llama "FACHADA", el nombre
+   del proyecto, o cualquier otra cosa, ni en qué fila/hoja esté la tabla
+   (por ejemplo, no confunde la tabla resumen con los mini-desgloses de
+   materiales de la hoja "MATERIALES", que no traen PROVEEDOR). */
+function buscarTablaCostosXlsx(hojas){
+  let mejor = null;
+  hojas.forEach(hoja=>{
+    hoja.filas.forEach((fila, i)=>{
+      const normal = fila.map(normalizarTextoEncabezadoXlsx);
+      const columnas = {};
+      let encontrados = 0;
+      Object.keys(ALIAS_COLUMNA_COSTOS_PROYECTO).forEach(campo=>{
+        const idx = normal.findIndex(txt => ALIAS_COLUMNA_COSTOS_PROYECTO[campo].includes(txt));
+        if(idx >= 0){ columnas[campo] = idx; encontrados++; }
+      });
+      const esTablaDeCostos = ['concepto', 'cantidad', 'precioUnitario'].every(c => columnas[c] !== undefined);
+      if(esTablaDeCostos && (!mejor || encontrados > mejor.encontrados)){
+        mejor = { hoja: hoja.nombre, filaEncabezado: i, columnas, encontrados };
+      }
+    });
+  });
+  return mejor;
+}
+
+function extraerConceptosXlsx(hoja, tabla){
+  const conceptos = [];
+  let vaciosSeguidos = 0;
+  for(let i = tabla.filaEncabezado + 1; i < hoja.filas.length; i++){
+    const fila = hoja.filas[i] || [];
+    const concepto = fila[tabla.columnas.concepto];
+    const cantidad = fila[tabla.columnas.cantidad];
+    const precioUnitario = fila[tabla.columnas.precioUnitario];
+    if(typeof concepto !== 'string' || !concepto.trim() || /^TOTAL/i.test(concepto.trim())){
+      /* Un renglón de totales, o simplemente vacío (a veces hay una fila de
+         aire entre grupos) — se tolera hasta 5 seguidos antes de dar por
+         terminada la tabla, para no seguir leyendo basura muy abajo. */
+      if(conceptos.length && ++vaciosSeguidos >= 5) break;
+      continue;
+    }
+    vaciosSeguidos = 0;
+    if(typeof cantidad !== 'number' && typeof precioUnitario !== 'number') continue;
+    conceptos.push(normalizarConceptoProyecto({
+      proveedor: tabla.columnas.proveedor !== undefined ? fila[tabla.columnas.proveedor] : '',
+      concepto: concepto.trim(),
+      cantidad: typeof cantidad === 'number' ? cantidad : 1,
+      precioUnitario: typeof precioUnitario === 'number' ? precioUnitario : 0
+    }));
+  }
+  return conceptos;
+}
+
+/* ---- Metadatos sueltos del encabezado del documento (nombre del proyecto,
+   fecha, quién lo elaboró) — se buscan por etiqueta, no por celda fija: cada
+   Excel los acomoda un poco distinto, pero la etiqueta ("PROYECTO", "FECHA",
+   "ELABORÓ") se repite. Lo que no se reconoce se deja en blanco: el usuario
+   lo revisa y completa en el modal antes de guardar, nunca se inventa. ---- */
+const MESES_ES_XLSX = { ENERO:1, FEBRERO:2, MARZO:3, ABRIL:4, MAYO:5, JUNIO:6, JULIO:7, AGOSTO:8,
+  SEPTIEMBRE:9, SETIEMBRE:9, OCTUBRE:10, NOVIEMBRE:11, DICIEMBRE:12 };
+function fechaDesdeTextoEsXlsx(txt){
+  const m = /([0-3]?\d)\s*\/?\s*([A-Za-zÁÉÍÓÚáéíóúñÑ]+)\s*\/?\s*(\d{4})/.exec(txt || '');
+  if(!m) return '';
+  const mes = MESES_ES_XLSX[normalizarTextoEncabezadoXlsx(m[2])];
+  if(!mes) return '';
+  return m[3] + '-' + String(mes).padStart(2, '0') + '-' + String(parseInt(m[1], 10)).padStart(2, '0');
+}
+function extraerMetadatosXlsx(hoja){
+  const meta = { nombreProyecto: '', fecha: '', responsable: '' };
+  const notasExtra = [];
+  hoja.filas.forEach(fila=>{
+    (fila || []).forEach(valor=>{
+      if(typeof valor !== 'string' || !valor.trim()) return;
+      const norm = normalizarTextoEncabezadoXlsx(valor);
+      if(!meta.nombreProyecto && norm.startsWith('PROYECTO')) meta.nombreProyecto = valor.trim();
+      else if(!meta.fecha && norm.startsWith('FECHA')) meta.fecha = fechaDesdeTextoEsXlsx(valor);
+      else if(!meta.responsable && norm.startsWith('ELABORO')) meta.responsable = valor.replace(/^[^:]*:\s*/, '').trim();
+      else if(norm.startsWith('ATENCION')) notasExtra.push(valor.trim());
+    });
+  });
+  meta.notas = notasExtra.join(' · ');
+  return meta;
+}
+
+/* Punto de entrada: lee el archivo, arma los conceptos y abre el modal de
+   "Nuevo proyecto" YA PRELLENADO — nunca se guarda solo. Cliente/sitio,
+   tipo y estatus los sigue decidiendo la persona; lo único que ahorra
+   Excel es recapturar renglón por renglón un presupuesto que ya existe. */
+async function importarProyectoImagenDesdeExcel(archivo){
+  if(!exigirPermiso()) return;
+  let hojas;
+  try{
+    hojas = await leerLibroXlsx(archivo);
+  }catch(e){
+    aviso('No se pudo leer el archivo: ' + (e && e.message ? e.message : 'formato no reconocido') + '.', true);
+    return;
+  }
+  const tabla = buscarTablaCostosXlsx(hojas);
+  if(!tabla){
+    aviso('No se encontró una tabla de costos reconocible en este Excel (se buscan columnas como Conceptos, Cant. y Precio unitario).', true);
+    return;
+  }
+  const hoja = hojas.find(h => h.nombre === tabla.hoja);
+  const conceptos = extraerConceptosXlsx(hoja, tabla);
+  if(!conceptos.length){
+    aviso('Se encontró el encabezado de la tabla de costos, pero ningún renglón con datos debajo.', true);
+    return;
+  }
+  const meta = extraerMetadatosXlsx(hoja);
+  modalProyectoImagen(null, {
+    nombreProyecto: meta.nombreProyecto,
+    fecha: meta.fecha,
+    responsable: meta.responsable,
+    notas: (meta.notas ? meta.notas + '\n' : '')
+      + 'Importado de ' + archivo.name + ' (hoja "' + tabla.hoja + '", ' + conceptos.length + ' ' + plural(conceptos.length, 'concepto', 'conceptos') + ').',
+    conceptos
+  });
+  aviso('Se importaron ' + conceptos.length + ' ' + plural(conceptos.length, 'concepto', 'conceptos')
+    + ' desde ' + archivo.name + '. Revisa cliente, sitio, tipo y estatus antes de guardar.');
 }
 
 /* Numera las partidas como en el documento: consecutivas con la misma
@@ -4713,6 +5001,7 @@ function armarPayloadProyectoImagen(p){
     responsable: p.responsable || '',
     notas: p.notas || '',
     conceptos: p.conceptos.map(c => ({
+      proveedor: c.proveedor || '',
       concepto: c.concepto,
       cantidad: numero(c.cantidad),
       precioUnitario: dineroCent(c.precioUnitario),
@@ -7714,6 +8003,9 @@ function vistaProyectosImagen(){
      +   '<h2>Imagen / Aperturas</h2>'
      +   '<p>' + numero(lista.length) + ' ' + plural(lista.length,'proyecto','proyectos') + '</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave" data-accion="importar-proyecto-imagen-excel" '
+     +     'title="Sube un Excel con el desglose de costos (proveedor, concepto, cantidad, precio) y prellena un proyecto nuevo">'
+     +     ICONO.excel + 'Importar desde Excel</button>'
      +   '<button type="button" class="btn btn-primario" data-accion="nuevo-proyecto-imagen">' + ICONO.mas + 'Nuevo proyecto</button>'
      + '</div></div>';
 
@@ -7829,8 +8121,8 @@ function vistaProyectoImagen(){
   if(!p.conceptos.length){
     h += '<p class="pista" style="margin:0">Todavía no se ha agregado ningún concepto.</p>';
   }else{
-    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
-       + p.conceptos.map(c => '<tr><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
+    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
+       + p.conceptos.map(c => '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
            + '<td>' + dineroCent(c.precioUnitario) + '</td><td><b>' + dineroCent(c.cantidad * c.precioUnitario) + '</b></td></tr>').join('')
        + '</tbody></table></div>'
        + '<div class="resumen" style="margin-top:10px"><div class="r-fila r-total"><span>Total estimado</span>'
@@ -7863,9 +8155,16 @@ function vistaProyectoImagen(){
 }
 
 /* ---------------------------- Modal: proyecto de Imagen/Aperturas ---------------------------- */
-function modalProyectoImagen(id){
+/* `datosImportados` (opcional, solo con id nulo): prellena un proyecto NUEVO
+   con lo que se acaba de leer de un Excel — importarProyectoImagenDesdeExcel()
+   arma exactamente esta forma parcial {nombreProyecto,fecha,responsable,
+   notas,conceptos}. Nunca se guarda solo: la persona sigue decidiendo
+   cliente/sitio/tipo/estatus y le da a "Crear proyecto" como cualquier otro. */
+function modalProyectoImagen(id, datosImportados){
   const p = id ? proyectoImagenPorId(id) : null;
-  let conceptosTmp = p ? p.conceptos.map(c => Object.assign({}, c)) : [];
+  const pre = !p && datosImportados ? datosImportados : null;
+  let conceptosTmp = p ? p.conceptos.map(c => Object.assign({}, c))
+    : (pre ? pre.conceptos.map(c => Object.assign({}, c)) : []);
   let imagenesTmp = p ? p.imagenes.map(im => Object.assign({}, im)) : [];
 
   const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
@@ -7912,7 +8211,7 @@ function modalProyectoImagen(id){
     +   '<input type="text" id="piUbicacionLibre" placeholder="Ej. Valle Oriente, Monterrey" value="' + esc(!tieneSitioInicial && p ? p.sitioNombre : '') + '"></div>'
 
     + '<div class="campo"><label>Nombre del proyecto *</label>'
-    +   '<input type="text" id="piNombreProyecto" placeholder="Ej. Sucursal Valle Oriente — Apertura" value="' + esc(p ? p.nombreProyecto : '') + '"></div>'
+    +   '<input type="text" id="piNombreProyecto" placeholder="Ej. Sucursal Valle Oriente — Apertura" value="' + esc(p ? p.nombreProyecto : (pre ? pre.nombreProyecto : '')) + '"></div>'
 
     + '<div class="fila2">'
     +   '<div class="campo"><label>Tipo</label><select id="piTipo">'
@@ -7924,15 +8223,15 @@ function modalProyectoImagen(id){
     + '</div>'
 
     + '<div class="fila2">'
-    +   '<div class="campo"><label>Fecha de alta</label><input type="date" id="piFecha" value="' + esc(p ? p.fecha : hoyISO()) + '"></div>'
+    +   '<div class="campo"><label>Fecha de alta</label><input type="date" id="piFecha" value="' + esc(p ? p.fecha : ((pre && pre.fecha) || hoyISO())) + '"></div>'
     +   '<div class="campo"><label>Fecha objetivo (opcional)</label><input type="date" id="piFechaObjetivo" value="' + esc(p ? p.fechaObjetivo : '') + '"></div>'
     + '</div>'
 
     + '<div class="campo"><label>Responsable (opcional)</label>'
-    +   '<input type="text" id="piResponsable" placeholder="Quién lleva el proyecto" value="' + esc(p ? p.responsable : '') + '"></div>'
+    +   '<input type="text" id="piResponsable" placeholder="Quién lleva el proyecto" value="' + esc(p ? p.responsable : (pre ? pre.responsable : '')) + '"></div>'
 
     + '<div class="campo"><label>Notas (opcional)</label>'
-    +   '<textarea id="piNotas" placeholder="Contexto del proyecto, avances, pendientes…">' + esc(p ? p.notas : '') + '</textarea></div>'
+    +   '<textarea id="piNotas" placeholder="Contexto del proyecto, avances, pendientes…">' + esc(p ? p.notas : (pre ? pre.notas : '')) + '</textarea></div>'
 
     + '<div class="campo"><label>Costos / conceptos (opcional, informativo)</label>'
     +   '<div id="listaConceptosPI"></div>'
@@ -8037,6 +8336,7 @@ function modalProyectoImagen(id){
     }else{
       const filas = conceptosTmp.map((c,i)=>
           '<tr data-idx="' + i + '">'
+        + '<td class="mini"><input type="text" data-campo="proveedor" value="' + esc(c.proveedor) + '" placeholder="Opcional"></td>'
         + '<td><input type="text" data-campo="concepto" value="' + esc(c.concepto) + '" placeholder="Ej. Rótulo iluminado"></td>'
         + '<td class="mini"><input type="number" min="0" step="1" data-campo="cantidad" value="' + c.cantidad + '"></td>'
         + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioUnitario" value="' + numero(c.precioUnitario) + '"></td>'
@@ -8044,7 +8344,7 @@ function modalProyectoImagen(id){
         + '</tr>').join('');
       $('listaConceptosPI').innerHTML =
           '<div class="rodillo"><table class="tabla-renglones">'
-        + '<thead><tr><th>Concepto</th><th>Cant.</th><th>Precio unitario</th><th></th></tr></thead>'
+        + '<thead><tr><th>Proveedor</th><th>Concepto</th><th>Cant.</th><th>Precio unitario</th><th></th></tr></thead>'
         + '<tbody>' + filas + '</tbody></table></div>';
     }
     const total = conceptosTmp.reduce((s,c)=> s + c.cantidad * c.precioUnitario, 0);
@@ -12597,6 +12897,7 @@ $('vista').addEventListener('click', ev=>{
       modalPoliza(null, l);
     }
     else if(a === 'ir-proyectos-imagen') irAProyectosImagen();
+    else if(a === 'importar-proyecto-imagen-excel'){ if(exigirPermiso()) $('archivoProyectoImagenExcel').click(); }
     else if(a === 'nuevo-proyecto-imagen'){ if(exigirPermiso()) modalProyectoImagen(null); }
     else if(a === 'editar-proyecto-imagen'){ if(exigirPermiso()) modalProyectoImagen(estado.proyectoImagenId); }
     else if(a === 'imprimir-proyecto-imagen') abrirDocumentoProyectoImagen(estado.proyectoImagenId);
@@ -12988,6 +13289,14 @@ $('archivoPolizas').addEventListener('change', ev=>{
   if(!fs.length) return;
   if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar pólizas.', true); return; }
   importarPolizas(fs);
+});
+
+$('archivoProyectoImagenExcel').addEventListener('change', async ev=>{
+  const archivo = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!archivo) return;
+  if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar proyectos de imagen.', true); return; }
+  await importarProyectoImagenDesdeExcel(archivo);
 });
 
 /* ======================= GENERADOR DE ARCHIVO XLSX =======================

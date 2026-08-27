@@ -260,10 +260,10 @@ if(!PI){
     if(!PI.conceptos.length){
       return '<div class="notas">Este proyecto todavía no tiene conceptos de costo capturados.</div>';
     }
-    return '<table class="costos-tabla"><thead><tr><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
-      + PI.conceptos.map(c => '<tr><td>' + esc(c.concepto) + '</td><td class="num">' + esc(c.cantidad) + '</td>'
+    return '<table class="costos-tabla"><thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
+      + PI.conceptos.map(c => '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td class="num">' + esc(c.cantidad) + '</td>'
           + '<td class="num">' + esc(c.precioUnitario) + '</td><td class="num">' + esc(c.subtotal) + '</td></tr>').join('')
-      + '<tr class="total"><td colspan="3" style="text-align:right">Total estimado</td><td class="num">' + esc(PI.totalConceptos) + '</td></tr>'
+      + '<tr class="total"><td colspan="4" style="text-align:right">Total estimado</td><td class="num">' + esc(PI.totalConceptos) + '</td></tr>'
       + '</tbody></table>';
   }
 
