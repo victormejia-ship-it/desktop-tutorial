@@ -7078,8 +7078,13 @@ function modalHallazgo(levantamientoId, hallazgoId){
     +   '</div>'
     + '</div>';
 
+  /* Al capturar (no al editar) se puede guardar y de una vez seguir con el
+     siguiente hallazgo, sin cerrar el modal: un recorrido real casi nunca
+     trae uno solo, y reabrir "Agregar hallazgo" desde cero por cada uno
+     era el tropiezo — ver hzBtnGuardarOtro más abajo. */
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (hz ? 'Guardar cambios' : 'Agregar hallazgo') + '</button>';
+            + (hz ? '' : '<button type="button" class="btn btn-suave" id="hzBtnGuardarOtro">' + ICONO.mas + 'Guardar y agregar otro</button>')
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (hz ? 'Guardar cambios' : 'Agregar hallazgo y cerrar') + '</button>';
 
   abrirModal(hz ? 'Editar hallazgo' : 'Nuevo hallazgo', cuerpo, pie);
 
@@ -7133,18 +7138,22 @@ function modalHallazgo(levantamientoId, hallazgoId){
     if(ev.target.checked && !cotLigada) $('hzCotizarTexto').focus();
   });
 
-  setTimeout(()=>{ const f = $('hzUbicacion'); if(f) f.focus(); }, 70);
-  cerrarModalActual = ()=>{
+  /* Todo lo que hace falta para validar y guardar UN hallazgo, aparte de
+     cerrar el modal: lo comparten el botón normal (que sí cierra) y "Guardar
+     y agregar otro" (que reinicia el formulario y se queda abierto). Devuelve
+     null si la validación falló (ya avisó y enfocó el campo), o los datos del
+     hallazgo guardado. */
+  function intentarGuardarHallazgo(){
     const hallazgo = $('hzHallazgo').value.trim();
     if(!hallazgo){
       $('hzHallazgo').setAttribute('aria-invalid','true'); $('hzHallazgo').focus();
-      aviso('Describe qué se encontró.', true); return;
+      aviso('Describe qué se encontró.', true); return null;
     }
     const pideCotizar = $('hzCotizarChk').checked;
     const cotizar = pideCotizar ? $('hzCotizarTexto').value.trim() : '';
     if(pideCotizar && !cotizar){
       $('hzCotizarTexto').setAttribute('aria-invalid','true'); $('hzCotizarTexto').focus();
-      aviso('Escribe qué hay que cotizar, o desmarca la casilla.', true); return;
+      aviso('Escribe qué hay que cotizar, o desmarca la casilla.', true); return null;
     }
 
     const equipoId = $('hzEquipoId').value;
@@ -7188,11 +7197,51 @@ function modalHallazgo(levantamientoId, hallazgoId){
 
     guardarLevantamiento(l, hz ? 'editó un hallazgo de' : 'agregó un hallazgo a',
       (nuevoHz.ubicacion || nuevoHz.equipoNombre || 'hallazgo') + (folioSolicitud ? ' · pidió cotizar: ' + cotizar : ''));
+    return { nuevoHz, folioSolicitud };
+  }
+
+  /* Deja el formulario listo para el siguiente hallazgo, sin tocar los datos
+     de "Ubicación" — casi siempre el que sigue es del mismo rincón del sitio
+     (misma cocina, mismo cuarto de máquinas), así que dejarlo puesto ahorra
+     tecleo; todo lo demás sí se limpia. */
+  function limpiarFormularioHz(){
+    $('hzEquipoId').value = ''; pintarEquipoTexto(); $('hzEquipoTexto').value = '';
+    $('hzHallazgo').value = ''; $('hzHallazgo').removeAttribute('aria-invalid');
+    $('hzAccion').value = 'correctivo';
+    $('hzPrioridad').value = 'media';
+    $('hzAccionSugerida').value = '';
+    $('hzResueltoNota').value = '';
+    evidenciasTmp = [];
+    pintarGaleriaHz();
+    $('hzCotizarChk').checked = false;
+    $('hzCotizarZona').hidden = true;
+    $('hzCotizarTexto').value = '';
+    $('hzCotizarTexto').removeAttribute('aria-invalid');
+    $('hzHallazgo').focus();
+  }
+
+  setTimeout(()=>{ const f = $('hzUbicacion'); if(f) f.focus(); }, 70);
+  cerrarModalActual = ()=>{
+    const resultado = intentarGuardarHallazgo();
+    if(!resultado) return;
     cerrarModal();
     render();
     aviso((hz ? 'Hallazgo actualizado.' : 'Hallazgo agregado.')
-      + (folioSolicitud ? ' Se generó la solicitud de cotización ' + folioSolicitud + '.' : ''));
+      + (resultado.folioSolicitud ? ' Se generó la solicitud de cotización ' + resultado.folioSolicitud + '.' : ''));
   };
+
+  if(!hz){
+    $('hzBtnGuardarOtro').addEventListener('click', ()=>{
+      const resultado = intentarGuardarHallazgo();
+      if(!resultado) return;
+      /* El modal se queda abierto: render() solo repinta la vista de ATRÁS
+         (el detalle del levantamiento), nunca toca #modal/#modalCuerpo. */
+      render();
+      aviso('Hallazgo agregado (van ' + numero(l.hallazgos.length) + '). Sigue con el siguiente.'
+        + (resultado.folioSolicitud ? ' Se generó la solicitud de cotización ' + resultado.folioSolicitud + '.' : ''));
+      limpiarFormularioHz();
+    });
+  }
 }
 
 /* Detalle de una póliza. ESTE es el único lugar donde se pintan las partidas:
