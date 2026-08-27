@@ -924,6 +924,10 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
   position:absolute; left:0; right:0; bottom:0; padding:2px 5px; font-size:9px; font-weight:700;
   color:#fff; background:rgba(20,24,38,.62); text-align:center;
 }
+/* Un plano en PDF ya enseña su nombre de archivo pegado abajo (mismo cuadro
+   que un respaldo de costo) — la etiqueta de tipo se sube arriba para no
+   taparlo. */
+.respaldo-pdf .evidencia-tipo{ top:0; bottom:auto; }
 
 /* Respaldo de costo en cotizaciones: mismo cuadrito que una foto de
    evidencia, pero cuando el archivo es PDF se muestra un ícono y el nombre
@@ -3206,10 +3210,20 @@ function totalConceptosProyecto(p){
 
 /* Mismo molde que normalizarEvidencia (dataUrl/nota/subioNombre/cuando), con
    un `tipo` extra para distinguir un render de un plano a simple vista — aquí
-   sí importa, a diferencia de una foto suelta de reporte o hallazgo. */
+   sí importa, a diferencia de una foto suelta de reporte o hallazgo.
+
+   `formato` es harina de otro costal: un plano casi siempre llega como PDF
+   (así lo entrega el arquitecto), no como foto — mismo criterio exacto que
+   normalizarRespaldoCosto() en cotizaciones: 'pdf' se guarda TAL CUAL (no
+   se puede recomprimir un PDF desde el navegador), 'imagen' pasa por
+   comprimirEvidencia() como cualquier foto. `nombre` solo hace falta para un
+   PDF: no hay miniatura que enseñar, así que se enseña el nombre del
+   archivo en su lugar. */
 function normalizarImagenProyecto(x){
   const base = normalizarEvidencia(x);
   base.tipo = TIPO_IMAGEN_PROYECTO.includes(x && x.tipo) ? x.tipo : 'render';
+  base.formato = (x && x.formato === 'pdf') ? 'pdf' : 'imagen';
+  base.nombre = (x && x.nombre ? String(x.nombre) : '').trim();
   return base;
 }
 
@@ -5010,6 +5024,8 @@ function armarPayloadProyectoImagen(p){
     totalConceptos: dineroCent(total),
     imagenes: p.imagenes.map(im => ({
       dataUrl: im.dataUrl,
+      formato: im.formato,
+      nombre: im.nombre || '',
       nota: im.nota || '',
       tipoEtiqueta: ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo],
       tipoTono: im.tipo === 'plano' ? 'alerta' : im.tipo === 'foto' ? 'ok' : 'info'
@@ -8135,8 +8151,10 @@ function vistaProyectoImagen(){
     h += '<p class="pista" style="margin:0">Todavía no se ha agregado ninguna imagen.</p>';
   }else{
     h += '<div class="galeria-evidencia">' + p.imagenes.map(im =>
-      '<div class="evidencia-foto" title="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + (im.nota ? ' · ' + esc(im.nota) : '') + '">'
-      +   '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '" loading="lazy">'
+      '<div class="evidencia-foto' + (im.formato === 'pdf' ? ' respaldo-pdf' : '') + '" title="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + (im.nota ? ' · ' + esc(im.nota) : '') + '">'
+      +   (im.formato === 'pdf'
+            ? '<a href="' + esc(im.dataUrl) + '" target="_blank" rel="noopener">' + ICONO.documento + '<span>' + esc(im.nombre) + '</span></a>'
+            : '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '" loading="lazy">')
       +   '<span class="evidencia-tipo">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '</span>'
       + '</div>'
     ).join('') + '</div>';
@@ -8239,14 +8257,14 @@ function modalProyectoImagen(id, datosImportados){
     +   '<div id="resumenConceptosPI" style="margin-top:8px"></div>'
     + '</div>'
 
-    + '<div class="campo"><label>Imágenes (renders, planos, fotos)</label>'
+    + '<div class="campo"><label>Imágenes y planos (renders, fotos, o un PDF con el layout)</label>'
     +   '<div class="galeria-evidencia" id="piGaleriaImagenes"></div>'
     +   '<div class="fila2">'
     +     '<select id="piTipoImagenNueva">' + TIPO_IMAGEN_PROYECTO.map(t => '<option value="' + t + '">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[t]) + '</option>').join('') + '</select>'
-    +     '<button type="button" class="btn btn-suave btn-mini" id="piBtnAgregarImagen">' + ICONO.camara + 'Agregar imagen</button>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="piBtnAgregarImagen">' + ICONO.camara + 'Agregar imagen o PDF</button>'
     +   '</div>'
-    +   '<input type="file" id="piArchivoImagen" accept="image/*" multiple style="display:none">'
-    +   '<div class="pista" id="piPistaImagenes">Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' imágenes. Se reducen solas para no pesar.</div>'
+    +   '<input type="file" id="piArchivoImagen" accept="image/*,application/pdf" multiple style="display:none">'
+    +   '<div class="pista" id="piPistaImagenes">Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' archivos. Un plano puede subirse como PDF (hasta 600 KB); las fotos se reducen solas para no pesar.</div>'
     + '</div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
@@ -8380,7 +8398,10 @@ function modalProyectoImagen(id, datosImportados){
      con una etiqueta de tipo (render/plano/foto) pegada a cada miniatura. */
   function pintarGaleriaPI(){
     $('piGaleriaImagenes').innerHTML = imagenesTmp.map(im =>
-      '<div class="evidencia-foto"><img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '">'
+      '<div class="evidencia-foto' + (im.formato === 'pdf' ? ' respaldo-pdf' : '') + '">'
+      + (im.formato === 'pdf'
+          ? '<a href="' + esc(im.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(im.nombre) + '">' + ICONO.documento + '<span>' + esc(im.nombre) + '</span></a>'
+          : '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '">')
       + '<span class="evidencia-tipo">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '</span>'
       + '<button type="button" class="evidencia-quitar" data-quitar-img-pi="' + esc(im.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
     ).join('');
@@ -8394,22 +8415,33 @@ function modalProyectoImagen(id, datosImportados){
   }
   pintarGaleriaPI();
   $('piBtnAgregarImagen').addEventListener('click', ()=> $('piArchivoImagen').click());
+  /* Un plano casi siempre llega como PDF, no como foto — mismo criterio
+     exacto que el respaldo de costo de una cotización: el PDF no se puede
+     recomprimir desde el navegador, así que se guarda tal cual (de ahí su
+     tope de entrada más chico) y solo se valida su tamaño; una imagen sigue
+     el camino de siempre (comprimirEvidencia). */
   $('piArchivoImagen').addEventListener('change', async ev=>{
     const archivos = Array.from(ev.target.files || []);
     ev.target.value = '';
     if(!archivos.length) return;
     const cupo = IMAGENES_MAX_POR_PROYECTO - imagenesTmp.length;
-    if(cupo <= 0){ aviso('Ya tienes ' + IMAGENES_MAX_POR_PROYECTO + ' imágenes. Quita alguna para agregar otra.', true); return; }
+    if(cupo <= 0){ aviso('Ya tienes ' + IMAGENES_MAX_POR_PROYECTO + ' archivos. Quita alguno para agregar otro.', true); return; }
     const tipo = $('piTipoImagenNueva').value;
-    $('piPistaImagenes').textContent = 'Procesando imágenes…';
+    $('piPistaImagenes').textContent = 'Procesando…';
     for(const archivo of archivos.slice(0, cupo)){
       try{
-        const img = await leerEvidencia(archivo);
-        const dataUrl = comprimirEvidencia(img);
-        imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, subioNombre: nombreDe(sesion) || '' }));
+        if(archivo.type === 'application/pdf'){
+          if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 600 KB. Prueba a comprimirlo o sube solo la hoja del plano.');
+          const dataUrl = await leerArchivoComoDataURL(archivo);
+          imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'pdf', nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+        }else{
+          const img = await leerEvidencia(archivo);
+          const dataUrl = comprimirEvidencia(img);
+          imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'imagen', subioNombre: nombreDe(sesion) || '' }));
+        }
       }catch(e){ aviso(e.message, true); }
     }
-    $('piPistaImagenes').textContent = 'Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' imágenes. Se reducen solas para no pesar.';
+    $('piPistaImagenes').textContent = 'Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' archivos. Un plano puede subirse como PDF (hasta 600 KB); las fotos se reducen solas para no pesar.';
     pintarGaleriaPI();
   });
 

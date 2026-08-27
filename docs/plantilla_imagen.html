@@ -120,6 +120,13 @@
      página — pedido de Victor, 27-ago-2026. */
   .img-foto{display:block;width:100%;max-height:2.7in;object-fit:contain;border-radius:6px;
     border:1px solid var(--rule);background:#F7F8FA;}
+  /* Plano subido como PDF: mismo alto que una foto (2.7in) para que la
+     página siga cuadrando 2 por hoja, pero como tarjeta de documento —
+     ícono y nombre, no una miniatura que no existe. */
+  .img-pdf{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    width:100%;height:2.7in;border-radius:6px;border:1px solid var(--rule);background:#F7F8FA;
+    color:var(--text);text-decoration:none;text-align:center;padding:12px;}
+  .img-pdf span{font-size:10px;line-height:1.4;word-break:break-word;max-width:80%;}
 
   .footwrap{position:absolute;left:.72in;right:.72in;bottom:.46in;}
   .foot{width:100%;table-layout:fixed;border-collapse:collapse;}
@@ -290,11 +297,25 @@ if(!PI){
       + '<div class="cuerpo">' + cuerpo + '</div>' + pieHTML() + '</div></div>';
   }
 
+  /* Un plano casi siempre llega como PDF, no como foto — y un PDF no se
+     puede rasterizar en una página estática sin traer una librería (mismo
+     criterio que el respaldo de costo de una cotización). En vez de una
+     miniatura, se enseña un ícono con el nombre del archivo y una liga que
+     SÍ funciona en la pestaña (abre el PDF tal cual), aunque en el papel
+     impreso se quede como referencia. */
+  const ICONO_DOCUMENTO = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#5C6673" stroke-width="1.6" '
+    + 'stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>'
+    + '<path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>';
+
   /* ---- Imágenes: página 2 en adelante, una tarjeta grande por imagen ---- */
   function imgCardHTML(im){
+    const cuerpo = im.formato === 'pdf'
+      ? '<a class="img-pdf" href="' + esc(im.dataUrl) + '" target="_blank" rel="noopener">' + ICONO_DOCUMENTO
+          + '<span>' + esc(im.nombre || 'Documento PDF') + '</span></a>'
+      : '<img class="img-foto" src="' + esc(im.dataUrl) + '" alt="' + esc(im.tipoEtiqueta) + '">';
     return '<div class="img-card">'
       + '<div class="img-cab"><span class="pastilla ' + esc(im.tipoTono) + '">' + esc(im.tipoEtiqueta) + '</span></div>'
-      + '<img class="img-foto" src="' + esc(im.dataUrl) + '" alt="' + esc(im.tipoEtiqueta) + '">'
+      + cuerpo
       + (im.nota ? '<div style="font-size:8.5px;color:#5C6673;margin-top:6px">' + esc(im.nota) + '</div>' : '')
       + '</div>';
   }
