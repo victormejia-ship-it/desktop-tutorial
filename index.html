@@ -3076,6 +3076,23 @@ function scoreHallazgo(h){
   return f === undefined ? 0.5 : f;
 }
 
+/* Etiqueta de gravedad EN PALABRAS para el análisis de funcionamiento — a
+   propósito nunca un %, porque un % por equipo es justo lo que hacía pensar
+   que "todos dicen 50%" significaba "la cocina está al 50%". Mismo criterio
+   que scoreHallazgo() (correctivo/prioridad/estatus), nada más presentado
+   como texto en vez de número. */
+const ETIQUETA_SEVERIDAD_PRIORIDAD = {
+  urgente: { texto: 'Crítico', tono: 'error' },
+  alta:    { texto: 'Grave',   tono: 'error' },
+  media:   { texto: 'Medio',   tono: 'alerta' },
+  baja:    { texto: 'Leve',    tono: 'alerta' }
+};
+function etiquetaSeveridadHallazgo(h){
+  if(h.estatus === 'resuelto') return { texto: 'Resuelto', tono: 'ok' };
+  if(h.accion === 'preventivo') return { texto: 'Preventivo', tono: 'ok' };
+  return ETIQUETA_SEVERIDAD_PRIORIDAD[h.prioridad] || { texto: 'Medio', tono: 'alerta' };
+}
+
 /* % de funcionamiento de la cocina/sitio en este levantamiento — a propósito
    SOLO cuenta los equipos que tienen algún hallazgo ligado (equipoCatalogoId
    o equipoNombre): un hallazgo de infraestructura sin equipo (ej. "falta
@@ -3116,6 +3133,9 @@ function calcularFuncionamientoLevantamiento(l){
     eq.pesoPct = Math.round((eq.peso / sumaPeso) * 100);
     const sumaPonderadaResuelto = sumaPonderada - (eq.peso * eq.peorScore) + eq.peso;
     eq.impactoPct = Math.round((sumaPonderadaResuelto / sumaPeso) * 100) - pct;
+    const sev = etiquetaSeveridadHallazgo(eq.peorHallazgo);
+    eq.severidadTexto = sev.texto;
+    eq.severidadTono = sev.tono;
   });
 
   return {
@@ -4524,13 +4544,11 @@ function armarPayloadLevantamiento(l){
       pct: an.pct,
       equipos: an.equipos.map(eq => ({
         nombre: eq.nombre,
-        peso: eq.peso,
         pesoEtiqueta: ETIQUETA_PONDERACION[eq.peso],
         pesoPct: eq.pesoPct,
-        scorePct: Math.round(eq.peorScore * 100),
         impactoPct: eq.impactoPct,
-        peorHallazgo: ETIQUETA_ACCION_HALLAZGO[eq.peorHallazgo.accion] + ' · ' + ETIQUETA_PRIORIDAD[eq.peorHallazgo.prioridad]
-          + ' · ' + ETIQUETA_ESTATUS_HALLAZGO[eq.peorHallazgo.estatus]
+        severidadTexto: eq.severidadTexto,
+        severidadTono: eq.severidadTono
       })),
       sinEquipo: l.hallazgos.filter(h => !h.equipoCatalogoId && !h.equipoNombre).length
     } : null,
@@ -6924,8 +6942,8 @@ function bloqueFuncionamiento(l){
   const an = calcularFuncionamientoLevantamiento(l);
   const sinEquipo = l.hallazgos.filter(h => !h.equipoCatalogoId && !h.equipoNombre).length;
   let h = '<div class="bloque"><div class="bloque-cabeza"><div><h3>Análisis de funcionamiento</h3>'
-    +   '<p>% ponderado de los equipos con hallazgo en este recorrido — entre más crítico el equipo y más grave lo '
-    +   'encontrado, más pesa en contra.</p></div></div>';
+    +   '<p>No es un promedio simple de los hallazgos: cada equipo pesa según qué tan crítico es para operar la '
+    +   'cocina, así que uno solo (ej. un horno) puede pesar más que varios equipos menores juntos.</p></div></div>';
 
   if(!an){
     h += '<p class="pista" style="margin:0">Todavía no hay hallazgos ligados a un equipo del catálogo — agrega uno con '
@@ -6938,23 +6956,24 @@ function bloqueFuncionamiento(l){
     +   '<div class="r-fila r-total"><span>Funcionamiento estimado</span>'
     +     '<span style="color:var(--' + tono + '); font-size:22px; font-weight:800">' + an.pct + '%</span></div>'
     + '</div>'
+    /* Ojo: aquí NUNCA se pinta un % por equipo — fue justo lo que confundía
+       ("todos dicen 50%, ¿entonces la cocina está al 50%?"). Lo que se
+       encontró se muestra como etiqueta de gravedad (palabras, no número) y
+       lo único cuantitativo por renglón es "cuánto sube el % general si se
+       resuelve", que dejacla que el peso importa sin tener que explicarlo. */
     + '<div class="rodillo"><table class="tabla"><thead><tr><th>Equipo</th>'
-    +   '<th title="Qué tanto pesa este equipo dentro del total del recorrido">Peso</th>'
-    +   '<th>Peor hallazgo</th><th>Score</th>'
-    +   '<th title="Cuánto sube el % del levantamiento si SOLO este equipo quedara resuelto">Si se resuelve</th>'
+    +   '<th>Qué tan crítico es</th>'
+    +   '<th>Qué se encontró</th>'
+    +   '<th>Cuánto sube el % si se resuelve</th>'
     + '</tr></thead><tbody>'
     + an.equipos.map(eq=>{
-        const h2 = eq.peorHallazgo;
-        const tonoScore = eq.peorScore >= 0.75 ? 'ok' : eq.peorScore >= 0.5 ? 'alerta' : 'error';
         return '<tr><td><b>' + esc(eq.nombre) + '</b></td>'
-          + '<td>' + eq.peso + ' · ' + esc(ETIQUETA_PONDERACION[eq.peso])
-          +   '<br><span class="pista" style="margin:0">' + eq.pesoPct + '% del peso total</span></td>'
-          + '<td>' + esc(ETIQUETA_ACCION_HALLAZGO[h2.accion]) + ' · ' + esc(ETIQUETA_PRIORIDAD[h2.prioridad])
-          +   ' · ' + esc(ETIQUETA_ESTATUS_HALLAZGO[h2.estatus]) + '</td>'
-          + '<td><span class="insignia i-' + tonoScore + '">' + Math.round(eq.peorScore * 100) + '%</span></td>'
+          + '<td>' + esc(ETIQUETA_PONDERACION[eq.peso])
+          +   '<br><span class="pista" style="margin:0">' + eq.pesoPct + '% del peso del recorrido</span></td>'
+          + '<td><span class="insignia i-' + esc(eq.severidadTono) + '">' + esc(eq.severidadTexto) + '</span></td>'
           + '<td>' + (eq.impactoPct > 0
-                ? '<b style="color:var(--ok)">+' + eq.impactoPct + ' pts</b>'
-                : '<span class="pista" style="margin:0">Ya está al 100%</span>') + '</td>'
+                ? '<b style="color:var(--ok)">+' + eq.impactoPct + ' puntos</b>'
+                : '<span class="pista" style="margin:0">Ya no le resta al %</span>') + '</td>'
           + '</tr>';
       }).join('')
     + '</tbody></table></div>';
