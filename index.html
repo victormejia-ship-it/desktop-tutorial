@@ -917,6 +917,14 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 .evidencia-quitar svg{width:11px; height:11px;}
 .evidencia-quitar:hover{background:rgba(179,49,44,.85);}
 
+/* Imagen/Aperturas: mismo cuadrito de evidencia, con una etiqueta de qué es
+   (render/plano/foto) pegada abajo — a diferencia de una foto de reporte,
+   aquí SÍ importa distinguir un plano de un render a simple vista. */
+.evidencia-tipo{
+  position:absolute; left:0; right:0; bottom:0; padding:2px 5px; font-size:9px; font-weight:700;
+  color:#fff; background:rgba(20,24,38,.62); text-align:center;
+}
+
 /* Respaldo de costo en cotizaciones: mismo cuadrito que una foto de
    evidencia, pero cuando el archivo es PDF se muestra un ícono y el nombre
    en lugar de una miniatura (no hay como generar una vista previa de un
@@ -990,6 +998,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
     <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
+    <button type="button" class="mod" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
   </nav>
   <div class="nube-zona">
     <span class="correo-sesion" id="nombreSesion"></span>
@@ -1546,7 +1555,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
 
 function cargar(){
   try{
@@ -1567,7 +1576,8 @@ function cargar(){
         parametros: normalizarListaParametros(d.parametros),
         cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion),
         reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
-        levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento) };
+        levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
+        proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1951,9 +1961,9 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -2239,10 +2249,10 @@ async function bajarDeLaNube(){
      documento por equipo: así son 48 equipos por 1 lectura en vez de 48. Se
      edita poco y se lee en cada carga, así que el ahorro es todo. El costo es
      que dos admins editándola a la vez se pisan, y eso está anotado en la vista. */
-  const [cl, si, po, eq, sg, pr, co, rp, lv] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
-    listarNube('levantamientos', 60)
+    listarNube('levantamientos', 60), listarNube('proyectosImagen', 60)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -2257,7 +2267,8 @@ async function bajarDeLaNube(){
   datos = { v:1, clientes: cl.map(normalizarCliente), sitios: si.map(normalizarSitio),
             polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo),
             segmentos: sg, parametros: pr, cotizaciones: co.map(normalizarCotizacion),
-            reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento) };
+            reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento),
+            proyectosImagen: im.map(normalizarProyectoImagen) };
   guardarLocal();
   return 'ok';
 }
@@ -3144,6 +3155,99 @@ function calcularFuncionamientoLevantamiento(l){
   };
 }
 
+/* =============================== Módulo Imagen / Aperturas =============================== */
+/* Octavo módulo: proyectos de cambio de imagen, apertura de sucursal o
+   remodelación — de la marca/prospecto hasta el costo estimado y el material
+   visual (renders, planos, layout) para presentarlo. A propósito puede colgar
+   de un cliente/sitio YA dado de alta (existente, o creado ahí mismo con el
+   mismo "+ Nuevo" que Levantamientos) O ser un prospecto que todavía no es
+   cliente formal de mantenimiento — Victor, 27-ago-2026: "puede ser los
+   sitios existentes... o inclusive nuevo realmente sin levantamiento". Por
+   eso clienteId/sitioId son OPCIONALES, y clienteNombre/sitioNombre son
+   texto SIEMPRE presente (copiado del registro real si existe, o tecleado a
+   mano si es un prospecto) — mismo criterio que sitioNombre en Levantamiento,
+   nada más un nivel más arriba porque aquí ni el cliente es seguro.
+
+   A diferencia de Levantamientos (abierto a todos los perfiles), este módulo
+   queda para quien ya puede editar precios (puedeEditar(): owner/admin/
+   analyst) — son costos y proyectos comerciales, no un registro de campo
+   abierto a cualquiera (decisión de Victor, 27-ago-2026). */
+const TIPO_PROYECTO_IMAGEN = ['apertura', 'remodelacion', 'cambio_imagen'];
+const ETIQUETA_TIPO_PROYECTO_IMAGEN = { apertura:'Apertura nueva', remodelacion:'Remodelación', cambio_imagen:'Cambio de imagen' };
+const ESTATUS_PROYECTO_IMAGEN = ['diseno', 'cotizacion', 'aprobado', 'obra', 'terminado', 'cancelado'];
+const ETIQUETA_ESTATUS_PROYECTO_IMAGEN = { diseno:'En diseño', cotizacion:'En cotización', aprobado:'Aprobado', obra:'En obra', terminado:'Terminado', cancelado:'Cancelado' };
+const TONO_ESTATUS_PROYECTO_IMAGEN = { diseno:'info', cotizacion:'info', aprobado:'alerta', obra:'alerta', terminado:'ok', cancelado:'neutro' };
+const TIPO_IMAGEN_PROYECTO = ['render', 'plano', 'foto'];
+const ETIQUETA_TIPO_IMAGEN_PROYECTO = { render:'Render', plano:'Plano / layout', foto:'Foto' };
+const IMAGENES_MAX_POR_PROYECTO = 12;
+
+/* Un concepto de costo es INFORMATIVO a propósito (decisión de Victor,
+   27-ago-2026): el desglose de lo que cuesta la remodelación/apertura, para
+   verlo en el PDF y llevar el total — si hace falta un documento formal para
+   el cliente, eso se arma aparte con el motor de Cotizaciones, sin que cada
+   concepto de aquí tenga que generar un renglón allá. */
+function normalizarConceptoProyecto(x){
+  return {
+    id: (x && x.id) || nuevoId(),
+    concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
+    cantidad: Math.max(0, numDef(x && x.cantidad, 1)),
+    precioUnitario: Math.max(0, numDef(x && x.precioUnitario, 0))
+  };
+}
+function totalConceptosProyecto(p){
+  return p.conceptos.reduce((s,c)=> s + c.cantidad * c.precioUnitario, 0);
+}
+
+/* Mismo molde que normalizarEvidencia (dataUrl/nota/subioNombre/cuando), con
+   un `tipo` extra para distinguir un render de un plano a simple vista — aquí
+   sí importa, a diferencia de una foto suelta de reporte o hallazgo. */
+function normalizarImagenProyecto(x){
+  const base = normalizarEvidencia(x);
+  base.tipo = TIPO_IMAGEN_PROYECTO.includes(x && x.tipo) ? x.tipo : 'render';
+  return base;
+}
+
+function normalizarProyectoImagen(p){
+  const conceptos = (Array.isArray(p && p.conceptos) ? p.conceptos : [])
+    .map(normalizarConceptoProyecto).filter(c => c.concepto);
+  const imagenes = (Array.isArray(p && p.imagenes) ? p.imagenes : [])
+    .map(normalizarImagenProyecto).filter(im => im.dataUrl).slice(0, IMAGENES_MAX_POR_PROYECTO);
+  return {
+    id: (p && p.id) || nuevoId(),
+    folio: (p && p.folio ? String(p.folio) : '').trim(),
+    clienteId: (p && p.clienteId) || '',
+    clienteNombre: (p && p.clienteNombre ? String(p.clienteNombre) : '').trim(),
+    sitioId: (p && p.sitioId) || '',
+    sitioNombre: (p && p.sitioNombre ? String(p.sitioNombre) : '').trim(),
+    nombreProyecto: (p && p.nombreProyecto ? String(p.nombreProyecto) : '').trim(),
+    tipo: TIPO_PROYECTO_IMAGEN.includes(p && p.tipo) ? p.tipo : 'apertura',
+    estatus: ESTATUS_PROYECTO_IMAGEN.includes(p && p.estatus) ? p.estatus : 'diseno',
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fecha) ? p.fecha : hoyISO(),
+    fechaObjetivo: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaObjetivo) ? p.fechaObjetivo : '',
+    responsable: (p && p.responsable ? String(p.responsable) : '').trim(),
+    notas: (p && p.notas ? String(p.notas) : '').trim(),
+    conceptos,
+    imagenes
+  };
+}
+
+function proyectoImagenPorId(id){ return datos.proyectosImagen.find(p => p.id === id); }
+function proyectosImagenDeSitio(sitioId){ return datos.proyectosImagen.filter(p => p.sitioId === sitioId); }
+function proyectosImagenDeCliente(clienteId){ return datos.proyectosImagen.filter(p => p.clienteId === clienteId); }
+
+/* IMG-ddmmaa-NN: mismo molde que levantamientos/cotizaciones. */
+function generarFolioProyectoImagen(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  return 'IMG-' + ddmmaa + '-' + String(datos.proyectosImagen.length + 1).padStart(2,'0');
+}
+
+function guardarProyectoImagen(p, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'proyectosImagen', id:p.id, obj:p });
+  anotar(accion || 'editó', 'proyecto de imagen', p.folio || p.nombreProyecto || 'sin folio', detalle);
+}
+
 /* Numera las partidas como en el documento: consecutivas con la misma
    sección comparten grupo (1.1, 1.2…); sin sección, número simple (2, 3…).
    Se calcula aquí y nunca se guarda — es de exhibición, como las letras de
@@ -3300,6 +3404,10 @@ function subirTodo(){
      puede subir, el mismo criterio que cotizaciones. */
   datos.reportes.forEach(r => encolar({ tipo:'poner', coleccion:'reportes', id:r.id, obj:r }));
   datos.levantamientos.forEach(l => encolar({ tipo:'poner', coleccion:'levantamientos', id:l.id, obj:l }));
+  /* Restringido a puedeEditar() en la interfaz, pero eso es cosmético en modo
+     local: si algo quedó en la copia local sin subir, se sube igual, mismo
+     criterio que el resto de las colecciones. */
+  datos.proyectosImagen.forEach(im => encolar({ tipo:'poner', coleccion:'proyectosImagen', id:im.id, obj:im }));
   /* `puedeCat` y no `admin`: ese nombre ya lo ocupa la caché del panel. */
   const puedeCat = esAdmin();
   let fuera = 0;
@@ -4585,6 +4693,56 @@ function abrirDocumentoLevantamiento(id){
   if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
 }
 
+/* Documento de un proyecto de Imagen/Aperturas: mismo criterio exacto que
+   armarPayloadLevantamiento() — solo strings ya formateados, ninguna cuenta
+   se hace en la plantilla. */
+function armarPayloadProyectoImagen(p){
+  const total = totalConceptosProyecto(p);
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
+    folio: p.folio || '',
+    fecha: fechaDocumento(p.fecha),
+    cliente: p.clienteNombre || 'Prospecto',
+    sitio: p.sitioNombre || '',
+    nombreProyecto: p.nombreProyecto || '',
+    tipoEtiqueta: ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo],
+    estatusEtiqueta: ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus],
+    estatusTono: TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus],
+    fechaObjetivo: p.fechaObjetivo ? fechaDocumento(p.fechaObjetivo) : '',
+    responsable: p.responsable || '',
+    notas: p.notas || '',
+    conceptos: p.conceptos.map(c => ({
+      concepto: c.concepto,
+      cantidad: numero(c.cantidad),
+      precioUnitario: dineroCent(c.precioUnitario),
+      subtotal: dineroCent(c.cantidad * c.precioUnitario)
+    })),
+    totalConceptos: dineroCent(total),
+    imagenes: p.imagenes.map(im => ({
+      dataUrl: im.dataUrl,
+      nota: im.nota || '',
+      tipoEtiqueta: ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo],
+      tipoTono: im.tipo === 'plano' ? 'alerta' : im.tipo === 'foto' ? 'ok' : 'info'
+    }))
+  };
+}
+
+const LLAVE_DOC_PROYECTO_IMAGEN = 'forguard.documento.imagen';
+
+function abrirDocumentoProyectoImagen(id){
+  const p = proyectoImagenPorId(id);
+  if(!p) return;
+  try{
+    sessionStorage.setItem(LLAVE_DOC_PROYECTO_IMAGEN, JSON.stringify(armarPayloadProyectoImagen(p)));
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return;
+  }
+  const w = window.open('docs/plantilla_imagen.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+}
+
 /* Gemelos de sitiosDe() / sitioPorId(): join en memoria, sin consulta. */
 function polizasDe(clienteId){ return datos.polizas.filter(p => p.clienteId === clienteId); }
 function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
@@ -4594,7 +4752,7 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
-                 levantamientoId:null,
+                 levantamientoId:null, proyectoImagenId:null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
@@ -4604,7 +4762,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
-                 vistaLevantamientos:'tarjetas',
+                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -4613,7 +4771,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'imagen'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -4637,7 +4795,11 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
 function modulosPermitidos(){
   if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos'];
   if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones'];
-  return MODULOS;
+  /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
+     editar precios (ver el comentario del módulo, arriba de
+     normalizarProyectoImagen()) — un Viewer sigue viendo Pólizas de solo
+     lectura, pero este módulo ni se le enseña. */
+  return puedeEditar() ? MODULOS : MODULOS.filter(m => m !== 'imagen');
 }
 
 /* La pantalla de arranque de cada módulo. Una sola función para que el logo, el
@@ -4647,6 +4809,7 @@ function inicioDelModulo(){
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
+       : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
        : 'clientes';
@@ -4697,7 +4860,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -4792,6 +4955,21 @@ function entrarLevantamiento(id){
   if(estado.modulo !== 'levantamientos'){ estado.modulo = 'levantamientos'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'levantamiento'; estado.levantamientoId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function irAProyectosImagen(){
+  animarTarjetas = true;
+  estado.vista = 'proyectos-imagen';
+  estado.proyectoImagenId = null;
+  estado.busca = '';
+  render();
+}
+function entrarProyectoImagen(id){
+  if(estado.modulo !== 'imagen'){ estado.modulo = 'imagen'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'proyecto-imagen'; estado.proyectoImagenId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -7513,6 +7691,479 @@ function modalHallazgo(levantamientoId, hallazgoId){
   }
 }
 
+/* ------------------------------- Imagen / Aperturas ------------------------------- */
+function botonRegresarProyectosImagen(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-proyectos-imagen">'
+       + ICONO.atras + 'Regresar a Imagen / Aperturas</button></div>';
+}
+
+/* No hay t-info en .tarjeta (solo ok/alerta/error/neutro) — la insignia SÍ
+   tiene i-info, así que el acento de la tarjeta usa este mapeo aparte en vez
+   de forzar 'info' donde no existe. */
+function tonoTarjetaProyectoImagen(estatus){
+  const t = TONO_ESTATUS_PROYECTO_IMAGEN[estatus];
+  return t === 'info' ? 'neutro' : t;
+}
+
+function vistaProyectosImagen(){
+  const lista = datos.proyectosImagen;
+  let h = '';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Imagen / Aperturas</h2>'
+     +   '<p>' + numero(lista.length) + ' ' + plural(lista.length,'proyecto','proyectos') + '</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-primario" data-accion="nuevo-proyecto-imagen">' + ICONO.mas + 'Nuevo proyecto</button>'
+     + '</div></div>';
+
+  if(!lista.length){
+    h += vistaVacia('reporte', 'Todavía no hay proyectos de imagen',
+          'Registra una apertura, remodelación o cambio de imagen: cliente o prospecto, el desglose de costos y las imágenes (renders, planos) para presentarlo.',
+          'nuevo-proyecto-imagen', 'Nuevo proyecto');
+    return h;
+  }
+
+  const vistaTabla = estado.vistaProyectosImagen === 'tabla';
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaProyectoImagen" placeholder="Buscar por folio, proyecto, sitio o cliente…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroProyectoImagen">'
+     +     '<option value="todos">Todos los estatus</option>'
+     +     ESTATUS_PROYECTO_IMAGEN.map(e => '<option value="' + e + '"' + (estado.filtro === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[e]) + '</option>').join('')
+     +   '</select>'
+     +   controlAlternaVista('vistaProyectosImagen')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const filtrados = lista.filter(p=>{
+    if(q){
+      const campos = [p.folio, p.nombreProyecto, p.sitioNombre, p.clienteNombre].join(' ').toLowerCase();
+      if(!campos.includes(q)) return false;
+    }
+    if(ESTATUS_PROYECTO_IMAGEN.includes(estado.filtro)) return p.estatus === estado.filtro;
+    return true;
+  });
+
+  if(!filtrados.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún proyecto coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenados = filtrados.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.folio||'').localeCompare(a.folio||''));
+
+  if(vistaTabla){
+    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Folio</th><th>Proyecto</th><th>Cliente</th><th>Tipo</th><th>Estatus</th><th>Costo estimado</th></tr></thead><tbody>'
+      + ordenados.map(p => '<tr class="fila-clic" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
+          + '<td>' + esc(p.folio || '—') + '</td>'
+          + '<td>' + esc(p.nombreProyecto || 'Proyecto') + '</td>'
+          + '<td>' + esc(p.clienteNombre || 'Prospecto') + '</td>'
+          + '<td>' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</td>'
+          + '<td><span class="insignia i-' + TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus] + '">' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus]) + '</span></td>'
+          + '<td>' + dineroCent(totalConceptosProyecto(p)) + '</td></tr>').join('')
+      + '</tbody></table></div>';
+    return h;
+  }
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((p,i)=>{
+    const total = totalConceptosProyecto(p);
+    return '<div class="tarjeta tarjeta-clic t-' + tonoTarjetaProyectoImagen(p.estatus) + '" data-proyecto-imagen="' + esc(p.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     '<div class="t-avatar">' + esc(iniciales(p.nombreProyecto || p.clienteNombre || 'Proyecto')) + '</div>'
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(p.nombreProyecto || 'Proyecto') + '</div>'
+         +       '<div class="t-sub">' + esc(p.clienteNombre || 'Prospecto') + (p.folio ? ' · ' + esc(p.folio) : '') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="t-chips">'
+         +     '<span class="insignia i-' + TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus] + '">' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus]) + '</span>'
+         +     '<span class="insignia i-neutro">' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</span>'
+         +   '</div>'
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Costo estimado</div><div class="d-valor chico">' + dineroCent(total) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Imágenes</div><div class="d-valor chico">' + numero(p.imagenes.length) + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">' + esc(p.sitioNombre || 'Sin sitio') + '</span></div>'
+         + '</div>';
+  }).join('') + '</div>';
+
+  return h;
+}
+
+function vistaProyectoImagen(){
+  const p = proyectoImagenPorId(estado.proyectoImagenId);
+  if(!p){ estado.vista = 'proyectos-imagen'; return vistaProyectosImagen(); }
+  const puede = puedeEditar();
+  const total = totalConceptosProyecto(p);
+
+  let h = botonRegresarProyectosImagen();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(p.nombreProyecto || 'Proyecto') + '</h2>'
+     +   '<p>' + esc(p.folio || 'Sin folio') + ' · ' + esc(p.clienteNombre || 'Prospecto') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   '<span class="insignia i-' + TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus] + '">' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus]) + '</span>'
+     +   '<span class="insignia i-neutro">' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</span>'
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Sitio / ubicación', esc(p.sitioNombre || 'Sin especificar'), '')
+     + tarjetaKpi('Fecha de alta', fmtFecha(p.fecha), '')
+     + tarjetaKpi('Fecha objetivo', p.fechaObjetivo ? fmtFecha(p.fechaObjetivo) : 'Sin definir', '')
+     + tarjetaKpi('Costo estimado', dineroCent(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
+     + '</div>';
+
+  if(p.responsable){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Responsable</h3></div></div>'
+       +   '<p class="pista" style="margin:0">' + esc(p.responsable) + '</p></div>';
+  }
+
+  if(p.notas){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Notas</h3></div></div>'
+       +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(p.notas) + '</p></div>';
+  }
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Costos / conceptos</h3>'
+     +   '<p>Desglose informativo del presupuesto — si hace falta una cotización formal para el cliente, se arma aparte en el módulo Cotizaciones.</p></div></div>';
+  if(!p.conceptos.length){
+    h += '<p class="pista" style="margin:0">Todavía no se ha agregado ningún concepto.</p>';
+  }else{
+    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
+       + p.conceptos.map(c => '<tr><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
+           + '<td>' + dineroCent(c.precioUnitario) + '</td><td><b>' + dineroCent(c.cantidad * c.precioUnitario) + '</b></td></tr>').join('')
+       + '</tbody></table></div>'
+       + '<div class="resumen" style="margin-top:10px"><div class="r-fila r-total"><span>Total estimado</span>'
+       +   '<span style="font-size:18px; font-weight:800">' + dineroCent(total) + '</span></div></div>';
+  }
+  h += '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Imágenes</h3><p>Renders, planos/layout y fotos del proyecto.</p></div></div>';
+  if(!p.imagenes.length){
+    h += '<p class="pista" style="margin:0">Todavía no se ha agregado ninguna imagen.</p>';
+  }else{
+    h += '<div class="galeria-evidencia">' + p.imagenes.map(im =>
+      '<div class="evidencia-foto" title="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + (im.nota ? ' · ' + esc(im.nota) : '') + '">'
+      +   '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '" loading="lazy">'
+      +   '<span class="evidencia-tipo">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '</span>'
+      + '</div>'
+    ).join('') + '</div>';
+  }
+  h += '</div>';
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  h += '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-proyecto-imagen" '
+    + 'title="Abre el PDF en otra pestaña, listo para guardarse o compartirse">' + ICONO.imprimir + 'Generar PDF</button>';
+  if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-proyecto-imagen">' + ICONO.lapiz + 'Editar</button>';
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-proyecto-imagen">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: proyecto de Imagen/Aperturas ---------------------------- */
+function modalProyectoImagen(id){
+  const p = id ? proyectoImagenPorId(id) : null;
+  let conceptosTmp = p ? p.conceptos.map(c => Object.assign({}, c)) : [];
+  let imagenesTmp = p ? p.imagenes.map(im => Object.assign({}, im)) : [];
+
+  const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const opc = (lista, sel, texto, valor) => lista.map(o =>
+    '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
+
+  const tieneClienteInicial = !!(p && p.clienteId);
+  const tieneSitioInicial = !!(p && p.sitioId);
+
+  const cuerpo =
+      '<div class="campo"><label>Cliente (opcional — déjalo en blanco si todavía es un prospecto)</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="piCliente"><option value="">— Prospecto / cliente nuevo —</option>' + opc(clientesOrd, p ? p.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoPI" '
+    +       'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaClienteNuevoPI" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del cliente nuevo *</label>'
+    +     '<input type="text" id="pincNombre" placeholder="Ej. Mercado Libre" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="pincCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="pincCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="campo" id="zonaClienteLibrePI"><label>Nombre del cliente o marca (prospecto) *</label>'
+    +   '<input type="text" id="piClienteLibre" placeholder="Ej. Starbucks (prospecto)" value="' + esc(!tieneClienteInicial && p ? p.clienteNombre : '') + '"></div>'
+    + '<div class="campo" id="zonaSitioPI"><label>Sitio (opcional)</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="piSitio"></select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoPI" '
+    +       'title="Dar de alta un sitio de este cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaSitioNuevoPI" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del sitio nuevo *</label>'
+    +     '<input type="text" id="pinsNombre" placeholder="Ej. BANREGIO Cumbres" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="pinsCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="pinsCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="campo" id="zonaUbicacionLibrePI"><label>Ubicación *</label>'
+    +   '<input type="text" id="piUbicacionLibre" placeholder="Ej. Valle Oriente, Monterrey" value="' + esc(!tieneSitioInicial && p ? p.sitioNombre : '') + '"></div>'
+
+    + '<div class="campo"><label>Nombre del proyecto *</label>'
+    +   '<input type="text" id="piNombreProyecto" placeholder="Ej. Sucursal Valle Oriente — Apertura" value="' + esc(p ? p.nombreProyecto : '') + '"></div>'
+
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Tipo</label><select id="piTipo">'
+    +     TIPO_PROYECTO_IMAGEN.map(t => '<option value="' + t + '"' + ((p ? p.tipo : 'apertura') === t ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[t]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Estatus</label><select id="piEstatus">'
+    +     ESTATUS_PROYECTO_IMAGEN.map(e => '<option value="' + e + '"' + ((p ? p.estatus : 'diseno') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[e]) + '</option>').join('')
+    +   '</select></div>'
+    + '</div>'
+
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fecha de alta</label><input type="date" id="piFecha" value="' + esc(p ? p.fecha : hoyISO()) + '"></div>'
+    +   '<div class="campo"><label>Fecha objetivo (opcional)</label><input type="date" id="piFechaObjetivo" value="' + esc(p ? p.fechaObjetivo : '') + '"></div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Responsable (opcional)</label>'
+    +   '<input type="text" id="piResponsable" placeholder="Quién lleva el proyecto" value="' + esc(p ? p.responsable : '') + '"></div>'
+
+    + '<div class="campo"><label>Notas (opcional)</label>'
+    +   '<textarea id="piNotas" placeholder="Contexto del proyecto, avances, pendientes…">' + esc(p ? p.notas : '') + '</textarea></div>'
+
+    + '<div class="campo"><label>Costos / conceptos (opcional, informativo)</label>'
+    +   '<div id="listaConceptosPI"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="piBtnAgregarConcepto">' + ICONO.mas + 'Agregar concepto</button>'
+    +   '<div id="resumenConceptosPI" style="margin-top:8px"></div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Imágenes (renders, planos, fotos)</label>'
+    +   '<div class="galeria-evidencia" id="piGaleriaImagenes"></div>'
+    +   '<div class="fila2">'
+    +     '<select id="piTipoImagenNueva">' + TIPO_IMAGEN_PROYECTO.map(t => '<option value="' + t + '">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[t]) + '</option>').join('') + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="piBtnAgregarImagen">' + ICONO.camara + 'Agregar imagen</button>'
+    +   '</div>'
+    +   '<input type="file" id="piArchivoImagen" accept="image/*" multiple style="display:none">'
+    +   '<div class="pista" id="piPistaImagenes">Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' imágenes. Se reducen solas para no pesar.</div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Crear proyecto') + '</button>';
+
+  abrirModal(p ? 'Editar proyecto' : 'Nuevo proyecto de imagen', cuerpo, pie);
+
+  /* ---- Cliente / sitio: prospecto libre vs existente, "+ Nuevo" inline ----
+     Mismo patrón que modalLevantamiento, con un paso extra: aquí el cliente
+     TAMBIÉN es opcional (un prospecto que ni siquiera existe como Cliente
+     todavía), así que sin cliente se esconde por completo la zona de sitio
+     (no hay sitios sin cliente) y se piden nombre/ubicación a mano. */
+  function pintarSitiosPI(){
+    const clienteId = $('piCliente').value;
+    const sitios = sitiosDe(clienteId).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+    $('piSitio').innerHTML = '<option value="">— Sin sitio todavía —</option>' + opc(sitios, tieneSitioInicial ? p.sitioId : '', s=>s.nombre, s=>s.id);
+  }
+  function pintarUbicacionZona(){
+    const clienteId = $('piCliente').value;
+    const sitioId = clienteId ? $('piSitio').value : '';
+    $('zonaUbicacionLibrePI').hidden = !!sitioId;
+  }
+  function pintarClienteZona(){
+    const clienteId = $('piCliente').value;
+    $('zonaClienteLibrePI').hidden = !!clienteId;
+    $('zonaSitioPI').hidden = !clienteId;
+    if(clienteId) pintarSitiosPI();
+    pintarUbicacionZona();
+  }
+  pintarClienteZona();
+  $('piCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoPI').hidden = true; pintarClienteZona(); });
+  $('piSitio').addEventListener('change', pintarUbicacionZona);
+
+  $('btnClienteNuevoPI').addEventListener('click', ()=>{
+    $('zonaClienteNuevoPI').hidden = false;
+    $('pincNombre').focus();
+  });
+  $('pincCancelar').addEventListener('click', ()=>{ $('zonaClienteNuevoPI').hidden = true; $('pincNombre').value = ''; });
+  $('pincCrear').addEventListener('click', ()=>{
+    const nombre = $('pincNombre').value.trim();
+    if(!nombre){ aviso('Ponle un nombre al cliente nuevo.', true); return; }
+    const nuevo = normalizarCliente({ id:nuevoId(), nombre, usaForpass:'si' });
+    datos.clientes.push(nuevo);
+    guardarCliente(nuevo, 'creó');
+    $('piCliente').insertAdjacentHTML('beforeend', '<option value="' + esc(nuevo.id) + '" selected>' + esc(nuevo.nombre) + '</option>');
+    $('piCliente').value = nuevo.id;
+    $('zonaClienteNuevoPI').hidden = true;
+    pintarClienteZona();
+    aviso('Cliente agregado. Si ya tiene sitio, agrégalo con el botón "Nuevo" de aquí abajo.');
+  });
+
+  $('btnSitioNuevoPI').addEventListener('click', ()=>{
+    if(!$('piCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
+    $('zonaSitioNuevoPI').hidden = false;
+    $('pinsNombre').focus();
+  });
+  $('pinsCancelar').addEventListener('click', ()=>{ $('zonaSitioNuevoPI').hidden = true; $('pinsNombre').value = ''; });
+  $('pinsCrear').addEventListener('click', ()=>{
+    const clienteId = $('piCliente').value;
+    const nombreSitio = $('pinsNombre').value.trim();
+    if(!clienteId){ aviso('Primero elige o crea el cliente.', true); return; }
+    if(!nombreSitio){ aviso('Ponle un nombre al sitio nuevo.', true); return; }
+    const yaExiste = datos.sitios.find(s => s.clienteId === clienteId && s.nombre.toLowerCase() === nombreSitio.toLowerCase());
+    let sitio;
+    if(yaExiste){
+      sitio = yaExiste;
+      aviso('Ese sitio ya existía para este cliente; lo seleccioné.');
+    }else{
+      sitio = normalizarSitio({ id:nuevoId(), clienteId, nombre:nombreSitio, modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+      datos.sitios.push(sitio);
+      guardarSitio(sitio, 'creó');
+      aviso(nombreSitio + ' dado de alta y seleccionado.');
+    }
+    pintarSitiosPI();
+    $('piSitio').value = sitio.id;
+    $('zonaSitioNuevoPI').hidden = true;
+    $('pinsNombre').value = '';
+    pintarUbicacionZona();
+  });
+
+  /* ---- Costos / conceptos: tabla inline, mismo molde que partidasTmp en
+     modalCotizacion — se pinta entera al agregar/quitar, se edita campo por
+     campo con un listener delegado para no perder el cursor al teclear. */
+  function pintarConceptosPI(){
+    if(!conceptosTmp.length){
+      $('listaConceptosPI').innerHTML = '<div class="pista">Todavía no hay conceptos.</div>';
+    }else{
+      const filas = conceptosTmp.map((c,i)=>
+          '<tr data-idx="' + i + '">'
+        + '<td><input type="text" data-campo="concepto" value="' + esc(c.concepto) + '" placeholder="Ej. Rótulo iluminado"></td>'
+        + '<td class="mini"><input type="number" min="0" step="1" data-campo="cantidad" value="' + c.cantidad + '"></td>'
+        + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioUnitario" value="' + numero(c.precioUnitario) + '"></td>'
+        + '<td class="acc"><button type="button" class="icono-mini" data-quitar-concepto-pi="' + i + '" data-tip="Quitar">' + ICONO.basura + '</button></td>'
+        + '</tr>').join('');
+      $('listaConceptosPI').innerHTML =
+          '<div class="rodillo"><table class="tabla-renglones">'
+        + '<thead><tr><th>Concepto</th><th>Cant.</th><th>Precio unitario</th><th></th></tr></thead>'
+        + '<tbody>' + filas + '</tbody></table></div>';
+    }
+    const total = conceptosTmp.reduce((s,c)=> s + c.cantidad * c.precioUnitario, 0);
+    $('resumenConceptosPI').innerHTML = '<b>Total estimado: ' + dineroCent(total) + '</b>';
+  }
+  pintarConceptosPI();
+  $('listaConceptosPI').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo]');
+    if(!campo) return;
+    const c = conceptosTmp[+campo.closest('[data-idx]').dataset.idx];
+    const k = campo.dataset.campo;
+    if(k === 'cantidad') c.cantidad = Math.max(0, parseFloat(campo.value) || 0);
+    else if(k === 'precioUnitario'){ formatearMiles(campo); c.precioUnitario = aNumero(campo.value); }
+    else c[k] = campo.value;
+    $('resumenConceptosPI').innerHTML = '<b>Total estimado: '
+      + dineroCent(conceptosTmp.reduce((s,x)=> s + x.cantidad * x.precioUnitario, 0)) + '</b>';
+  });
+  $('listaConceptosPI').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-concepto-pi]');
+    if(!quitar) return;
+    conceptosTmp.splice(+quitar.dataset.quitarConceptoPi, 1);
+    pintarConceptosPI();
+  });
+  $('piBtnAgregarConcepto').addEventListener('click', ()=>{
+    conceptosTmp.push(normalizarConceptoProyecto({}));
+    pintarConceptosPI();
+    const fila = $('listaConceptosPI').querySelector('tr[data-idx="' + (conceptosTmp.length-1) + '"]');
+    const campo = fila && fila.querySelector('[data-campo="concepto"]');
+    if(campo) campo.focus();
+  });
+
+  /* ---- Imágenes: misma galería con quitar que la evidencia de un hallazgo,
+     con una etiqueta de tipo (render/plano/foto) pegada a cada miniatura. */
+  function pintarGaleriaPI(){
+    $('piGaleriaImagenes').innerHTML = imagenesTmp.map(im =>
+      '<div class="evidencia-foto"><img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '">'
+      + '<span class="evidencia-tipo">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '</span>'
+      + '<button type="button" class="evidencia-quitar" data-quitar-img-pi="' + esc(im.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
+    ).join('');
+    $('piGaleriaImagenes').querySelectorAll('[data-quitar-img-pi]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        imagenesTmp = imagenesTmp.filter(im => im.id !== b.dataset.quitarImgPi);
+        pintarGaleriaPI();
+      });
+    });
+    $('piBtnAgregarImagen').disabled = imagenesTmp.length >= IMAGENES_MAX_POR_PROYECTO;
+  }
+  pintarGaleriaPI();
+  $('piBtnAgregarImagen').addEventListener('click', ()=> $('piArchivoImagen').click());
+  $('piArchivoImagen').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length) return;
+    const cupo = IMAGENES_MAX_POR_PROYECTO - imagenesTmp.length;
+    if(cupo <= 0){ aviso('Ya tienes ' + IMAGENES_MAX_POR_PROYECTO + ' imágenes. Quita alguna para agregar otra.', true); return; }
+    const tipo = $('piTipoImagenNueva').value;
+    $('piPistaImagenes').textContent = 'Procesando imágenes…';
+    for(const archivo of archivos.slice(0, cupo)){
+      try{
+        const img = await leerEvidencia(archivo);
+        const dataUrl = comprimirEvidencia(img);
+        imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, subioNombre: nombreDe(sesion) || '' }));
+      }catch(e){ aviso(e.message, true); }
+    }
+    $('piPistaImagenes').textContent = 'Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' imágenes. Se reducen solas para no pesar.';
+    pintarGaleriaPI();
+  });
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('piCliente').value;
+    const cliente = clienteId ? clientePorId(clienteId) : null;
+    const sitioId = clienteId ? $('piSitio').value : '';
+    const sitio = sitioId ? sitioPorId(sitioId) : null;
+    const clienteNombre = cliente ? cliente.nombre : $('piClienteLibre').value.trim();
+    const sitioNombre = sitio ? sitio.nombre : $('piUbicacionLibre').value.trim();
+    const nombreProyecto = $('piNombreProyecto').value.trim();
+
+    if(!clienteNombre){
+      aviso('Elige un cliente o escribe el nombre del cliente/marca (prospecto).', true);
+      (clienteId ? $('piSitio') : $('piClienteLibre')).focus();
+      return;
+    }
+    if(!sitioNombre){
+      aviso('Elige un sitio o escribe la ubicación del proyecto.', true);
+      $('piUbicacionLibre').setAttribute('aria-invalid','true'); $('piUbicacionLibre').focus();
+      return;
+    }
+    if(!nombreProyecto){
+      $('piNombreProyecto').setAttribute('aria-invalid','true'); $('piNombreProyecto').focus();
+      aviso('Ponle un nombre al proyecto.', true);
+      return;
+    }
+
+    const datosProyecto = {
+      id: p ? p.id : nuevoId(),
+      folio: p ? p.folio : generarFolioProyectoImagen($('piFecha').value),
+      clienteId, clienteNombre, sitioId, sitioNombre,
+      nombreProyecto,
+      tipo: $('piTipo').value,
+      estatus: $('piEstatus').value,
+      fecha: $('piFecha').value,
+      fechaObjetivo: $('piFechaObjetivo').value,
+      responsable: $('piResponsable').value.trim(),
+      notas: $('piNotas').value.trim(),
+      conceptos: conceptosTmp,
+      imagenes: imagenesTmp
+    };
+    const nuevo = normalizarProyectoImagen(datosProyecto);
+
+    if(p) Object.assign(p, nuevo);
+    else datos.proyectosImagen.push(nuevo);
+
+    guardarProyectoImagen(nuevo, p ? 'editó' : 'creó', nuevo.nombreProyecto + ' · ' + nuevo.clienteNombre);
+    cerrarModal();
+    entrarProyectoImagen(nuevo.id);
+    aviso(p ? 'Proyecto actualizado.' : 'Proyecto creado.');
+  };
+}
+
 /* Detalle de una póliza. ESTE es el único lugar donde se pintan las partidas:
    en la lista serían miles de renglones de HTML en cada render(). */
 function vistaPoliza(){
@@ -8166,7 +8817,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -8182,6 +8833,7 @@ function render(){
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
+    : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
@@ -8215,6 +8867,13 @@ function render(){
     const fpL = $('filtroLevantamiento');
     fpL.value = estado.filtro;
     fpL.addEventListener('change', ()=>{ estado.filtro = fpL.value; render(); });
+  }
+  const bpI = $('buscaProyectoImagen');
+  if(bpI){
+    bpI.addEventListener('input', ()=>{ estado.busca = bpI.value; renderConservandoFoco(bpI, 'buscaProyectoImagen'); });
+    const fpI = $('filtroProyectoImagen');
+    fpI.value = estado.filtro;
+    fpI.addEventListener('change', ()=>{ estado.filtro = fpI.value; render(); });
   }
   /* Subir evidencia directo desde el detalle del reporte, sin abrir el modal
      completo de edición: la foto se comprime y se agrega de inmediato. */
@@ -8340,6 +8999,7 @@ function pintarCabecera(){
   const inicio = $('btnInicio');
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
+                 : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
                  : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
   inicio.disabled = enPortada;
@@ -11936,6 +12596,24 @@ $('vista').addEventListener('click', ev=>{
       if(!l) return;
       modalPoliza(null, l);
     }
+    else if(a === 'ir-proyectos-imagen') irAProyectosImagen();
+    else if(a === 'nuevo-proyecto-imagen'){ if(exigirPermiso()) modalProyectoImagen(null); }
+    else if(a === 'editar-proyecto-imagen'){ if(exigirPermiso()) modalProyectoImagen(estado.proyectoImagenId); }
+    else if(a === 'imprimir-proyecto-imagen') abrirDocumentoProyectoImagen(estado.proyectoImagenId);
+    else if(a === 'borrar-proyecto-imagen'){
+      if(!exigirAdmin('eliminar un proyecto de imagen')) return;
+      const pim = proyectoImagenPorId(estado.proyectoImagenId);
+      if(!pim) return;
+      confirmar('Eliminar proyecto',
+        'Se va a eliminar el proyecto <b>' + esc(pim.nombreProyecto || 'sin nombre') + '</b>, con sus costos e imágenes. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.proyectosImagen = datos.proyectosImagen.filter(x => x.id !== pim.id);
+          borrarRegistro('proyectosImagen', pim.id);
+          anotar('eliminó', 'proyecto de imagen', pim.folio || pim.nombreProyecto || 'sin folio');
+          estado.vista = 'proyectos-imagen'; estado.proyectoImagenId = null;
+          render(); aviso('Proyecto eliminado.');
+        });
+    }
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-agenda') irAAgenda(false);
@@ -12173,6 +12851,9 @@ $('vista').addEventListener('click', ev=>{
   const tarL = t.closest('[data-levantamiento]');
   if(tarL){ entrarLevantamiento(tarL.dataset.levantamiento); return; }
 
+  const tarPI = t.closest('[data-proyecto-imagen]');
+  if(tarPI){ entrarProyectoImagen(tarPI.dataset.proyectoImagen); return; }
+
   const lado = t.closest('[data-lado-cotizacion]');
   if(lado){ estado.ladoCotizacion = lado.dataset.ladoCotizacion; render(); return; }
 
@@ -12205,6 +12886,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarR){ ev.preventDefault(); entrarReporte(tarR.dataset.reporte); return; }
   const tarL = ev.target.closest('[data-levantamiento]');
   if(tarL){ ev.preventDefault(); entrarLevantamiento(tarL.dataset.levantamiento); return; }
+  const tarPI = ev.target.closest('[data-proyecto-imagen]');
+  if(tarPI){ ev.preventDefault(); entrarProyectoImagen(tarPI.dataset.proyectoImagen); return; }
   const tarCR = ev.target.closest('[data-cliente-resumen]');
   if(tarCR){ ev.preventDefault(); entrarResumenCliente(tarCR.dataset.clienteResumen); return; }
   const irSR = ev.target.closest('[data-ir-sitio-resumen]');
@@ -12274,7 +12957,7 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : datos.cotizaciones).map(normalizarCotizacion),
                   reportes: (Array.isArray(d.reportes) ? d.reportes : datos.reportes).map(normalizarReporte),
                   levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : datos.levantamientos).map(normalizarLevantamiento) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
@@ -12938,9 +13621,9 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
     sincronizado = false;
   }
 }
@@ -13031,6 +13714,7 @@ $('btnInicio').addEventListener('click', ()=>{
   else if(estado.modulo === 'cotizaciones') irACotizaciones();
   else if(estado.modulo === 'reportes') irAReportes();
   else if(estado.modulo === 'levantamientos') irALevantamientos();
+  else if(estado.modulo === 'imagen') irAProyectosImagen();
   else irAClientes();
 });
 
