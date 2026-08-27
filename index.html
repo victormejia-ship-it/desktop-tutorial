@@ -1764,6 +1764,63 @@ function comprimirRespaldoCosto(img){
   return candidatos.find(d => d.length <= objetivo) || candidatos[candidatos.length - 1];
 }
 
+/* ===================== Plano en PDF -> imagen (Imagen/Aperturas) =====================
+   Única dependencia externa de toda la app (todo lo demás corre sin CDN ni
+   build) — a propósito acotada a esto: un plano casi siempre llega en PDF, y
+   sin una librería que lea PDFs no hay forma de convertir su primera hoja en
+   una imagen real desde el navegador. pdf.js SOLO se trae la primera vez que
+   alguien de verdad sube un PDF aquí, nunca en el arranque de la página, así
+   que el resto del tablero se sigue usando sin internet igual que siempre.
+
+   Si el CDN no responde (sin internet, o bloqueado) o el PDF no se puede
+   leer, se degrada solo: se guarda el PDF tal cual como documento —el
+   comportamiento de antes de esta función— con un aviso de qué pasó, nunca
+   una pantalla rota. */
+const PDFJS_CDN_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/';
+let pdfJsCargando = null;
+function cargarPdfJs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(pdfJsCargando) return pdfJsCargando;
+  pdfJsCargando = new Promise((listo, falla)=>{
+    const s = document.createElement('script');
+    s.src = PDFJS_CDN_BASE + 'pdf.min.js';
+    s.onload = ()=>{
+      if(!window.pdfjsLib){ pdfJsCargando = null; falla(new Error('El lector de PDF no cargó correctamente')); return; }
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_CDN_BASE + 'pdf.worker.min.js';
+      listo(window.pdfjsLib);
+    };
+    s.onerror = ()=>{ pdfJsCargando = null; falla(new Error('sin conexión a internet para traer el lector de PDF')); };
+    document.head.appendChild(s);
+  });
+  return pdfJsCargando;
+}
+
+/* Renderiza la PRIMERA hoja del PDF a un <canvas> y de ahí sale un dataURL
+   JPEG — mismo criterio de compresión por intentos que comprimirRespaldoCosto()
+   (varias calidades, se usa la más alta que quepa en el presupuesto). La
+   escala se calcula para que el lado mayor quede en RESPALDO_COSTO_LADO_MAX
+   px, sea cual sea el tamaño real de la hoja del plano. */
+async function convertirPdfAImagen(archivo){
+  const pdfjsLib = await cargarPdfJs();
+  const buffer = await archivo.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const pagina = await pdf.getPage(1);
+  const base = pagina.getViewport({ scale: 1 });
+  const escala = Math.max(0.5, RESPALDO_COSTO_LADO_MAX / Math.max(base.width, base.height));
+  const viewport = pagina.getViewport({ scale: escala });
+  const lienzo = document.createElement('canvas');
+  lienzo.width = Math.round(viewport.width);
+  lienzo.height = Math.round(viewport.height);
+  await pagina.render({ canvasContext: lienzo.getContext('2d'), viewport }).promise;
+
+  const candidatos = [0.85, 0.72, 0.5, 0.32].map(calidad=>{
+    try{ return lienzo.toDataURL('image/jpeg', calidad); }catch(e){ return null; }
+  }).filter(Boolean);
+  if(!candidatos.length) throw new Error('este navegador no pudo convertir la hoja del PDF');
+  const objetivo = RESPALDO_COSTO_MAX_GUARDADO * 1.37;
+  return candidatos.find(d => d.length <= objetivo) || candidatos[candidatos.length - 1];
+}
+
 /* Dibuja la imagen en un cuadro de LOGO_LADO con el zoom y el desplazamiento
    que eligió el usuario. Con zoom 1 la imagen entra completa; de ahí para
    arriba se acerca, y arrastrando se decide qué parte queda a la vista. */
@@ -8264,7 +8321,7 @@ function modalProyectoImagen(id, datosImportados){
     +     '<button type="button" class="btn btn-suave btn-mini" id="piBtnAgregarImagen">' + ICONO.camara + 'Agregar imagen o PDF</button>'
     +   '</div>'
     +   '<input type="file" id="piArchivoImagen" accept="image/*,application/pdf" multiple style="display:none">'
-    +   '<div class="pista" id="piPistaImagenes">Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' archivos. Un plano puede subirse como PDF (hasta 600 KB); las fotos se reducen solas para no pesar.</div>'
+    +   '<div class="pista" id="piPistaImagenes">Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' archivos. Un plano en PDF se convierte solo a imagen; las fotos se reducen solas para no pesar.</div>'
     + '</div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
@@ -8431,9 +8488,23 @@ function modalProyectoImagen(id, datosImportados){
     for(const archivo of archivos.slice(0, cupo)){
       try{
         if(archivo.type === 'application/pdf'){
-          if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 600 KB. Prueba a comprimirlo o sube solo la hoja del plano.');
-          const dataUrl = await leerArchivoComoDataURL(archivo);
-          imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'pdf', nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+          if(archivo.size > EVIDENCIA_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 15 MB.');
+          /* Primero se intenta convertir la hoja a imagen (pdf.js, bajado
+             la primera vez que hace falta). Si algo sale mal —sin internet,
+             el navegador no pudo leerlo— se degrada al comportamiento de
+             antes: guardar el PDF tal cual, como documento con ícono, con
+             su propio tope más chico porque ahí no se comprime nada. */
+          try{
+            const dataUrl = await convertirPdfAImagen(archivo);
+            imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'imagen', nota: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+          }catch(e){
+            if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA){
+              throw new Error('No se pudo convertir ese PDF a imagen (' + e.message + '), y pesa más de 600 KB para guardarlo tal cual. Prueba a comprimirlo o sube solo la hoja del plano.');
+            }
+            const dataUrl = await leerArchivoComoDataURL(archivo);
+            imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'pdf', nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+            aviso('No se pudo convertir "' + archivo.name + '" a imagen (' + e.message + '). Se guardó el PDF tal cual.', true);
+          }
         }else{
           const img = await leerEvidencia(archivo);
           const dataUrl = comprimirEvidencia(img);
@@ -8441,7 +8512,7 @@ function modalProyectoImagen(id, datosImportados){
         }
       }catch(e){ aviso(e.message, true); }
     }
-    $('piPistaImagenes').textContent = 'Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' archivos. Un plano puede subirse como PDF (hasta 600 KB); las fotos se reducen solas para no pesar.';
+    $('piPistaImagenes').textContent = 'Hasta ' + IMAGENES_MAX_POR_PROYECTO + ' archivos. Un plano en PDF se convierte solo a imagen; las fotos se reducen solas para no pesar.';
     pintarGaleriaPI();
   });
 
