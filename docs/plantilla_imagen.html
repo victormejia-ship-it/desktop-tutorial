@@ -115,7 +115,10 @@
     page-break-inside:avoid;}
   .img-cab{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
   .img-tag{font-size:11px;font-weight:700;color:var(--title);}
-  .img-foto{display:block;width:100%;max-height:3.6in;object-fit:contain;border-radius:6px;
+  /* 2.7in de tope (no 3.6in): con el pie y la tarjeta descontados, así caben
+     al menos 2 tarjetas por hoja en vez de una sola casi tan alta como la
+     página — pedido de Victor, 27-ago-2026. */
+  .img-foto{display:block;width:100%;max-height:2.7in;object-fit:contain;border-radius:6px;
     border:1px solid var(--rule);background:#F7F8FA;}
 
   .footwrap{position:absolute;left:.72in;right:.72in;bottom:.46in;}
