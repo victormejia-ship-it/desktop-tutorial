@@ -6268,8 +6268,21 @@ function modalReporte(id){
     +     '<button type="button" class="btn btn-primario btn-mini" id="rncCrear">Crear y seleccionar</button>'
     +   '</div>'
     + '</div>'
-    + '<div class="campo"><label>Sitio *</label><select id="rSitio"></select>'
+    + '<div class="campo"><label>Sitio *</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="rSitio"></select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoR" '
+    +       'title="Dar de alta un sitio de este cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
     +   '<div class="pista" id="pistaSitioR"></div></div>'
+    + '<div id="zonaSitioNuevoR" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del sitio nuevo *</label>'
+    +     '<input type="text" id="rnsNombre" placeholder="Ej. BANREGIO Cumbres" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="rnsCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="rnsCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
     + '<div class="campo"><label>Equipo</label><select id="rEquipoId">'
     +   '<option value="">— Elegir de la lista —</option>'
     +   opc(cat, equipoEsDelCatalogo ? rp.equipoCatalogoId : '', e=>e.concepto, e=>e.id)
@@ -6303,10 +6316,44 @@ function modalReporte(id){
     $('rSitio').innerHTML = opc(sitios, rp ? rp.sitioId : '', s=>s.nombre, s=>s.id);
     $('pistaSitioR').textContent = sitios.length
       ? ''
-      : 'Este cliente no tiene sitios en Forpass todavía. Agrega uno ahí antes de levantar el reporte.';
+      : 'Este cliente no tiene sitios todavía — dale a "Nuevo" para agregar uno sin salir de aquí.';
   }
   pintarSitios();
-  $('rCliente').addEventListener('change', pintarSitios);
+  $('rCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoR').hidden = true; pintarSitios(); });
+
+  /* Mismo criterio que el cliente: dar de alta el sitio sin salir del modal.
+     Antes solo se podía crear el cliente y el sitio había que ir a hacerlo a
+     Forpass — un `reportero` ni siquiera VE el módulo Forpass (ver
+     modulosPermitidos()), así que un cliente sin sitios lo dejaba
+     completamente atorado, sin poder levantar el reporte. */
+  $('btnSitioNuevoR').addEventListener('click', ()=>{
+    if(!$('rCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
+    $('zonaSitioNuevoR').hidden = false;
+    $('rnsNombre').focus();
+  });
+  $('rnsCancelar').addEventListener('click', ()=>{ $('zonaSitioNuevoR').hidden = true; $('rnsNombre').value = ''; });
+  $('rnsCrear').addEventListener('click', ()=>{
+    const clienteId = $('rCliente').value;
+    const nombreSitio = $('rnsNombre').value.trim();
+    if(!clienteId){ aviso('Primero elige o crea el cliente.', true); return; }
+    if(!nombreSitio){ aviso('Ponle un nombre al sitio nuevo.', true); return; }
+    const yaExiste = datos.sitios.find(s => s.clienteId === clienteId && s.nombre.toLowerCase() === nombreSitio.toLowerCase());
+    let sitio;
+    if(yaExiste){
+      sitio = yaExiste;
+      aviso('Ese sitio ya existía para este cliente; lo seleccioné.');
+    }else{
+      sitio = normalizarSitio({ id:nuevoId(), clienteId, nombre:nombreSitio,
+        modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+      datos.sitios.push(sitio);
+      guardarSitio(sitio, 'creó');
+      aviso(nombreSitio + ' dado de alta y seleccionado.');
+    }
+    pintarSitios();
+    $('rSitio').value = sitio.id;
+    $('zonaSitioNuevoR').hidden = true;
+    $('rnsNombre').value = '';
+  });
 
   $('btnClienteNuevoR').addEventListener('click', ()=>{
     $('zonaClienteNuevoR').hidden = false;
@@ -6830,8 +6877,21 @@ function modalLevantamiento(id){
     +     '<button type="button" class="btn btn-primario btn-mini" id="lvncCrear">Crear y seleccionar</button>'
     +   '</div>'
     + '</div>'
-    + '<div class="campo"><label>Sitio *</label><select id="lvSitio"></select>'
+    + '<div class="campo"><label>Sitio *</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="lvSitio"></select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoLV" '
+    +       'title="Dar de alta un sitio de este cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
     +   '<div class="pista" id="pistaSitioLV"></div></div>'
+    + '<div id="zonaSitioNuevoLV" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del sitio nuevo *</label>'
+    +     '<input type="text" id="lvnsNombre" placeholder="Ej. BANREGIO Cumbres" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="lvnsCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="lvnsCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
     + '<div class="campo"><label>Fecha de la visita *</label>'
     +   '<input type="date" id="lvFecha" value="' + esc(l ? l.fecha : hoyISO()) + '"></div>'
     + '<div class="campo"><label>Realizó el recorrido *</label>'
@@ -6855,10 +6915,10 @@ function modalLevantamiento(id){
     $('lvSitio').innerHTML = opc(sitios, l ? l.sitioId : '', s=>s.nombre, s=>s.id);
     $('pistaSitioLV').textContent = sitios.length
       ? ''
-      : 'Este cliente no tiene sitios en Forpass todavía. Agrega uno ahí antes de levantar el recorrido.';
+      : 'Este cliente no tiene sitios todavía — dale a "Nuevo" para agregar uno sin salir de aquí.';
   }
   pintarSitios();
-  $('lvCliente').addEventListener('change', pintarSitios);
+  $('lvCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoLV').hidden = true; pintarSitios(); });
 
   $('btnClienteNuevoLV').addEventListener('click', ()=>{
     $('zonaClienteNuevoLV').hidden = false;
@@ -6875,7 +6935,40 @@ function modalLevantamiento(id){
     $('lvCliente').value = nuevo.id;
     $('zonaClienteNuevoLV').hidden = true;
     pintarSitios();
-    aviso('Cliente agregado. Ahora agrégale un sitio en Forpass si hace falta.');
+    aviso('Cliente agregado. Ahora agrégale un sitio con el botón "Nuevo" de aquí abajo.');
+  });
+
+  /* Mismo criterio que el cliente: dar de alta el sitio sin salir del modal.
+     Antes solo se podía crear el cliente y el sitio había que ir a hacerlo a
+     Forpass — un cliente recién creado (0 sitios) dejaba el levantamiento
+     sin poder guardarse. */
+  $('btnSitioNuevoLV').addEventListener('click', ()=>{
+    if(!$('lvCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
+    $('zonaSitioNuevoLV').hidden = false;
+    $('lvnsNombre').focus();
+  });
+  $('lvnsCancelar').addEventListener('click', ()=>{ $('zonaSitioNuevoLV').hidden = true; $('lvnsNombre').value = ''; });
+  $('lvnsCrear').addEventListener('click', ()=>{
+    const clienteId = $('lvCliente').value;
+    const nombreSitio = $('lvnsNombre').value.trim();
+    if(!clienteId){ aviso('Primero elige o crea el cliente.', true); return; }
+    if(!nombreSitio){ aviso('Ponle un nombre al sitio nuevo.', true); return; }
+    const yaExiste = datos.sitios.find(s => s.clienteId === clienteId && s.nombre.toLowerCase() === nombreSitio.toLowerCase());
+    let sitio;
+    if(yaExiste){
+      sitio = yaExiste;
+      aviso('Ese sitio ya existía para este cliente; lo seleccioné.');
+    }else{
+      sitio = normalizarSitio({ id:nuevoId(), clienteId, nombre:nombreSitio,
+        modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+      datos.sitios.push(sitio);
+      guardarSitio(sitio, 'creó');
+      aviso(nombreSitio + ' dado de alta y seleccionado.');
+    }
+    pintarSitios();
+    $('lvSitio').value = sitio.id;
+    $('zonaSitioNuevoLV').hidden = true;
+    $('lvnsNombre').value = '';
   });
 
   cerrarModalActual = ()=>{
