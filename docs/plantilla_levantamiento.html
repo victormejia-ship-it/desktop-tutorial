@@ -109,6 +109,8 @@
   .pastilla{display:inline-block;padding:1.5px 7px;border-radius:20px;font-size:8px;font-weight:700;}
   .pastilla.ok{background:#E4F5EC;color:#1A7A4C;} .pastilla.alerta{background:#FDF1DA;color:#9A6A0C;}
   .pastilla.error{background:#FBE7E6;color:#a5322e;}
+  .eq-nota{font-size:7.8px;color:var(--muted);}
+  .eq-impacto{color:#1A7A4C;}
 
   /* ---- Tarjetas de hallazgo (página 2+) ---- */
   .lv-tit{font-size:13px;font-weight:700;color:var(--brand-navy);margin:2px 0 10px;}
@@ -271,13 +273,14 @@ if(!LV){
             ? '. ' + an.sinEquipo + ' ' + (an.sinEquipo === 1 ? 'hallazgo de infraestructura no entra' : 'hallazgos de infraestructura no entran') + ' en el %.'
             : '.')
       + '</div></div></div>';
-    out += '<table class="eq-tabla"><thead><tr><th>Equipo</th><th>Peso</th><th>Peor hallazgo</th><th>Score</th></tr></thead><tbody>'
+    out += '<table class="eq-tabla"><thead><tr><th>Equipo</th><th>Peso</th><th>Peor hallazgo</th><th>Score</th><th>Si se resuelve</th></tr></thead><tbody>'
       + an.equipos.map(eq=>{
           const tonoS = eq.scorePct >= 75 ? 'ok' : eq.scorePct >= 50 ? 'alerta' : 'error';
           return '<tr><td><b>' + esc(eq.nombre) + '</b></td>'
-            + '<td>' + eq.peso + ' · ' + esc(eq.pesoEtiqueta) + '</td>'
+            + '<td>' + eq.peso + ' · ' + esc(eq.pesoEtiqueta) + '<br><span class="eq-nota">' + eq.pesoPct + '% del peso total</span></td>'
             + '<td>' + esc(eq.peorHallazgo) + '</td>'
-            + '<td><span class="pastilla ' + tonoS + '">' + eq.scorePct + '%</span></td></tr>';
+            + '<td><span class="pastilla ' + tonoS + '">' + eq.scorePct + '%</span></td>'
+            + '<td>' + (eq.impactoPct > 0 ? '<b class="eq-impacto">+' + eq.impactoPct + ' pts</b>' : '<span class="eq-nota">Ya está al 100%</span>') + '</td></tr>';
         }).join('')
       + '</tbody></table>';
     return out;

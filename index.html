@@ -3103,8 +3103,23 @@ function calcularFuncionamientoLevantamiento(l){
   const equipos = Array.from(porEquipo.values());
   const sumaPeso = equipos.reduce((s,x)=> s + x.peso, 0);
   const sumaPonderada = equipos.reduce((s,x)=> s + x.peso * x.peorScore, 0);
+  const pct = Math.round((sumaPonderada / sumaPeso) * 100);
+
+  /* pesoPct: qué tanto del peso total representa este equipo — para que se
+     vea, sin hacer cuentas, que un equipo crítico (peso 5) jala mucho más
+     que uno de peso bajo (peso 1), aunque su Score sea igual.
+     impactoPct: cuántos puntos sube el % del levantamiento si ESTE equipo en
+     particular quedara resuelto (score 1) y los demás siguen igual — la
+     forma más directa de demostrar que el peso "significa" algo concreto en
+     el resultado, no solo una etiqueta. */
+  equipos.forEach(eq=>{
+    eq.pesoPct = Math.round((eq.peso / sumaPeso) * 100);
+    const sumaPonderadaResuelto = sumaPonderada - (eq.peso * eq.peorScore) + eq.peso;
+    eq.impactoPct = Math.round((sumaPonderadaResuelto / sumaPeso) * 100) - pct;
+  });
+
   return {
-    pct: Math.round((sumaPonderada / sumaPeso) * 100),
+    pct,
     equipos: equipos.sort((a,b)=> a.peorScore - b.peorScore)
   };
 }
@@ -4511,7 +4526,9 @@ function armarPayloadLevantamiento(l){
         nombre: eq.nombre,
         peso: eq.peso,
         pesoEtiqueta: ETIQUETA_PONDERACION[eq.peso],
+        pesoPct: eq.pesoPct,
         scorePct: Math.round(eq.peorScore * 100),
+        impactoPct: eq.impactoPct,
         peorHallazgo: ETIQUETA_ACCION_HALLAZGO[eq.peorHallazgo.accion] + ' · ' + ETIQUETA_PRIORIDAD[eq.peorHallazgo.prioridad]
           + ' · ' + ETIQUETA_ESTATUS_HALLAZGO[eq.peorHallazgo.estatus]
       })),
@@ -6921,15 +6938,23 @@ function bloqueFuncionamiento(l){
     +   '<div class="r-fila r-total"><span>Funcionamiento estimado</span>'
     +     '<span style="color:var(--' + tono + '); font-size:22px; font-weight:800">' + an.pct + '%</span></div>'
     + '</div>'
-    + '<div class="rodillo"><table class="tabla"><thead><tr><th>Equipo</th><th>Peso</th><th>Peor hallazgo</th><th>Score</th></tr></thead><tbody>'
+    + '<div class="rodillo"><table class="tabla"><thead><tr><th>Equipo</th>'
+    +   '<th title="Qué tanto pesa este equipo dentro del total del recorrido">Peso</th>'
+    +   '<th>Peor hallazgo</th><th>Score</th>'
+    +   '<th title="Cuánto sube el % del levantamiento si SOLO este equipo quedara resuelto">Si se resuelve</th>'
+    + '</tr></thead><tbody>'
     + an.equipos.map(eq=>{
         const h2 = eq.peorHallazgo;
         const tonoScore = eq.peorScore >= 0.75 ? 'ok' : eq.peorScore >= 0.5 ? 'alerta' : 'error';
         return '<tr><td><b>' + esc(eq.nombre) + '</b></td>'
-          + '<td>' + eq.peso + ' · ' + esc(ETIQUETA_PONDERACION[eq.peso]) + '</td>'
+          + '<td>' + eq.peso + ' · ' + esc(ETIQUETA_PONDERACION[eq.peso])
+          +   '<br><span class="pista" style="margin:0">' + eq.pesoPct + '% del peso total</span></td>'
           + '<td>' + esc(ETIQUETA_ACCION_HALLAZGO[h2.accion]) + ' · ' + esc(ETIQUETA_PRIORIDAD[h2.prioridad])
           +   ' · ' + esc(ETIQUETA_ESTATUS_HALLAZGO[h2.estatus]) + '</td>'
           + '<td><span class="insignia i-' + tonoScore + '">' + Math.round(eq.peorScore * 100) + '%</span></td>'
+          + '<td>' + (eq.impactoPct > 0
+                ? '<b style="color:var(--ok)">+' + eq.impactoPct + ' pts</b>'
+                : '<span class="pista" style="margin:0">Ya está al 100%</span>') + '</td>'
           + '</tr>';
       }).join('')
     + '</tbody></table></div>';
