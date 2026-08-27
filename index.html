@@ -2181,7 +2181,16 @@ async function pedirNube(ruta, opciones, permitirVacio, esReintento){
   }
   if(!r.ok){
     const t2 = await r.text().catch(()=>'');
-    throw new Error('HTTP ' + r.status + ' ' + t2.slice(0,200));
+    /* 400-499 (menos 401/403/404, ya resueltos arriba) es la respuesta del
+       servidor RECHAZANDO la petición tal cual está escrita — un documento
+       que pasó el 1 MiB de Firestore, un valor que no cuadra con el
+       esquema. Reintentar eso mil veces nunca lo va a arreglar, a
+       diferencia de un 5xx o una caída de red, que sí son pasajeros. Antes
+       esto se trataba igual que "sin internet": la cola lo reintentaba para
+       siempre y el tablero decía "Sin conexión" cuando el problema de
+       fondo no tenía nada que ver con la conexión. */
+    const permanente = r.status >= 400 && r.status < 500;
+    throw new Error((permanente ? 'ERROR_PERMANENTE: ' : '') + 'HTTP ' + r.status + ' ' + t2.slice(0,300));
   }
   if(r.status === 204) return null;
   return r.json().catch(()=>null);
@@ -2271,6 +2280,25 @@ async function vaciarCola(){
               + (op.coleccion === 'catalogo'
                   ? 'Falta publicar la regla de /catalogo en Firebase.'
                   : 'Puede faltar la regla de esa colección, o tu permiso no alcanza.'), true);
+          continue;
+        }
+        /* Un 4xx (típicamente 400: el documento pasó del 1 MiB que permite
+           Firestore, casi siempre por varias imágenes/PDFs convertidos en
+           un mismo proyecto de Imagen/Aperturas) TAMPOCO es pasajero —
+           mismo criterio que SIN_PERMISO arriba: reintentarlo no lo va a
+           arreglar solo. Se saca de la cola y se avisa CUÁL registro fue y
+           por qué, para no quedarse "Sin conexión" para siempre por un
+           problema que no es de conexión. */
+        if(/ERROR_PERMANENTE/.test(String(e.message || ''))){
+          if(cola[0] === op) cola.shift();
+          guardarCola();
+          const detalle = String(e.message || '').replace('ERROR_PERMANENTE: ', '').slice(0, 180);
+          const nombreRegistro = (op.obj && (op.obj.nombreProyecto || op.obj.folio)) || op.id;
+          aviso('El servidor rechazó guardar «' + nombreRegistro + '» (' + op.coleccion + ') y no se va a resolver reintentando — '
+              + detalle + '. '
+              + (op.coleccion === 'proyectosImagen'
+                  ? 'Es probable que las imágenes o PDFs juntos ya no quepan en un solo documento: quita alguna imagen del proyecto y vuelve a guardar.'
+                  : 'Revisa el contenido de ese registro.'), true);
           continue;
         }
         throw e;
@@ -3242,6 +3270,19 @@ const TONO_ESTATUS_PROYECTO_IMAGEN = { diseno:'info', cotizacion:'info', aprobad
 const TIPO_IMAGEN_PROYECTO = ['render', 'plano', 'foto'];
 const ETIQUETA_TIPO_IMAGEN_PROYECTO = { render:'Render', plano:'Plano / layout', foto:'Foto' };
 const IMAGENES_MAX_POR_PROYECTO = 12;
+/* Firestore rechaza un documento de más de 1 MiB completo — y con
+   IMAGENES_MAX_POR_PROYECTO=12, varias imágenes convertidas de un PDF (más
+   pesadas que una foto normal) sí lo pueden rebasar sin este tope. Se
+   valida AQUÍ, al agregar, para avisar de inmediato ("ya no cabe") en vez
+   de descubrirlo después con un guardado que la nube rechaza en silencio
+   —eso mismo pasó en producción el 27-ago-2026, un proyecto se quedó
+   "Sin conexión" para siempre porque en realidad el documento ya no cabía,
+   no porque faltara internet. 800 KB dejando margen para el resto de los
+   campos del proyecto (conceptos, notas, etc.) dentro del 1 MiB. */
+const IMAGENES_PRESUPUESTO_TOTAL = 800 * 1024;
+function tamanoImagenesProyecto(lista){
+  return lista.reduce((s, im) => s + (im.dataUrl ? im.dataUrl.length : 0), 0);
+}
 
 /* Un concepto de costo es INFORMATIVO a propósito (decisión de Victor,
    27-ago-2026): el desglose de lo que cuesta la remodelación/apertura, para
@@ -8477,6 +8518,18 @@ function modalProyectoImagen(id, datosImportados){
      recomprimir desde el navegador, así que se guarda tal cual (de ahí su
      tope de entrada más chico) y solo se valida su tamaño; una imagen sigue
      el camino de siempre (comprimirEvidencia). */
+  /* Empuja a imagenesTmp SOLO si el proyecto completo sigue cabiendo en el
+     1 MiB de Firestore (ver IMAGENES_PRESUPUESTO_TOTAL). Si no cabe, avisa
+     de inmediato ("ya no cabe") en vez de guardarlo y descubrir después,
+     con la nube rechazando el documento en silencio, que en realidad nunca
+     cupo — eso fue justo el bug de producción del 27-ago-2026. */
+  function agregarImagenPISiCabe(datosImagen){
+    const restante = IMAGENES_PRESUPUESTO_TOTAL - tamanoImagenesProyecto(imagenesTmp);
+    if(datosImagen.dataUrl.length > restante){
+      throw new Error('Este proyecto ya no tiene espacio para otra imagen/PDF (el documento no puede pasar de ' + Math.round(IMAGENES_PRESUPUESTO_TOTAL/1024) + ' KB entre todas). Quita alguna imagen o guarda este archivo aparte.');
+    }
+    imagenesTmp.push(normalizarImagenProyecto(datosImagen));
+  }
   $('piArchivoImagen').addEventListener('change', async ev=>{
     const archivos = Array.from(ev.target.files || []);
     ev.target.value = '';
@@ -8496,19 +8549,20 @@ function modalProyectoImagen(id, datosImportados){
              su propio tope más chico porque ahí no se comprime nada. */
           try{
             const dataUrl = await convertirPdfAImagen(archivo);
-            imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'imagen', nota: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+            agregarImagenPISiCabe({ dataUrl, tipo, formato:'imagen', nota: archivo.name, subioNombre: nombreDe(sesion) || '' });
           }catch(e){
+            if(/ya no tiene espacio/.test(e.message)) throw e;
             if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA){
               throw new Error('No se pudo convertir ese PDF a imagen (' + e.message + '), y pesa más de 600 KB para guardarlo tal cual. Prueba a comprimirlo o sube solo la hoja del plano.');
             }
             const dataUrl = await leerArchivoComoDataURL(archivo);
-            imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'pdf', nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+            agregarImagenPISiCabe({ dataUrl, tipo, formato:'pdf', nombre: archivo.name, subioNombre: nombreDe(sesion) || '' });
             aviso('No se pudo convertir "' + archivo.name + '" a imagen (' + e.message + '). Se guardó el PDF tal cual.', true);
           }
         }else{
           const img = await leerEvidencia(archivo);
           const dataUrl = comprimirEvidencia(img);
-          imagenesTmp.push(normalizarImagenProyecto({ dataUrl, tipo, formato:'imagen', subioNombre: nombreDe(sesion) || '' }));
+          agregarImagenPISiCabe({ dataUrl, tipo, formato:'imagen', subioNombre: nombreDe(sesion) || '' });
         }
       }catch(e){ aviso(e.message, true); }
     }
