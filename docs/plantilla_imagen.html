@@ -233,14 +233,19 @@ if(!PI){
     return out;
   }
 
-  function cabeceraHTML(){
+  /* `conMeta=false` (páginas de imágenes) omite la tabla de Folio/Fecha/
+     Cliente/Sitio/Proyecto/Tipo/Estatus — ya está completa en la página 1,
+     repetirla en cada hoja de imágenes solo le quitaba espacio a las fotos.
+     El logo y el título SÍ se quedan: sigue siendo "mismo branding en toda
+     la página" y una hoja suelta se sigue reconociendo de dónde salió. */
+  function cabeceraHTML(conMeta){
     return '<div class="cab">'
       +   '<div class="logo-tl">' + isotipo(40) + '</div>'
       +   '<div class="wordmark-tr">' + logotipo(104) + '</div>'
       + '</div>'
       + '<div class="cab-tit"><div class="eyebrow">' + esc(eyebrow) + '</div>'
       +   '<div class="h1">' + esc(titulo) + '</div></div>'
-      + metaHTML();
+      + (conMeta === false ? '' : metaHTML());
   }
 
   function pieHTML(){
@@ -295,7 +300,7 @@ if(!PI){
 
   function paginaImagenesHTML(indices){
     const cuerpo = '<div class="img-tit">Imágenes del proyecto</div>' + indices.map(i => filasInfo[i].html).join('');
-    return '<div class="page"><div class="sheet">' + cabeceraHTML()
+    return '<div class="page"><div class="sheet">' + cabeceraHTML(false)
       + '<div class="cuerpo">' + cuerpo + '</div>' + pieHTML() + '</div></div>';
   }
 
