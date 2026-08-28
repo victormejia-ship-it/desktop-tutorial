@@ -1586,10 +1586,39 @@ function cargar(){
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
-/* Copia local: sirve de caché y para que la página siga sirviendo sin internet. */
+/* Copia profunda de `obj` con cualquier dataURL pesado (fotos, PDFs, planos)
+   vaciado a ''. Se usa SOLO como respaldo de emergencia en guardarLocal()
+   cuando el objeto completo ya no cabe en localStorage: el límite de
+   localStorage (~5 MB en Safari de iPhone) es muchísimo más chico que el de
+   Firestore, así que un teléfono se puede quedar sin espacio para el
+   espejo local mucho antes de que la nube rechace nada. El umbral (20,000
+   caracteres ≈ 15 KB decodificado) deja pasar cosas chicas como un logo de
+   cliente y solo vacía fotos/PDFs de verdad. */
+function quitarDataUrlsPesados(obj){
+  if(Array.isArray(obj)) return obj.map(quitarDataUrlsPesados);
+  if(obj && typeof obj === 'object'){
+    const o = {};
+    for(const k in obj) o[k] = quitarDataUrlsPesados(obj[k]);
+    return o;
+  }
+  if(typeof obj === 'string' && obj.length > 20000 && obj.slice(0, 5) === 'data:') return '';
+  return obj;
+}
+/* Copia local: sirve de caché y para que la página siga sirviendo sin internet.
+   Se llama SIEMPRE antes de encolar() el cambio hacia la nube (ver
+   guardarLevantamiento, guardarProyectoImagen, etc.) — que esta copia falle
+   NO impide que el cambio se intente sincronizar aparte; por eso el aviso de
+   abajo aclara que es solo el respaldo sin conexión de este aparato, no que
+   se haya perdido el cambio. */
 function guardarLocal(){
-  try{ localStorage.setItem(LLAVE, JSON.stringify(datos)); }
-  catch(e){ aviso('No se pudo guardar en este navegador. Descarga un respaldo JSON.', true); }
+  try{ localStorage.setItem(LLAVE, JSON.stringify(datos)); return; }
+  catch(e){}
+  try{
+    localStorage.setItem(LLAVE, JSON.stringify(quitarDataUrlsPesados(datos)));
+    aviso('Este dispositivo ya no tiene espacio para guardar las fotos/PDFs en su copia sin conexión. Tu cambio se sigue sincronizando aparte con la nube; para volver a ver esas imágenes sin internet en este aparato, libera espacio o bórralas de otras apps.', true);
+  }catch(e2){
+    aviso('No se pudo guardar ni una copia sin conexión en este navegador (sin espacio ni para eso). Tu cambio se sigue intentando sincronizar con la nube; descarga un respaldo JSON si te preocupa perder algo.', true);
+  }
 }
 function nuevoId(){ return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -9860,6 +9889,17 @@ document.addEventListener('keydown', ev=>{ if(ev.key === 'Escape' && $('telon').
 
 function aviso(texto, esError){
   const t = $('toast');
+  /* Un error activo no se debe tapar con el aviso normal que casi siempre
+     llega justo después (p.ej. guardarLocal() avisando que ya no cupo la
+     copia sin conexión, seguido a los pocos ms del "Proyecto creado." de
+     siempre) — si no, el mensaje importante desaparece antes de que nadie
+     lo lea. Se encola y se muestra en cuanto el de error termine. */
+  if(!esError && t.classList.contains('err') && t.classList.contains('visible')){
+    clearTimeout(t._colaAviso);
+    t._colaAviso = setTimeout(()=> aviso(texto, esError), 3500);
+    return;
+  }
+  clearTimeout(t._colaAviso);
   t.textContent = texto;
   t.classList.toggle('err', !!esError);
   t.classList.add('visible');
