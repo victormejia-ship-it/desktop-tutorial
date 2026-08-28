@@ -5930,6 +5930,21 @@ function irACotizaciones(){
   estado.busca = '';
   render();
 }
+/* Scroll de la lista de cotizaciones justo antes de entrar al detalle de una,
+   para que "Regresar a cotizaciones" pueda dejar la pantalla donde estaba en
+   vez de saltar arriba del todo. */
+let scrollPrevioCotizaciones = 0;
+/* El botón "← Regresar a cotizaciones" del detalle: a diferencia de
+   irACotizaciones() (que es un salto "a inicio" y por eso limpia búsqueda y
+   filtro), este solo tiene que deshacer el paso de entrar al detalle, así
+   que conserva la búsqueda/filtro que ya estaban activos y repone el scroll. */
+function regresarACotizaciones(){
+  animarTarjetas = false;
+  estado.vista = 'cotizaciones';
+  estado.cotizacionId = null;
+  render();
+  window.scrollTo({ top: scrollPrevioCotizaciones || 0 });
+}
 /* Salta al módulo Cotizaciones ya filtrado por el nombre de un cliente o un
    sitio — así se pueden consultar sus cotizaciones desde la ficha de
    Forpass, en vez de tener que ir a buscarlas aparte. Reaprovecha el mismo
@@ -5951,6 +5966,7 @@ function entrarCotizacion(id){
      `modulo` seguía en 'reportes', render() dibujaba la lista de reportes
      en vez de la cotización. */
   if(estado.modulo !== 'cotizaciones'){ estado.modulo = 'cotizaciones'; guardarModulo(); }
+  if(estado.vista === 'cotizaciones') scrollPrevioCotizaciones = window.scrollY;
   animarTarjetas = true;
   estado.vista = 'cotizacion'; estado.cotizacionId = id;
   estado.ladoCotizacion = 'costo';
@@ -13927,7 +13943,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-clientes') irAClientes();
     else if(a === 'ir-polizas') irAPolizas();
     else if(a === 'nueva-poliza'){ if(exigirPermiso()) modalPoliza(null); }
-    else if(a === 'ir-cotizaciones') irACotizaciones();
+    else if(a === 'ir-cotizaciones') regresarACotizaciones();
     else if(a === 'ir-resumen-clientes') irAResumenClientes();
     else if(a === 'ir-cliente-forpass') irAlClienteEnForpass(estado.clienteId);
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
