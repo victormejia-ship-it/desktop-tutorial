@@ -5929,8 +5929,8 @@ function rangoPeriodoResultados(modo, desde, hasta){
 }
 
 function calcularResultados(inicio, fin){
-  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
-              numPagosForpass:0, numCobrosPolizas:0, numServiciosPolizas:0, numCotizaciones:0 };
+  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, ingresoServiciosExtras:0, costoCotizaciones:0, costoPolizas:0,
+              numPagosForpass:0, numCobrosPolizas:0, numServiciosPolizas:0, numCotizaciones:0, numServiciosExtrasFacturados:0 };
 
   /* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
      el mes al que corresponde (fechaInicio + su número de mes), no en el mes
@@ -5988,7 +5988,23 @@ function calcularResultados(inicio, fin){
     r.numCotizaciones++;
   });
 
-  r.ingresoTotal = r.ingresoForpass + r.ingresoPolizas + r.ingresoCotizaciones;
+  /* Servicios Extras: SOLO lo Facturado es ingreso real (decisión de Victor,
+     28-ago-2026 — ver la nota al inicio del módulo, arriba de
+     ESTATUS_SERVICIO_EXTRA). Lo cotizado, compartido o hasta ejecutado
+     todavía puede cancelarse o expirar, así que no es dinero. Igual que
+     Forpass: no hay costo interno capturado para estos servicios (el
+     tablero de origen no lo trae), así que solo suman ingreso, sin
+     inventarles un margen — el costo real de la reparación, si lo hay, se
+     queda fuera de este cálculo. Se reconoce por su fecha de alta a falta
+     de una fecha de facturación propia (el pipeline no la captura). */
+  datos.serviciosExtras.forEach(s=>{
+    if(s.estatus !== 'facturado') return;
+    if(!(s.fecha >= inicio && s.fecha <= fin)) return;
+    r.ingresoServiciosExtras += totalServicioExtra(s);
+    r.numServiciosExtrasFacturados++;
+  });
+
+  r.ingresoTotal = r.ingresoForpass + r.ingresoPolizas + r.ingresoCotizaciones + r.ingresoServiciosExtras;
   r.costoTotal = r.costoCotizaciones + r.costoPolizas;
   r.utilidadBruta = r.ingresoTotal - r.costoTotal;
   r.margenPct = r.ingresoTotal ? (r.utilidadBruta / r.ingresoTotal * 100) : 0;
@@ -6037,7 +6053,7 @@ function vistaResultados(){
      + '</div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Ingresos totales', dineroCent(r.ingresoTotal), 'Forpass + pólizas + cotizaciones', 'k-ok')
+     + tarjetaKpi('Ingresos totales', dineroCent(r.ingresoTotal), 'Forpass + pólizas + cotizaciones + servicios extras facturados', 'k-ok')
      + tarjetaKpi('Costo capturado', dineroCent(r.costoTotal), 'Pólizas (costo por equipo) + cotizaciones')
      + tarjetaKpi('Utilidad bruta', dineroCent(r.utilidadBruta), r.margenPct.toFixed(1) + '% de margen sobre el ingreso',
          r.utilidadBruta >= 0 ? 'k-ok' : 'k-error')
@@ -6051,6 +6067,8 @@ function vistaResultados(){
      +     '<span class="tp-monto">' + dineroCent(r.ingresoPolizas) + '</span></div>'
      +   '<div class="tp-fila"><span>Cotizaciones aprobadas (' + numero(r.numCotizaciones) + ')</span>'
      +     '<span class="tp-monto">' + dineroCent(r.ingresoCotizaciones) + '</span></div>'
+     +   '<div class="tp-fila"><span>Servicios extras · facturados (' + numero(r.numServiciosExtrasFacturados) + ')</span>'
+     +     '<span class="tp-monto">' + dineroCent(r.ingresoServiciosExtras) + '</span></div>'
      +   '<div class="tp-fila tp-total"><span>Total de ingresos</span><span class="tp-monto">' + dineroCent(r.ingresoTotal) + '</span></div>'
 
      +   '<div class="tp-seccion">Costos</div>'
@@ -6088,7 +6106,10 @@ function vistaResultados(){
      + 'de cada equipo en su renglón (ver Lista de precios); si un equipo quedó en $0 de costo, esa parte del margen '
      + 'sale de más. Imagen/remodelaciones se cuenta por su fecha de alta (los proyectos cancelados no cuentan); dentro '
      + 'de sus conceptos, un proveedor capturado como "Servicios" o "Servicios / IT" se toma como mano de obra y '
-     + 'cualquier otro como material.</p>';
+     + 'cualquier otro como material. Servicios extras solo aporta ingreso por lo ya <b>Facturado</b> —lo cotizado, '
+     + 'compartido o hasta ejecutado todavía puede cancelarse o expirar, así que no cuenta como dinero— y, como Forpass, '
+     + 'sin costo interno capturado; se reconoce por su fecha de alta a falta de una fecha de facturación propia. Su '
+     + 'indicador de actividad comercial (todo lo cotizado, gane o no el trabajo) vive aparte, dentro del propio módulo.</p>';
 
   return h;
 }
