@@ -379,6 +379,8 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   border-radius:14px; padding:16px 18px 6px; margin-bottom:16px; box-shadow:var(--sombra-suave);}
 .agenda-bloque.a-error {border-left-color:var(--error);}
 .agenda-bloque.a-alerta{border-left-color:var(--alerta);}
+.agenda-bloque.a-ok    {border-left-color:var(--ok);}
+.agenda-bloque.a-info  {border-left-color:#c9d4ec;}
 .agenda-cabeza h3{font-size:14.5px; color:var(--navy); display:flex; align-items:center; gap:8px;}
 .agenda-cabeza .pista{margin:3px 0 0;}
 .agenda-cuenta{background:var(--neutro-suave); color:#5d6479; font-size:11.5px; font-weight:700;
@@ -1050,6 +1052,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
     <button type="button" class="mod" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
+    <button type="button" class="mod" data-modulo="servicios" role="tab" aria-selected="false">Servicios Extras</button>
   </nav>
   <div class="nube-zona">
     <span class="correo-sesion" id="nombreSesion"></span>
@@ -1607,7 +1610,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], serviciosExtras:[], personasServicio:[] };
 
 function cargar(){
   try{
@@ -1629,7 +1632,9 @@ function cargar(){
         cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion),
         reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
         levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
-        proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen) };
+        proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
+        serviciosExtras: (Array.isArray(d.serviciosExtras) ? d.serviciosExtras : []).map(normalizarServicioExtra),
+        personasServicio: normalizarPersonasServicio(d.personasServicio) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1716,7 +1721,9 @@ async function restaurarSnapshotIndexedDB(){
       cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion),
       reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
       levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
-      proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen) };
+      proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
+      serviciosExtras: (Array.isArray(d.serviciosExtras) ? d.serviciosExtras : []).map(normalizarServicioExtra),
+      personasServicio: normalizarPersonasServicio(d.personasServicio) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -2182,9 +2189,9 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], serviciosExtras:[], personasServicio:[] };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.servicioExtraId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -2498,10 +2505,11 @@ async function bajarDeLaNube(){
      documento por equipo: así son 48 equipos por 1 lectura en vez de 48. Se
      edita poco y se lee en cada carga, así que el ahorro es todo. El costo es
      que dos admins editándola a la vez se pisan, y eso está anotado en la vista. */
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, pe] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
-    listarNube('levantamientos', 60), listarNube('proyectosImagen', 60)
+    listarNube('levantamientos', 60), listarNube('proyectosImagen', 60),
+    listarNube('serviciosExtras', 60), leerPersonasServicio()
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -2517,7 +2525,8 @@ async function bajarDeLaNube(){
             polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo),
             segmentos: sg, parametros: pr, cotizaciones: co.map(normalizarCotizacion),
             reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento),
-            proyectosImagen: im.map(normalizarProyectoImagen) };
+            proyectosImagen: im.map(normalizarProyectoImagen),
+            serviciosExtras: se.map(normalizarServicioExtra), personasServicio: pe };
   guardarLocal();
   return 'ok';
 }
@@ -3992,6 +4001,7 @@ function subirTodo(){
      local: si algo quedó en la copia local sin subir, se sube igual, mismo
      criterio que el resto de las colecciones. */
   datos.proyectosImagen.forEach(im => encolar({ tipo:'poner', coleccion:'proyectosImagen', id:im.id, obj:im }));
+  datos.serviciosExtras.forEach(se => encolar({ tipo:'poner', coleccion:'serviciosExtras', id:se.id, obj:se }));
   /* `puedeCat` y no `admin`: ese nombre ya lo ocupa la caché del panel. */
   const puedeCat = esAdmin();
   let fuera = 0;
@@ -4008,6 +4018,9 @@ function subirTodo(){
   }
   if((datos.parametros.clientes.length || datos.parametros.sitios.length) && puedeCat){
     encolar({ tipo:'poner', coleccion:'parametros', id:'lista', obj: datos.parametros });
+  }
+  if(datos.personasServicio.length){
+    encolar({ tipo:'poner', coleccion:'personasServicio', id:'lista', obj:{ valores: datos.personasServicio } });
   }
   if(!puedeCat && (fuera || datos.catalogo.length)){
     aviso('Se subió lo tuyo. ' + (fuera ? fuera + ' ' + plural(fuera,'póliza cerrada','pólizas cerradas') + ' ' : '')
@@ -5348,7 +5361,7 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
-                 levantamientoId:null, proyectoImagenId:null,
+                 levantamientoId:null, proyectoImagenId:null, servicioExtraId:null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
@@ -5358,7 +5371,10 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
-                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas',
+                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaServiciosExtras:'tarjetas',
+                 /* Filtro extra propio de Servicios Extras (aparte de estado.filtro,
+                    que ahí filtra por etapa): por persona responsable. */
+                 personaFiltroServicio:'',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -5367,7 +5383,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'imagen'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'imagen', 'servicios'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -5391,11 +5407,11 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
 function modulosPermitidos(){
   if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos'];
   if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones'];
-  /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
-     editar precios (ver el comentario del módulo, arriba de
-     normalizarProyectoImagen()) — un Viewer sigue viendo Pólizas de solo
-     lectura, pero este módulo ni se le enseña. */
-  return puedeEditar() ? MODULOS : MODULOS.filter(m => m !== 'imagen');
+  /* Imagen/Aperturas y Servicios Extras, al revés de Levantamientos: cerrados
+     a quien no puede editar precios (ver el comentario del módulo, arriba de
+     normalizarProyectoImagen() y de ESTATUS_SERVICIO_EXTRA) — un Viewer sigue
+     viendo Pólizas de solo lectura, pero estos dos módulos ni se le enseñan. */
+  return puedeEditar() ? MODULOS : MODULOS.filter(m => m !== 'imagen' && m !== 'servicios');
 }
 
 /* La pantalla de arranque de cada módulo. Una sola función para que el logo, el
@@ -5406,6 +5422,7 @@ function inicioDelModulo(){
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
        : estado.modulo === 'imagen' ? 'imagen'
+       : estado.modulo === 'servicios' ? 'servicios'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
        : 'clientes';
@@ -5456,7 +5473,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.servicioExtraId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -5566,6 +5583,21 @@ function entrarProyectoImagen(id){
   if(estado.modulo !== 'imagen'){ estado.modulo = 'imagen'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'proyecto-imagen'; estado.proyectoImagenId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function irAServiciosExtras(){
+  animarTarjetas = true;
+  estado.vista = 'servicios';
+  estado.servicioExtraId = null;
+  estado.busca = '';
+  render();
+}
+function entrarServicioExtra(id){
+  if(estado.modulo !== 'servicios'){ estado.modulo = 'servicios'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'servicio-extra'; estado.servicioExtraId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -9077,6 +9109,675 @@ function modalProyectoImagen(id, datosImportados){
   };
 }
 
+/* =============================== Módulo Servicios Extras ===============================
+   Noveno módulo: servicios correctivos/reparaciones cotizados por trabajo (no
+   por contrato anual, eso es Pólizas), uno por incidente — el mantenimiento
+   REACTIVO en vez del preventivo programado. Nace de un tablero real de
+   Monday.com ("Servicios Pendientes - Cargo al Cliente", compartido por
+   Victor el 28-ago-2026) con 2,559 servicios repartidos en 13 etapas, desde
+   que se levanta la solicitud hasta que se factura, se cancela o expira.
+
+   Por qué existe aparte de Cotizaciones: ahí una cotización es UNA transacción
+   con un solo estatus final (aprobada/rechazada). Aquí cada servicio vive un
+   PIPELINE real de 13 pasos con datos propios en cada uno (fecha programada,
+   proveedor, folio de soporte…), y el dato que de verdad importa para el
+   negocio no es "se cotizó" sino en qué paso del pipeline está HOY.
+
+   Dos indicadores, a propósito separados (decisión de Victor, 28-ago-2026):
+     1. INGRESO REAL: solo lo Facturado. Lo que se cotiza, se comparte o hasta
+        se ejecuta no es dinero todavía —puede cancelarse o expirar— así que
+        Resultados solo suma esto (ver calcularResultados()).
+     2. ACTIVIDAD COMERCIAL: el monto cotizado TOTAL, sin importar el estatus,
+        y por persona. Quien cotiza y da seguimiento generó valor aunque el
+        cliente no haya tenido presupuesto para aprobarlo — eso también es un
+        indicador, nada más que uno distinto del ingreso. */
+
+const ESTATUS_SERVICIO_EXTRA = [
+  'trabajo_oc', 'trabajo_interno', 'pendiente_liberacion', 'pendiente',
+  'solicitud_comercial', 'solicitud_soporte', 'compartida', 'realizado',
+  'realizado_comedor', 'proceso_facturacion', 'cancelado', 'facturado', 'expirado'
+];
+const ETIQUETA_ESTATUS_SERVICIO_EXTRA = {
+  trabajo_oc: 'Trabajos con Orden de Compra',
+  trabajo_interno: 'Trabajo interno Plato',
+  pendiente_liberacion: 'Trabajos Internos - Pendientes por liberación',
+  pendiente: 'Servicios Pendientes',
+  solicitud_comercial: 'Solicitud de cotización a cliente (Comercial)',
+  solicitud_soporte: 'Solicitud de cotización a cliente (Soporte)',
+  compartida: 'Compartida al cliente',
+  realizado: 'Servicios Realizados',
+  realizado_comedor: 'Servicios Realizados / Cargo a Comedor',
+  proceso_facturacion: 'Proceso de facturación',
+  cancelado: 'Cancelado',
+  facturado: 'Facturado',
+  expirado: 'Expirado'
+};
+const TONO_ESTATUS_SERVICIO_EXTRA = {
+  trabajo_oc: 'info', trabajo_interno: 'info', pendiente_liberacion: 'alerta', pendiente: 'alerta',
+  solicitud_comercial: 'info', solicitud_soporte: 'info', compartida: 'alerta',
+  realizado: 'ok', realizado_comedor: 'ok', proceso_facturacion: 'alerta',
+  cancelado: 'neutro', facturado: 'ok', expirado: 'neutro'
+};
+/* Los únicos dos estatus que ya NO pueden convertirse en ingreso — para
+   distinguir "todavía en curso" de "se perdió", en el KPI de conversión. */
+const ESTATUS_SERVICIO_EXTRA_PERDIDO = ['cancelado', 'expirado'];
+
+function normalizarServicioExtra(x){
+  return {
+    id: (x && x.id) || nuevoId(),
+    /* El folio SOPORTE ya es el identificador real del negocio (p.ej.
+       "SERV-210226-01") — no se inventa uno propio encima; si llega vacío
+       (un servicio nuevo capturado a mano, no importado), se genera uno. */
+    folio: (x && x.folio ? String(x.folio) : '').trim(),
+    clienteId: (x && x.clienteId) || '',
+    clienteNombre: (x && x.clienteNombre ? String(x.clienteNombre) : '').trim(),
+    sitioId: (x && x.sitioId) || '',
+    sitioNombre: (x && x.sitioNombre ? String(x.sitioNombre) : '').trim(),
+    nombre: (x && x.nombre ? String(x.nombre) : '').trim(),
+    proveedor: (x && x.proveedor ? String(x.proveedor) : '').trim(),
+    personaNombre: (x && x.personaNombre ? String(x.personaNombre) : '').trim(),
+    estatus: ESTATUS_SERVICIO_EXTRA.includes(x && x.estatus) ? x.estatus : 'pendiente',
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(x && x.fecha) ? x.fecha : hoyISO(),
+    fechaLiberacion: /^\d{4}-\d{2}-\d{2}$/.test(x && x.fechaLiberacion) ? x.fechaLiberacion : '',
+    fechaProgramadaInicio: /^\d{4}-\d{2}-\d{2}$/.test(x && x.fechaProgramadaInicio) ? x.fechaProgramadaInicio : '',
+    fechaProgramadaFin: /^\d{4}-\d{2}-\d{2}$/.test(x && x.fechaProgramadaFin) ? x.fechaProgramadaFin : '',
+    fechaRealizado: /^\d{4}-\d{2}-\d{2}$/.test(x && x.fechaRealizado) ? x.fechaRealizado : '',
+    /* subtotal es lo único que se captura; el total (con IVA) SIEMPRE se
+       calcula —mismo criterio que cotizaciones/pólizas: nunca dos números
+       que puedan dejar de cuadrar entre sí. */
+    subtotal: Math.max(0, numDef(x && x.subtotal, 0)),
+    comentarios: (x && x.comentarios ? String(x.comentarios) : '').trim()
+  };
+}
+function totalServicioExtra(s){ return s.subtotal * (1 + IVA_COTIZACION); }
+/* true si el servicio ya no puede convertirse en ingreso: se perdió (cancelado
+   o expiró) para siempre. Lo contrario de "todavía en curso". */
+function servicioExtraPerdido(s){ return ESTATUS_SERVICIO_EXTRA_PERDIDO.includes(s.estatus); }
+
+/* SE-ddmmaa-NN: mismo molde que el resto de los folios del tablero. Solo se
+   usa si el servicio se capturó a mano sin folio de soporte propio. */
+function generarFolioServicioExtra(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  return 'SE-' + ddmmaa + '-' + String(datos.serviciosExtras.length + 1).padStart(2,'0');
+}
+
+function servicioExtraPorId(id){ return datos.serviciosExtras.find(s => s.id === id); }
+
+function guardarServicioExtra(s, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'serviciosExtras', id:s.id, obj:s });
+  anotar(accion || 'editó', 'servicio extra', s.folio || s.nombre || 'sin folio', detalle);
+}
+
+/* ---- Catálogo de personas (técnicos/comerciales) ----
+   Mismo molde que segmentos: un documento único con un arreglo de nombres.
+   Se referencia por NOMBRE, no por id —igual que sitioNombre/clienteNombre
+   en el resto del tablero—, así que renombrar una persona no desconecta el
+   historial ya capturado con el nombre viejo (se queda como texto, igual
+   que le pasaría a un sitio renombrado). */
+function normalizarPersonasServicio(arr){
+  return (Array.isArray(arr) ? arr : [])
+    .map(p => String(p || '').trim())
+    .filter(Boolean);
+}
+async function leerPersonasServicio(){
+  try{
+    const d = await pedirNube('/personasServicio/lista', { method:'GET' }, true);
+    return normalizarPersonasServicio((d && d.fields) ? deCampos(d.fields).valores : []);
+  }catch(e){
+    console.warn('No se pudo leer el catálogo de personas; se usa vacío:', String(e.message || e));
+    return [];
+  }
+}
+function guardarPersonasServicio(detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'personasServicio', id:'lista', obj:{ valores: datos.personasServicio } });
+  anotar('actualizó', 'catálogo de personas', datos.personasServicio.length + ' ' + plural(datos.personasServicio.length,'persona','personas'), detalle);
+}
+/* Agrega una persona nueva al catálogo si no existe ya (comparación sin
+   mayúsculas/acentos, mismo criterio que ya usa el resto del tablero para
+   nombres de sitio) y regresa el nombre YA normalizado a guardar. */
+function agregarPersonaServicioSiNueva(nombre){
+  const limpio = String(nombre || '').trim();
+  if(!limpio) return '';
+  const yaExiste = datos.personasServicio.some(p => normalizarTextoEncabezadoXlsx(p) === normalizarTextoEncabezadoXlsx(limpio));
+  if(!yaExiste){
+    datos.personasServicio.push(limpio);
+    datos.personasServicio.sort((a,b)=> a.localeCompare(b,'es'));
+    guardarPersonasServicio('agregada al capturar un servicio: ' + limpio);
+  }
+  return limpio;
+}
+
+function botonRegresarServiciosExtras(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-servicios-extras">'
+       + ICONO.atras + 'Regresar a Servicios Extras</button></div>';
+}
+
+/* Dos indicadores a propósito separados (ver la nota al inicio del módulo):
+   montoCotizado cuenta TODO sin importar estatus (actividad comercial);
+   montoFacturado es lo único que Resultados podrá tomar como ingreso real.
+   tasaConversion solo se calcula sobre lo YA resuelto (facturado o perdido) —
+   lo que sigue en curso todavía no cuenta ni a favor ni en contra. */
+function calcularKpiServiciosExtras(lista){
+  let montoCotizado = 0, montoFacturado = 0, montoPerdido = 0;
+  let numFacturados = 0, numPerdidos = 0;
+  lista.forEach(s=>{
+    const t = totalServicioExtra(s);
+    montoCotizado += t;
+    if(s.estatus === 'facturado'){ montoFacturado += t; numFacturados++; }
+    else if(servicioExtraPerdido(s)){ montoPerdido += t; numPerdidos++; }
+  });
+  const resueltos = numFacturados + numPerdidos;
+  return {
+    total: lista.length, montoCotizado, montoFacturado, montoPerdido,
+    numFacturados, numPerdidos,
+    tasaConversion: resueltos ? numFacturados / resueltos : null
+  };
+}
+/* Mismo criterio de conversión, pero por persona — para el tablero de
+   actividad comercial que Victor pidió (dar crédito a quien cotiza y da
+   seguimiento, gane o no el trabajo). */
+function resumenServiciosPorPersona(lista){
+  const porPersona = new Map();
+  lista.forEach(s=>{
+    const clave = s.personaNombre || 'Sin asignar';
+    if(!porPersona.has(clave)) porPersona.set(clave, []);
+    porPersona.get(clave).push(s);
+  });
+  return Array.from(porPersona.entries()).map(([persona, items])=>{
+    const k = calcularKpiServiciosExtras(items);
+    return { persona, num: items.length, cotizado: k.montoCotizado, facturado: k.montoFacturado, tasaConversion: k.tasaConversion };
+  }).sort((a,b)=> b.cotizado - a.cotizado);
+}
+
+function filaServicioExtra(s){
+  return '<tr class="fila-clic" data-servicio-extra="' + esc(s.id) + '" tabindex="0" role="button">'
+       +   '<td>' + esc(s.folio || '—') + '</td>'
+       +   '<td>' + esc(s.nombre || 'Servicio') + '</td>'
+       +   '<td>' + esc(s.clienteNombre || 'Prospecto') + (s.sitioNombre ? ' · ' + esc(s.sitioNombre) : '') + '</td>'
+       +   '<td>' + esc(s.personaNombre || 'Sin asignar') + '</td>'
+       +   '<td>' + fmtFecha(s.fecha) + '</td>'
+       +   '<td><span class="insignia i-' + TONO_ESTATUS_SERVICIO_EXTRA[s.estatus] + '">' + esc(ETIQUETA_ESTATUS_SERVICIO_EXTRA[s.estatus]) + '</span></td>'
+       +   '<td>' + dineroCent(totalServicioExtra(s)) + '</td>'
+       + '</tr>';
+}
+
+/* Una etapa del pipeline: el encabezado (conteo + monto cotizado) SIEMPRE se
+   pinta, pero las filas de la tabla solo se generan si la etapa está en
+   etapasServicioAbiertas — con ~2,559 servicios reales, pintar las 13 tablas
+   completas en cada render() sería carísimo para nada (casi nadie las abre
+   todas a la vez). */
+function bloqueEtapaServicioExtra(estatus, itemsEtapa){
+  const abierta = etapasServicioAbiertas.has(estatus);
+  const totalEtapa = itemsEtapa.reduce((s,x)=> s + totalServicioExtra(x), 0);
+  let h = '<div class="agenda-bloque a-' + TONO_ESTATUS_SERVICIO_EXTRA[estatus] + '">';
+  h += '<button type="button" class="agenda-cabeza" style="width:100%; text-align:left; background:none; border:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; padding:0 0 10px" '
+     +   'data-accion="toggle-etapa-servicio" data-toggle-etapa-servicio="' + estatus + '" aria-expanded="' + abierta + '">'
+     +   '<div><h3>' + (abierta ? '▾' : '▸') + ' ' + esc(ETIQUETA_ESTATUS_SERVICIO_EXTRA[estatus]) + ' <span class="agenda-cuenta">' + numero(itemsEtapa.length) + '</span></h3>'
+     +   '<p class="pista">' + dineroCent(totalEtapa) + ' cotizado en esta etapa</p></div>'
+     + '</button>';
+  if(abierta){
+    if(!itemsEtapa.length){
+      h += '<p class="pista" style="margin:0 0 12px">Sin servicios en esta etapa.</p>';
+    }else{
+      const ordenados = itemsEtapa.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.folio||'').localeCompare(a.folio||''));
+      h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Folio</th><th>Servicio</th><th>Cliente / sitio</th><th>Persona</th><th>Fecha</th><th>Estatus</th><th>Cotizado</th></tr></thead><tbody>'
+         + ordenados.map(filaServicioExtra).join('')
+         + '</tbody></table></div><div style="height:10px"></div>';
+    }
+  }
+  h += '</div>';
+  return h;
+}
+
+function vistaServiciosExtras(){
+  const lista = datos.serviciosExtras;
+  let h = '';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Servicios Extras</h2>'
+     +   '<p>' + numero(lista.length) + ' ' + plural(lista.length,'servicio','servicios') + '</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave" data-accion="gestionar-personas-servicio" '
+     +     'title="Administrar el catálogo de personas responsables">' + ICONO.persona + 'Personas</button>'
+     +   '<button type="button" class="btn btn-primario" data-accion="nuevo-servicio-extra">' + ICONO.mas + 'Nuevo servicio</button>'
+     + '</div></div>';
+
+  if(!lista.length){
+    h += vistaVacia('reporte', 'Todavía no hay servicios extras',
+          'Registra un servicio correctivo o reparación cotizada por trabajo: cliente o prospecto, persona responsable y el pipeline hasta que se facture.',
+          'nuevo-servicio-extra', 'Nuevo servicio');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaServicioExtra" placeholder="Buscar por folio, servicio, sitio, cliente o persona…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroServicioExtra">'
+     +     '<option value="todos">Todas las etapas</option>'
+     +     ESTATUS_SERVICIO_EXTRA.map(e => '<option value="' + e + '"' + (estado.filtro === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_SERVICIO_EXTRA[e]) + '</option>').join('')
+     +   '</select>'
+     +   '<select id="personaFiltroServicioExtra">'
+     +     '<option value="">Todas las personas</option>'
+     +     '<option value="__sin_asignar__"' + (estado.personaFiltroServicio === '__sin_asignar__' ? ' selected' : '') + '>Sin asignar</option>'
+     +     datos.personasServicio.map(p => '<option value="' + esc(p) + '"' + (estado.personaFiltroServicio === p ? ' selected' : '') + '>' + esc(p) + '</option>').join('')
+     +   '</select>'
+     + '</div>';
+
+  const kpi = calcularKpiServiciosExtras(lista);
+  h += '<div class="kpis">'
+     + tarjetaKpi('Monto cotizado (actividad)', dineroCent(kpi.montoCotizado), numero(kpi.total) + ' ' + plural(kpi.total,'servicio','servicios') + ' en total')
+     + tarjetaKpi('Ingreso real (facturado)', dineroCent(kpi.montoFacturado), numero(kpi.numFacturados) + ' ' + plural(kpi.numFacturados,'facturado','facturados'))
+     + tarjetaKpi('Perdido (cancelado / expirado)', dineroCent(kpi.montoPerdido), numero(kpi.numPerdidos) + ' ' + plural(kpi.numPerdidos,'servicio','servicios'))
+     + tarjetaKpi('Tasa de conversión', kpi.tasaConversion === null ? 'Sin datos' : Math.round(kpi.tasaConversion*100) + '%', 'De lo ya resuelto (facturado vs. perdido)')
+     + '</div>';
+  h += '<p class="pista" style="margin:-10px 0 16px">Solo lo <b>facturado</b> es ingreso real para el estado de resultados; lo demás es indicador de actividad comercial.</p>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const estatusFiltro = ESTATUS_SERVICIO_EXTRA.includes(estado.filtro) ? estado.filtro : '';
+  const personaFiltro = estado.personaFiltroServicio;
+  const hayFiltro = !!(q || estatusFiltro || personaFiltro);
+
+  if(hayFiltro){
+    const filtrados = lista.filter(s=>{
+      if(q){
+        const campos = [s.folio, s.nombre, s.clienteNombre, s.sitioNombre, s.personaNombre, s.proveedor].join(' ').toLowerCase();
+        if(!campos.includes(q)) return false;
+      }
+      if(estatusFiltro && s.estatus !== estatusFiltro) return false;
+      if(personaFiltro === '__sin_asignar__'){ if(s.personaNombre) return false; }
+      else if(personaFiltro && s.personaNombre !== personaFiltro) return false;
+      return true;
+    });
+    if(!filtrados.length){
+      h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún servicio coincide con la búsqueda o los filtros.</p></div>';
+      return h;
+    }
+    const ordenados = filtrados.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.folio||'').localeCompare(a.folio||''));
+    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Folio</th><th>Servicio</th><th>Cliente / sitio</th><th>Persona</th><th>Fecha</th><th>Estatus</th><th>Cotizado</th></tr></thead><tbody>'
+       + ordenados.map(filaServicioExtra).join('')
+       + '</tbody></table></div>';
+    return h;
+  }
+
+  const porPersona = resumenServiciosPorPersona(lista);
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Por persona</h3><p>Actividad comercial: quien cotiza y da seguimiento, gane o no el trabajo.</p></div></div>'
+     + '<div class="rodillo"><table class="tabla"><thead><tr><th>Persona</th><th>Servicios</th><th>Cotizado</th><th>Facturado</th><th>Conversión</th></tr></thead><tbody>'
+     + porPersona.map(r => '<tr>'
+         + '<td>' + esc(r.persona) + '</td>'
+         + '<td>' + numero(r.num) + '</td>'
+         + '<td>' + dineroCent(r.cotizado) + '</td>'
+         + '<td>' + dineroCent(r.facturado) + '</td>'
+         + '<td>' + (r.tasaConversion === null ? '—' : Math.round(r.tasaConversion*100) + '%') + '</td>'
+         + '</tr>').join('')
+     + '</tbody></table></div></div>';
+
+  h += ESTATUS_SERVICIO_EXTRA.map(estatus => bloqueEtapaServicioExtra(estatus, lista.filter(s => s.estatus === estatus))).join('');
+
+  return h;
+}
+
+function vistaServicioExtra(){
+  const s = servicioExtraPorId(estado.servicioExtraId);
+  if(!s){ estado.vista = 'servicios'; return vistaServiciosExtras(); }
+  const puede = puedeEditar();
+
+  let h = botonRegresarServiciosExtras();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(s.nombre || 'Servicio') + '</h2>'
+     +   '<p>' + esc(s.folio || 'Sin folio') + ' · ' + esc(s.clienteNombre || 'Prospecto') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   '<span class="insignia i-' + TONO_ESTATUS_SERVICIO_EXTRA[s.estatus] + '">' + esc(ETIQUETA_ESTATUS_SERVICIO_EXTRA[s.estatus]) + '</span>'
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Sitio / ubicación', esc(s.sitioNombre || 'Sin especificar'), '')
+     + tarjetaKpi('Persona responsable', esc(s.personaNombre || 'Sin asignar'), '')
+     + tarjetaKpi('Subtotal', dineroCent(s.subtotal), '')
+     + tarjetaKpi('Total cotizado (con IVA)', dineroCent(totalServicioExtra(s)), s.estatus === 'facturado' ? 'Cuenta como ingreso real' : 'Indicador de actividad, no es ingreso todavía')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Fechas del pipeline</h3></div></div>'
+     + '<div class="resumen">'
+     +   '<div class="r-fila"><span>Fecha de alta</span><span>' + fmtFecha(s.fecha) + '</span></div>'
+     +   '<div class="r-fila"><span>Liberación</span><span>' + (s.fechaLiberacion ? fmtFecha(s.fechaLiberacion) : 'Sin definir') + '</span></div>'
+     +   '<div class="r-fila"><span>Programada — inicio</span><span>' + (s.fechaProgramadaInicio ? fmtFecha(s.fechaProgramadaInicio) : 'Sin definir') + '</span></div>'
+     +   '<div class="r-fila"><span>Programada — fin</span><span>' + (s.fechaProgramadaFin ? fmtFecha(s.fechaProgramadaFin) : 'Sin definir') + '</span></div>'
+     +   '<div class="r-fila"><span>Realizado</span><span>' + (s.fechaRealizado ? fmtFecha(s.fechaRealizado) : 'Sin definir') + '</span></div>'
+     + '</div></div>';
+
+  if(s.proveedor){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Proveedor</h3></div></div>'
+       +   '<p class="pista" style="margin:0">' + esc(s.proveedor) + '</p></div>';
+  }
+  if(s.comentarios){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Comentarios</h3></div></div>'
+       +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(s.comentarios) + '</p></div>';
+  }
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-servicio-extra">' + ICONO.lapiz + 'Editar</button>';
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-servicio-extra">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: Servicio Extra ---------------------------- */
+function modalServicioExtra(id){
+  const s = id ? servicioExtraPorId(id) : null;
+
+  const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const opc = (lista, sel, texto, valor) => lista.map(o =>
+    '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
+
+  const tieneClienteInicial = !!(s && s.clienteId);
+  const tieneSitioInicial = !!(s && s.sitioId);
+  const personasOrd = datos.personasServicio.slice().sort((a,b)=> a.localeCompare(b,'es'));
+
+  const cuerpo =
+      '<div class="campo"><label>Cliente (opcional — déjalo en blanco si todavía es un prospecto)</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="seCliente"><option value="">— Prospecto / cliente nuevo —</option>' + opc(clientesOrd, s ? s.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoSE" '
+    +       'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaClienteNuevoSE" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del cliente nuevo *</label>'
+    +     '<input type="text" id="sencNombre" placeholder="Ej. Mercado Libre" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="sencCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="sencCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="campo" id="zonaClienteLibreSE"><label>Nombre del cliente o marca (prospecto) *</label>'
+    +   '<input type="text" id="seClienteLibre" placeholder="Ej. Starbucks (prospecto)" value="' + esc(!tieneClienteInicial && s ? s.clienteNombre : '') + '"></div>'
+    + '<div class="campo" id="zonaSitioSE"><label>Sitio (opcional)</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="seSitio"></select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoSE" '
+    +       'title="Dar de alta un sitio de este cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaSitioNuevoSE" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del sitio nuevo *</label>'
+    +     '<input type="text" id="sensNombre" placeholder="Ej. BANREGIO Cumbres" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="sensCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="sensCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="campo" id="zonaUbicacionLibreSE"><label>Ubicación *</label>'
+    +   '<input type="text" id="seUbicacionLibre" placeholder="Ej. Valle Oriente, Monterrey" value="' + esc(!tieneSitioInicial && s ? s.sitioNombre : '') + '"></div>'
+
+    + '<div class="campo"><label>Nombre del servicio *</label>'
+    +   '<input type="text" id="seNombre" placeholder="Ej. Reparación de cámara de refrigeración" value="' + esc(s ? s.nombre : '') + '"></div>'
+
+    + '<div class="campo"><label>Persona responsable (opcional)</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="sePersona"><option value="">— Sin asignar —</option>' + opc(personasOrd, s ? s.personaNombre : '', p=>p, p=>p) + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnPersonaNuevaSE" '
+    +       'title="Agregar una persona nueva al catálogo">' + ICONO.mas + 'Nueva</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaPersonaNuevaSE" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre de la persona nueva *</label>'
+    +     '<input type="text" id="senpNombre" placeholder="Ej. Juan Pérez" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="senpCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="senpCrear">Agregar y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Etapa</label><select id="seEstatus">'
+    +     ESTATUS_SERVICIO_EXTRA.map(e => '<option value="' + e + '"' + ((s ? s.estatus : 'pendiente') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_SERVICIO_EXTRA[e]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Folio (opcional — se genera solo si lo dejas en blanco)</label>'
+    +     '<input type="text" id="seFolio" placeholder="Ej. SERV-210226-01" value="' + esc(s ? s.folio : '') + '"></div>'
+    + '</div>'
+
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fecha de alta</label><input type="date" id="seFecha" value="' + esc(s ? s.fecha : hoyISO()) + '"></div>'
+    +   '<div class="campo"><label>Liberación (opcional)</label><input type="date" id="seFechaLiberacion" value="' + esc(s ? s.fechaLiberacion : '') + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Programada — inicio (opcional)</label><input type="date" id="seFechaProgramadaInicio" value="' + esc(s ? s.fechaProgramadaInicio : '') + '"></div>'
+    +   '<div class="campo"><label>Programada — fin (opcional)</label><input type="date" id="seFechaProgramadaFin" value="' + esc(s ? s.fechaProgramadaFin : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Realizado (opcional)</label><input type="date" id="seFechaRealizado" value="' + esc(s ? s.fechaRealizado : '') + '"></div>'
+
+    + '<div class="campo"><label>Proveedor (opcional)</label>'
+    +   '<input type="text" id="seProveedor" placeholder="Quién ejecuta el servicio" value="' + esc(s ? s.proveedor : '') + '"></div>'
+
+    + '<div class="campo"><label>Subtotal</label>'
+    +   '<input type="text" inputmode="decimal" id="seSubtotal" placeholder="0" value="' + (s ? numero(s.subtotal) : '') + '"></div>'
+    + '<p class="pista" id="seTotalPista" style="margin:-10px 0 14px"></p>'
+
+    + '<div class="campo"><label>Comentarios (opcional)</label>'
+    +   '<textarea id="seComentarios" placeholder="Contexto, avances, pendientes…">' + esc(s ? s.comentarios : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (s ? 'Guardar cambios' : 'Crear servicio') + '</button>';
+
+  abrirModal(s ? 'Editar servicio' : 'Nuevo servicio', cuerpo, pie);
+
+  /* ---- Cliente / sitio: mismo patrón exacto que modalProyectoImagen ---- */
+  function pintarSitiosSE(){
+    const clienteId = $('seCliente').value;
+    const sitios = sitiosDe(clienteId).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+    $('seSitio').innerHTML = '<option value="">— Sin sitio todavía —</option>' + opc(sitios, tieneSitioInicial ? s.sitioId : '', si=>si.nombre, si=>si.id);
+  }
+  function pintarUbicacionZonaSE(){
+    const clienteId = $('seCliente').value;
+    const sitioId = clienteId ? $('seSitio').value : '';
+    $('zonaUbicacionLibreSE').hidden = !!sitioId;
+  }
+  function pintarClienteZonaSE(){
+    const clienteId = $('seCliente').value;
+    $('zonaClienteLibreSE').hidden = !!clienteId;
+    $('zonaSitioSE').hidden = !clienteId;
+    if(clienteId) pintarSitiosSE();
+    pintarUbicacionZonaSE();
+  }
+  pintarClienteZonaSE();
+  $('seCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoSE').hidden = true; pintarClienteZonaSE(); });
+  $('seSitio').addEventListener('change', pintarUbicacionZonaSE);
+
+  $('btnClienteNuevoSE').addEventListener('click', ()=>{ $('zonaClienteNuevoSE').hidden = false; $('sencNombre').focus(); });
+  $('sencCancelar').addEventListener('click', ()=>{ $('zonaClienteNuevoSE').hidden = true; $('sencNombre').value = ''; });
+  $('sencCrear').addEventListener('click', ()=>{
+    const nombre = $('sencNombre').value.trim();
+    if(!nombre){ aviso('Ponle un nombre al cliente nuevo.', true); return; }
+    const nuevo = normalizarCliente({ id:nuevoId(), nombre, usaForpass:'si' });
+    datos.clientes.push(nuevo);
+    guardarCliente(nuevo, 'creó');
+    $('seCliente').insertAdjacentHTML('beforeend', '<option value="' + esc(nuevo.id) + '" selected>' + esc(nuevo.nombre) + '</option>');
+    $('seCliente').value = nuevo.id;
+    $('zonaClienteNuevoSE').hidden = true;
+    pintarClienteZonaSE();
+    aviso('Cliente agregado. Si ya tiene sitio, agrégalo con el botón "Nuevo" de aquí abajo.');
+  });
+
+  $('btnSitioNuevoSE').addEventListener('click', ()=>{
+    if(!$('seCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
+    $('zonaSitioNuevoSE').hidden = false;
+    $('sensNombre').focus();
+  });
+  $('sensCancelar').addEventListener('click', ()=>{ $('zonaSitioNuevoSE').hidden = true; $('sensNombre').value = ''; });
+  $('sensCrear').addEventListener('click', ()=>{
+    const clienteId = $('seCliente').value;
+    const nombreSitio = $('sensNombre').value.trim();
+    if(!clienteId){ aviso('Primero elige o crea el cliente.', true); return; }
+    if(!nombreSitio){ aviso('Ponle un nombre al sitio nuevo.', true); return; }
+    const yaExiste = datos.sitios.find(si => si.clienteId === clienteId && si.nombre.toLowerCase() === nombreSitio.toLowerCase());
+    let sitio;
+    if(yaExiste){
+      sitio = yaExiste;
+      aviso('Ese sitio ya existía para este cliente; lo seleccioné.');
+    }else{
+      sitio = normalizarSitio({ id:nuevoId(), clienteId, nombre:nombreSitio, modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+      datos.sitios.push(sitio);
+      guardarSitio(sitio, 'creó');
+      aviso(nombreSitio + ' dado de alta y seleccionado.');
+    }
+    pintarSitiosSE();
+    $('seSitio').value = sitio.id;
+    $('zonaSitioNuevoSE').hidden = true;
+    $('sensNombre').value = '';
+    pintarUbicacionZonaSE();
+  });
+
+  /* ---- Persona: catálogo fijo, con alta inline sin salir del modal ---- */
+  $('btnPersonaNuevaSE').addEventListener('click', ()=>{
+    $('zonaPersonaNuevaSE').hidden = false;
+    $('senpNombre').focus();
+  });
+  $('senpCancelar').addEventListener('click', ()=>{ $('zonaPersonaNuevaSE').hidden = true; $('senpNombre').value = ''; });
+  $('senpCrear').addEventListener('click', ()=>{
+    const nombre = $('senpNombre').value.trim();
+    if(!nombre){ aviso('Ponle un nombre a la persona nueva.', true); return; }
+    const limpio = agregarPersonaServicioSiNueva(nombre);
+    if(!$('sePersona').querySelector('option[value="' + CSS.escape(limpio) + '"]')){
+      $('sePersona').insertAdjacentHTML('beforeend', '<option value="' + esc(limpio) + '">' + esc(limpio) + '</option>');
+    }
+    $('sePersona').value = limpio;
+    $('zonaPersonaNuevaSE').hidden = true;
+    $('senpNombre').value = '';
+    aviso('Persona agregada al catálogo y seleccionada.');
+  });
+
+  /* ---- Total en vivo (subtotal + IVA), mismo criterio que cotizaciones/pólizas ---- */
+  function pintarTotalSE(){
+    formatearMiles($('seSubtotal'));
+    const subtotal = aNumero($('seSubtotal').value);
+    $('seTotalPista').textContent = 'Total con IVA: ' + dineroCent(subtotal * (1 + IVA_COTIZACION));
+  }
+  pintarTotalSE();
+  $('seSubtotal').addEventListener('input', pintarTotalSE);
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('seCliente').value;
+    const cliente = clienteId ? clientePorId(clienteId) : null;
+    const sitioId = clienteId ? $('seSitio').value : '';
+    const sitio = sitioId ? sitioPorId(sitioId) : null;
+    const clienteNombre = cliente ? cliente.nombre : $('seClienteLibre').value.trim();
+    const sitioNombre = sitio ? sitio.nombre : $('seUbicacionLibre').value.trim();
+    const nombre = $('seNombre').value.trim();
+
+    if(!clienteNombre){
+      aviso('Elige un cliente o escribe el nombre del cliente/marca (prospecto).', true);
+      (clienteId ? $('seSitio') : $('seClienteLibre')).focus();
+      return;
+    }
+    if(!sitioNombre){
+      aviso('Elige un sitio o escribe la ubicación del servicio.', true);
+      $('seUbicacionLibre').setAttribute('aria-invalid','true'); $('seUbicacionLibre').focus();
+      return;
+    }
+    if(!nombre){
+      $('seNombre').setAttribute('aria-invalid','true'); $('seNombre').focus();
+      aviso('Ponle un nombre al servicio.', true);
+      return;
+    }
+
+    const datosServicio = {
+      id: s ? s.id : nuevoId(),
+      folio: $('seFolio').value.trim() || (s ? s.folio : generarFolioServicioExtra($('seFecha').value)),
+      clienteId, clienteNombre, sitioId, sitioNombre,
+      nombre,
+      proveedor: $('seProveedor').value.trim(),
+      personaNombre: $('sePersona').value,
+      estatus: $('seEstatus').value,
+      fecha: $('seFecha').value,
+      fechaLiberacion: $('seFechaLiberacion').value,
+      fechaProgramadaInicio: $('seFechaProgramadaInicio').value,
+      fechaProgramadaFin: $('seFechaProgramadaFin').value,
+      fechaRealizado: $('seFechaRealizado').value,
+      subtotal: aNumero($('seSubtotal').value),
+      comentarios: $('seComentarios').value.trim()
+    };
+    const nuevo = normalizarServicioExtra(datosServicio);
+
+    if(s) Object.assign(s, nuevo);
+    else datos.serviciosExtras.push(nuevo);
+
+    guardarServicioExtra(nuevo, s ? 'editó' : 'creó', nuevo.nombre + ' · ' + nuevo.clienteNombre);
+    cerrarModal();
+    entrarServicioExtra(nuevo.id);
+    aviso(s ? 'Servicio actualizado.' : 'Servicio creado.');
+  };
+}
+
+/* ---------------------------- Modal: catálogo de personas ---------------------------- */
+function modalPersonasServicio(){
+  function filaPersona(nombre){
+    return '<tr data-persona="' + esc(nombre) + '"><td>' + esc(nombre) + '</td>'
+         + '<td class="acc"><button type="button" class="icono-mini" data-quitar-persona-servicio="' + esc(nombre) + '" data-tip="Quitar">' + ICONO.basura + '</button></td></tr>';
+  }
+  const cuerpo =
+      '<div class="campo"><label>Agregar persona</label>'
+    +   '<div class="cliente-zona">'
+    +     '<input type="text" id="npsNombre" placeholder="Nombre de la persona" autocomplete="off">'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="npsAgregar">' + ICONO.mas + 'Agregar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="listaPersonasServicio">'
+    +   (datos.personasServicio.length
+          ? '<div class="rodillo"><table class="tabla"><thead><tr><th>Nombre</th><th></th></tr></thead><tbody>'
+            + datos.personasServicio.slice().sort((a,b)=> a.localeCompare(b,'es')).map(filaPersona).join('')
+            + '</tbody></table></div>'
+          : '<p class="pista" style="margin:0">Todavía no hay personas en el catálogo.</p>')
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-primario" data-modal="cancelar">Cerrar</button>';
+  abrirModal('Catálogo de personas', cuerpo, pie);
+
+  function repintar(){
+    $('listaPersonasServicio').innerHTML = datos.personasServicio.length
+      ? '<div class="rodillo"><table class="tabla"><thead><tr><th>Nombre</th><th></th></tr></thead><tbody>'
+        + datos.personasServicio.slice().sort((a,b)=> a.localeCompare(b,'es')).map(filaPersona).join('')
+        + '</tbody></table></div>'
+      : '<p class="pista" style="margin:0">Todavía no hay personas en el catálogo.</p>';
+    $('listaPersonasServicio').querySelectorAll('[data-quitar-persona-servicio]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const nombre = b.dataset.quitarPersonaServicio;
+        confirmar('Quitar persona',
+          'Se va a quitar a <b>' + esc(nombre) + '</b> del catálogo. Los servicios que ya la tengan capturada conservan el nombre como texto.',
+          'Sí, quitar', ()=>{
+            /* confirmar() ya reemplazó el cuerpo del modal con el diálogo de
+               confirmación (y cerrarModal() lo cierra del todo justo después de
+               esto) — #listaPersonasServicio ya no existe, así que no hay nada
+               que repintar aquí; para ver el catálogo actualizado se reabre. */
+            datos.personasServicio = datos.personasServicio.filter(p => p !== nombre);
+            guardarPersonasServicio('quitada del catálogo: ' + nombre);
+          });
+      });
+    });
+  }
+  repintar();
+
+  $('npsAgregar').addEventListener('click', ()=>{
+    const nombre = $('npsNombre').value.trim();
+    if(!nombre){ aviso('Escribe un nombre.', true); return; }
+    const antes = datos.personasServicio.length;
+    agregarPersonaServicioSiNueva(nombre);
+    if(datos.personasServicio.length === antes){ aviso('Esa persona ya está en el catálogo.', true); return; }
+    $('npsNombre').value = '';
+    repintar();
+    aviso('Persona agregada.');
+  });
+
+  cerrarModalActual = null;
+}
+
 /* Detalle de una póliza. ESTE es el único lugar donde se pintan las partidas:
    en la lista serían miles de renglones de HTML en cada render(). */
 function vistaPoliza(){
@@ -9719,6 +10420,15 @@ function avisoLocal(){
    se apaga en cuanto se dibujó. */
 let animarTarjetas = true;
 
+/* Qué etapas del tablero de Servicios Extras están desplegadas ahora mismo.
+   Con ~2,559 servicios reales, pintar las filas de las 13 etapas de golpe en
+   cada render() (recuérdese: se llama hasta cada 30s, ver refrescarDesdeNube)
+   sería carísimo — así que por default cada etapa solo muestra su conteo y
+   total, y el HTML de sus filas se genera nomás al desplegarla. Vive fuera de
+   `estado` a propósito: es memoria de pantalla, no algo que deba sobrevivir a
+   un refresh ni sincronizarse. */
+let etapasServicioAbiertas = new Set();
+
 function render(){
   /* Candado de verdad, no solo cosmético: si el módulo actual ya no está
      permitido para este rol (cambiaron el rol de la cuenta a mitad de
@@ -9730,7 +10440,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.servicioExtraId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -9747,6 +10457,7 @@ function render(){
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
+    : estado.modulo === 'servicios'    ? (estado.vista === 'servicio-extra' ? vistaServicioExtra() : vistaServiciosExtras())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
@@ -9787,6 +10498,16 @@ function render(){
     const fpI = $('filtroProyectoImagen');
     fpI.value = estado.filtro;
     fpI.addEventListener('change', ()=>{ estado.filtro = fpI.value; render(); });
+  }
+  const bSE = $('buscaServicioExtra');
+  if(bSE){
+    bSE.addEventListener('input', ()=>{ estado.busca = bSE.value; renderConservandoFoco(bSE, 'buscaServicioExtra'); });
+    const fSE = $('filtroServicioExtra');
+    fSE.value = estado.filtro;
+    fSE.addEventListener('change', ()=>{ estado.filtro = fSE.value; render(); });
+    const pSE = $('personaFiltroServicioExtra');
+    pSE.value = estado.personaFiltroServicio;
+    pSE.addEventListener('change', ()=>{ estado.personaFiltroServicio = pSE.value; render(); });
   }
   /* Subir evidencia directo desde el detalle del reporte, sin abrir el modal
      completo de edición: la foto se comprime y se agrega de inmediato. */
@@ -9913,6 +10634,7 @@ function pintarCabecera(){
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
+                 : estado.modulo === 'servicios' ? 'Servicios Extras'
                  : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
   inicio.disabled = enPortada;
@@ -13544,6 +14266,30 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso('Proyecto eliminado.');
         });
     }
+    else if(a === 'ir-servicios-extras') irAServiciosExtras();
+    else if(a === 'nuevo-servicio-extra'){ if(exigirPermiso()) modalServicioExtra(null); }
+    else if(a === 'editar-servicio-extra'){ if(exigirPermiso()) modalServicioExtra(estado.servicioExtraId); }
+    else if(a === 'borrar-servicio-extra'){
+      if(!exigirAdmin('eliminar un servicio extra')) return;
+      const se = servicioExtraPorId(estado.servicioExtraId);
+      if(!se) return;
+      confirmar('Eliminar servicio',
+        'Se va a eliminar el servicio <b>' + esc(se.nombre || se.folio || 'sin nombre') + '</b>. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.serviciosExtras = datos.serviciosExtras.filter(x => x.id !== se.id);
+          borrarRegistro('serviciosExtras', se.id);
+          anotar('eliminó', 'servicio extra', se.folio || se.nombre || 'sin folio');
+          estado.vista = 'servicios'; estado.servicioExtraId = null;
+          render(); aviso('Servicio eliminado.');
+        });
+    }
+    else if(a === 'toggle-etapa-servicio'){
+      const clave = acc.dataset.toggleEtapaServicio;
+      if(etapasServicioAbiertas.has(clave)) etapasServicioAbiertas.delete(clave);
+      else etapasServicioAbiertas.add(clave);
+      render();
+    }
+    else if(a === 'gestionar-personas-servicio'){ if(exigirPermiso()) modalPersonasServicio(); }
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-agenda') irAAgenda(false);
@@ -13784,6 +14530,9 @@ $('vista').addEventListener('click', ev=>{
   const tarPI = t.closest('[data-proyecto-imagen]');
   if(tarPI){ entrarProyectoImagen(tarPI.dataset.proyectoImagen); return; }
 
+  const tarSE = t.closest('[data-servicio-extra]');
+  if(tarSE){ entrarServicioExtra(tarSE.dataset.servicioExtra); return; }
+
   const lado = t.closest('[data-lado-cotizacion]');
   if(lado){ estado.ladoCotizacion = lado.dataset.ladoCotizacion; render(); return; }
 
@@ -13818,6 +14567,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarL){ ev.preventDefault(); entrarLevantamiento(tarL.dataset.levantamiento); return; }
   const tarPI = ev.target.closest('[data-proyecto-imagen]');
   if(tarPI){ ev.preventDefault(); entrarProyectoImagen(tarPI.dataset.proyectoImagen); return; }
+  const tarSE = ev.target.closest('[data-servicio-extra]');
+  if(tarSE){ ev.preventDefault(); entrarServicioExtra(tarSE.dataset.servicioExtra); return; }
   const tarCR = ev.target.closest('[data-cliente-resumen]');
   if(tarCR){ ev.preventDefault(); entrarResumenCliente(tarCR.dataset.clienteResumen); return; }
   const irSR = ev.target.closest('[data-ir-sitio-resumen]');
@@ -13887,7 +14638,7 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : datos.cotizaciones).map(normalizarCotizacion),
                   reportes: (Array.isArray(d.reportes) ? d.reportes : datos.reportes).map(normalizarReporte),
                   levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : datos.levantamientos).map(normalizarLevantamiento) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.servicioExtraId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
@@ -14559,9 +15310,9 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], serviciosExtras:[], personasServicio:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.servicioExtraId = null;
     sincronizado = false;
   }
 }
@@ -14653,6 +15404,7 @@ $('btnInicio').addEventListener('click', ()=>{
   else if(estado.modulo === 'reportes') irAReportes();
   else if(estado.modulo === 'levantamientos') irALevantamientos();
   else if(estado.modulo === 'imagen') irAProyectosImagen();
+  else if(estado.modulo === 'servicios') irAServiciosExtras();
   else irAClientes();
 });
 
