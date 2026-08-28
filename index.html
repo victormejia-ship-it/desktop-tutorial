@@ -1604,21 +1604,104 @@ function quitarDataUrlsPesados(obj){
   if(typeof obj === 'string' && obj.length > 20000 && obj.slice(0, 5) === 'data:') return '';
   return obj;
 }
+/* ===================== RESPALDO GRANDE (IndexedDB) =====================
+   localStorage tiene un tope fijo de unos 5 MB por sitio (sobre todo en
+   Safari de iPhone) que NO depende de cuánto espacio libre tenga el
+   aparato — llenarlo de fotos/PDFs lo rebasa fácil según crece la captura.
+   IndexedDB, en cambio, sí escala con el disco real (cientos de MB o más).
+   Se usa solo como DESBORDE: si la copia completa (con imágenes) cabe en
+   localStorage, como en casi todos los casos, IndexedDB ni se toca. Solo
+   cuando ya no cabe se guarda ahí una copia completa aparte, para
+   recuperarla sola al abrir la página sin internet (ver
+   restaurarSnapshotIndexedDB). ========================================= */
+const IDB_NOMBRE = 'forguard_forpass_grande';
+const IDB_TIENDA = 'snapshots';
+const IDB_LLAVE = 'principal';
+function abrirIndexedDB(){
+  return new Promise((resolve, reject) => {
+    if(!window.indexedDB){ reject(new Error('IndexedDB no disponible')); return; }
+    const pet = indexedDB.open(IDB_NOMBRE, 1);
+    pet.onupgradeneeded = () => { pet.result.createObjectStore(IDB_TIENDA); };
+    pet.onsuccess = () => resolve(pet.result);
+    pet.onerror = () => reject(pet.error || new Error('No se pudo abrir IndexedDB'));
+  });
+}
+async function guardarSnapshotIndexedDB(obj){
+  const db = await abrirIndexedDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_TIENDA, 'readwrite');
+    tx.objectStore(IDB_TIENDA).put(obj, IDB_LLAVE);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('No se pudo guardar en IndexedDB'));
+  });
+}
+async function leerSnapshotIndexedDB(){
+  const db = await abrirIndexedDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_TIENDA, 'readonly');
+    const pet = tx.objectStore(IDB_TIENDA).get(IDB_LLAVE);
+    pet.onsuccess = () => resolve(pet.result || null);
+    pet.onerror = () => reject(pet.error || new Error('No se pudo leer de IndexedDB'));
+  });
+}
+function borrarSnapshotIndexedDB(){
+  abrirIndexedDB().then(db=>{
+    db.transaction(IDB_TIENDA, 'readwrite').objectStore(IDB_TIENDA).delete(IDB_LLAVE);
+  }).catch(()=>{});
+}
+/* Al abrir sin internet (modo local, o la nube que no contesta): si
+   guardarLocal() tuvo que recortar imágenes de la copia rápida la última
+   vez, aquí se recupera la copia COMPLETA desde IndexedDB y se repinta. Si
+   hay sesión de nube y sí se pudo conectar, bajarDeLaNube() ya trajo todo
+   fresco del servidor y esto ni se llama —ver los dos puntos donde se
+   invoca, ambos solo en caminos sin conexión real. */
+async function restaurarSnapshotIndexedDB(){
+  try{
+    const d = await leerSnapshotIndexedDB();
+    if(!d || !Array.isArray(d.clientes) || !Array.isArray(d.sitios)) return;
+    datos = { v:1,
+      clientes: d.clientes.map(normalizarCliente),
+      sitios:   d.sitios.map(normalizarSitio),
+      polizas:  (Array.isArray(d.polizas) ? d.polizas : []).map(normalizarPoliza),
+      catalogo: (Array.isArray(d.catalogo) ? d.catalogo : []).map(normalizarEquipo),
+      segmentos: normalizarSegmentos(d.segmentos),
+      parametros: normalizarListaParametros(d.parametros),
+      cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : []).map(normalizarCotizacion),
+      reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
+      levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
+      proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen) };
+    render();
+  }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
+}
 /* Copia local: sirve de caché y para que la página siga sirviendo sin internet.
    Se llama SIEMPRE antes de encolar() el cambio hacia la nube (ver
    guardarLevantamiento, guardarProyectoImagen, etc.) — que esta copia falle
-   NO impide que el cambio se intente sincronizar aparte; por eso el aviso de
-   abajo aclara que es solo el respaldo sin conexión de este aparato, no que
-   se haya perdido el cambio. */
+   NO impide que el cambio se intente sincronizar aparte; por eso los avisos
+   de abajo aclaran que es solo el respaldo sin conexión de este aparato, no
+   que se haya perdido el cambio. */
 function guardarLocal(){
-  try{ localStorage.setItem(LLAVE, JSON.stringify(datos)); return; }
-  catch(e){}
+  try{
+    localStorage.setItem(LLAVE, JSON.stringify(datos));
+    /* Cupo completo (con fotos y todo): si un guardado anterior había usado
+       el respaldo grande, ya no hace falta — se limpia para no arrastrar
+       por accidente una versión vieja el día que este sí falle. */
+    borrarSnapshotIndexedDB();
+    return;
+  }catch(e){}
+  /* Ya no cupo con las fotos/PDFs adentro. Se guarda una copia rápida SIN
+     esas imágenes (folios, nombres, hallazgos y totales siguen disponibles
+     de inmediato sin internet) y, aparte, una copia COMPLETA en IndexedDB
+     —con cupo real para cientos de MB— que se recupera sola la próxima vez
+     que la página abra sin conexión. */
   try{
     localStorage.setItem(LLAVE, JSON.stringify(quitarDataUrlsPesados(datos)));
-    aviso('Este dispositivo ya no tiene espacio para guardar las fotos/PDFs en su copia sin conexión. Tu cambio se sigue sincronizando aparte con la nube; para volver a ver esas imágenes sin internet en este aparato, libera espacio o bórralas de otras apps.', true);
   }catch(e2){
     aviso('No se pudo guardar ni una copia sin conexión en este navegador (sin espacio ni para eso). Tu cambio se sigue intentando sincronizar con la nube; descarga un respaldo JSON si te preocupa perder algo.', true);
+    return;
   }
+  guardarSnapshotIndexedDB(datos).catch(()=>{
+    aviso('Este dispositivo ya no tiene espacio (ni en su almacén grande) para guardar las fotos/PDFs sin conexión. Tu cambio se sigue sincronizando con la nube; solo no podrás ver esas imágenes sin internet en este aparato.', true);
+  });
 }
 function nuevoId(){ return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -14318,6 +14401,10 @@ function manejarFalloDeArranque(e){
     : 'No se pudo leer del servidor; se muestra la última copia local.', true);
   render();
   vaciarCola();
+  /* No hay datos frescos de la nube en este arranque: si la copia rápida se
+     quedó sin imágenes por falta de espacio, aquí se completa con la copia
+     grande de IndexedDB (ver guardarLocal/restaurarSnapshotIndexedDB). */
+  restaurarSnapshotIndexedDB();
 }
 
 async function arrancarNube(){
@@ -14367,8 +14454,11 @@ cargarCola();
 cargarModulo();
 
 if(!HAY_NUBE){
-  /* Modo local: igual que siempre, sin cuentas. */
+  /* Modo local: igual que siempre, sin cuentas. Sin nube que traiga nada
+     fresco, si la copia rápida se quedó sin imágenes por falta de espacio,
+     se completa aquí con la copia grande de IndexedDB. */
   render();
+  restaurarSnapshotIndexedDB();
 }else{
   cargarSesion();
   if(haySesion()){
