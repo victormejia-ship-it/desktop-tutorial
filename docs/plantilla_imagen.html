@@ -106,8 +106,11 @@
     letter-spacing:.03em;padding:5px 6px;border-bottom:1.2px solid var(--rule-strong);}
   table.costos-tabla td{padding:5px 6px;border-bottom:1px solid var(--rule);vertical-align:top;}
   table.costos-tabla td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  table.costos-tabla tr.subtotal td{font-weight:600;color:#5C6673;border-bottom:none;padding-top:6px;}
+  table.costos-tabla tr.subtotal.primero td{border-top:1.2px solid var(--rule-strong);padding-top:9px;}
   table.costos-tabla tr.total td{font-weight:700;border-top:1.2px solid var(--rule-strong);border-bottom:none;
     font-size:11px;padding-top:8px;}
+  .inversion-nota{font-size:8px;color:#5C6673;margin-top:4px;}
 
   /* ---- Imágenes: renders, planos y fotos (página 2+) ---- */
   .img-tit{font-size:13px;font-weight:700;color:var(--brand-navy);margin:2px 0 10px;}
@@ -280,8 +283,18 @@ if(!PI){
       + '<td class="num">' + esc(c.precioUnitario) + '</td><td class="num">' + esc(c.subtotal) + '</td></tr>';
   }
   const filasCostoInfo = PI.conceptos.map(c => ({ html: filaCostoHTML(c) }));
+  /* El total se abre en materiales vs. mano de obra (proveedor "Servicios"/
+     "Servicios / IT" en index.html) porque, aunque el proyecto completo es
+     un gasto informativo para el estado de resultados, ahí se reporta
+     separado — ver calcularResultados(). Los tres renglones viajan como
+     parte de la MISMA tabla (no aparte), así que se paginan igual que
+     cualquier otro renglón de costo. */
   if(filasCostoInfo.length){
-    filasCostoInfo.push({ html: '<tr class="total"><td colspan="4" style="text-align:right">Total estimado</td>'
+    filasCostoInfo.push({ html: '<tr class="subtotal primero"><td colspan="4" style="text-align:right">Costo de materiales</td>'
+      + '<td class="num">' + esc(PI.costoMateriales) + '</td></tr>' });
+    filasCostoInfo.push({ html: '<tr class="subtotal"><td colspan="4" style="text-align:right">Costo de mano de obra</td>'
+      + '<td class="num">' + esc(PI.costoManoObra) + '</td></tr>' });
+    filasCostoInfo.push({ html: '<tr class="total"><td colspan="4" style="text-align:right">Monto de inversión total</td>'
       + '<td class="num">' + esc(PI.totalConceptos) + '</td></tr>' });
   }
   const cabezaCostos = '<table class="costos-tabla"><thead><tr><th>Proveedor</th><th>Concepto</th>'
@@ -343,9 +356,22 @@ if(!PI){
       - medidor2.querySelector('table.costos-tabla').getBoundingClientRect().top - 12;
     document.body.removeChild(medidor2);
 
+    /* Las últimas 3 filas (materiales/mano de obra/total) no se separan
+       entre hojas: un subtotal solo, huérfano al pie de una página con el
+       total en la siguiente, se ve roto. Antes de colocar la PRIMERA de las
+       tres se checa si las tres juntas caben en lo que queda; si no, se
+       salta de hoja antes de empezarlas, para que caigan las tres juntas en
+       la nueva. */
+    const indiceResumen = filasCostoInfo.length - 3;
+    const alturaResumen = alturas.slice(indiceResumen).reduce((s,h)=> s + h, 0);
+
     const paginas = [];
     let actual = [], usado = 0, esPrimera = true;
     alturas.forEach((h, i)=>{
+      if(i === indiceResumen && actual.length && usado + alturaResumen > (esPrimera ? alturaPrimera : alturaContinuacion)){
+        paginas.push(actual);
+        actual = []; usado = 0; esPrimera = false;
+      }
       const presupuesto = esPrimera ? alturaPrimera : alturaContinuacion;
       if(usado + h > presupuesto && actual.length){
         paginas.push(actual);

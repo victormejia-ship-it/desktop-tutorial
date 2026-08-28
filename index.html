@@ -3464,6 +3464,24 @@ function normalizarConceptoProyecto(x){
 function totalConceptosProyecto(p){
   return p.conceptos.reduce((s,c)=> s + c.cantidad * c.precioUnitario, 0);
 }
+/* Un renglón es MANO DE OBRA si su proveedor viene marcado literalmente como
+   "Servicios" o "Servicios / IT" (así llega en los desgloses reales: la
+   mano de obra no trae un proveedor de verdad, trae esta etiqueta) — TODO lo
+   demás es material comprado. Decisión de Victor, 28-ago-2026: separar
+   inversión total en materiales vs. mano de obra, sin tocar cómo se captura
+   el proveedor de cada renglón. */
+function esConceptoManoDeObra(c){
+  const norm = (c.proveedor || '').toLowerCase().trim().replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ');
+  return norm === 'servicios' || norm === 'servicios/it';
+}
+function desgloseConceptosProyecto(p){
+  let materiales = 0, manoObra = 0;
+  p.conceptos.forEach(c=>{
+    const monto = c.cantidad * c.precioUnitario;
+    if(esConceptoManoDeObra(c)) manoObra += monto; else materiales += monto;
+  });
+  return { materiales, manoObra, total: materiales + manoObra };
+}
 
 /* Mismo molde que normalizarEvidencia (dataUrl/nota/subioNombre/cuando), con
    un `tipo` extra para distinguir un render de un plano a simple vista — aquí
@@ -5263,7 +5281,8 @@ function abrirDocumentoLevantamiento(id){
    armarPayloadLevantamiento() — solo strings ya formateados, ninguna cuenta
    se hace en la plantilla. */
 function armarPayloadProyectoImagen(p){
-  const total = totalConceptosProyecto(p);
+  const desglose = desgloseConceptosProyecto(p);
+  const total = desglose.total;
   return {
     meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
     contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
@@ -5286,9 +5305,14 @@ function armarPayloadProyectoImagen(p){
       concepto: c.concepto,
       cantidad: numero(c.cantidad),
       precioUnitario: dineroCent(c.precioUnitario),
-      subtotal: dineroCent(c.cantidad * c.precioUnitario)
+      subtotal: dineroCent(c.cantidad * c.precioUnitario),
+      esManoDeObra: esConceptoManoDeObra(c)
     })),
     totalConceptos: dineroCent(total),
+    /* Informativo para el estado de resultados: gasto en un rubro aparte,
+       nunca resta de la utilidad — ver calcularResultados(). */
+    costoMateriales: dineroCent(desglose.materiales),
+    costoManoObra: dineroCent(desglose.manoObra),
     imagenes: p.imagenes.map(im => ({
       dataUrl: im.dataUrl,
       formato: im.formato,
@@ -5936,6 +5960,24 @@ function calcularResultados(inicio, fin){
   r.costoTotal = r.costoCotizaciones + r.costoPolizas;
   r.utilidadBruta = r.ingresoTotal - r.costoTotal;
   r.margenPct = r.ingresoTotal ? (r.utilidadBruta / r.ingresoTotal * 100) : 0;
+
+  /* Imagen/Aperturas (remodelaciones, aperturas, cambio de imagen): SÍ es un
+     gasto para efectos del estado de resultados, pero Victor pidió (28-ago-
+     2026) que viva en un RUBRO APARTE, puramente informativo — por eso no
+     entra a r.costoTotal ni mueve r.utilidadBruta arriba. Un proyecto
+     cancelado no cuenta: no se invirtió nada de verdad. Se separa además en
+     materiales vs. mano de obra (ver esConceptoManoDeObra). */
+  r.imagenMateriales = 0; r.imagenManoObra = 0; r.numProyectosImagen = 0;
+  datos.proyectosImagen.forEach(p=>{
+    if(p.estatus === 'cancelado') return;
+    if(!(p.fecha >= inicio && p.fecha <= fin)) return;
+    const d = desgloseConceptosProyecto(p);
+    r.imagenMateriales += d.materiales;
+    r.imagenManoObra += d.manoObra;
+    r.numProyectosImagen++;
+  });
+  r.imagenTotal = r.imagenMateriales + r.imagenManoObra;
+
   return r;
 }
 
@@ -5992,12 +6034,29 @@ function vistaResultados(){
      +   '<span class="tp-monto" style="color:' + (r.utilidadBruta >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + dineroCent(r.utilidadBruta) + '</span>'
      + '</div>';
 
+  /* Imagen/Aperturas: gasto real, pero en un rubro APARTE, meramente
+     informativo — nunca entra a r.costoTotal ni mueve la utilidad de
+     arriba (ver calcularResultados). Tarjeta separada, con borde
+     punteado, para que a simple vista se note que no es parte del cálculo
+     de utilidad. */
+  if(r.numProyectosImagen){
+    h += '<div class="tabla-pyl" style="border-style:dashed; margin-top:16px">'
+       +   '<div class="tp-seccion">Imagen / remodelaciones — informativo, no afecta la utilidad</div>'
+       +   '<div class="tp-fila"><span>Costo de materiales</span><span class="tp-monto">' + dineroCent(r.imagenMateriales) + '</span></div>'
+       +   '<div class="tp-fila"><span>Costo de mano de obra</span><span class="tp-monto">' + dineroCent(r.imagenManoObra) + '</span></div>'
+       +   '<div class="tp-fila tp-total"><span>Monto de inversión total (' + numero(r.numProyectosImagen) + ' ' + plural(r.numProyectosImagen,'proyecto','proyectos') + ')</span>'
+       +     '<span class="tp-monto">' + dineroCent(r.imagenTotal) + '</span></div>'
+       + '</div>';
+  }
+
   h += '<p class="pista" style="margin-top:14px">Forpass no tiene un costo interno capturado en el sistema, así que aquí '
      + 'solo aporta ingreso — no se le inventa un margen. El costo de pólizas se cuenta por el calendario de '
      + 'mantenimiento —cada equipo, en cada mes que le toca servicio dentro del período— y no por lo cobrado: son '
      + 'calendarios distintos, y por eso puede haber costo en un mes sin ingreso de pólizas, o al revés. Viene del costo '
      + 'de cada equipo en su renglón (ver Lista de precios); si un equipo quedó en $0 de costo, esa parte del margen '
-     + 'sale de más.</p>';
+     + 'sale de más. Imagen/remodelaciones se cuenta por su fecha de alta (los proyectos cancelados no cuentan); dentro '
+     + 'de sus conceptos, un proveedor capturado como "Servicios" o "Servicios / IT" se toma como mano de obra y '
+     + 'cualquier otro como material.</p>';
 
   return h;
 }
@@ -8509,7 +8568,7 @@ function vistaProyectosImagen(){
   const ordenados = filtrados.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.folio||'').localeCompare(a.folio||''));
 
   if(vistaTabla){
-    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Folio</th><th>Proyecto</th><th>Cliente</th><th>Tipo</th><th>Estatus</th><th>Costo estimado</th></tr></thead><tbody>'
+    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Folio</th><th>Proyecto</th><th>Cliente</th><th>Tipo</th><th>Estatus</th><th>Inversión total</th></tr></thead><tbody>'
       + ordenados.map(p => '<tr class="fila-clic" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
           + '<td>' + esc(p.folio || '—') + '</td>'
           + '<td>' + esc(p.nombreProyecto || 'Proyecto') + '</td>'
@@ -8536,7 +8595,7 @@ function vistaProyectosImagen(){
          +     '<span class="insignia i-neutro">' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</span>'
          +   '</div>'
          +   '<div class="t-datos">'
-         +     '<div class="t-dato"><div class="d-label">Costo estimado</div><div class="d-valor chico">' + dineroCent(total) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Inversión total</div><div class="d-valor chico">' + dineroCent(total) + '</div></div>'
          +     '<div class="t-dato"><div class="d-label">Imágenes</div><div class="d-valor chico">' + numero(p.imagenes.length) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + esc(p.sitioNombre || 'Sin sitio') + '</span></div>'
@@ -8550,7 +8609,8 @@ function vistaProyectoImagen(){
   const p = proyectoImagenPorId(estado.proyectoImagenId);
   if(!p){ estado.vista = 'proyectos-imagen'; return vistaProyectosImagen(); }
   const puede = puedeEditar();
-  const total = totalConceptosProyecto(p);
+  const desglose = desgloseConceptosProyecto(p);
+  const total = desglose.total;
 
   let h = botonRegresarProyectosImagen();
 
@@ -8571,8 +8631,12 @@ function vistaProyectoImagen(){
      + tarjetaKpi('Entrada al sitio', p.fechaEntrada ? fmtFecha(p.fechaEntrada) : 'Sin definir', '')
      + tarjetaKpi('Salida / fin de obra', p.fechaSalida ? fmtFecha(p.fechaSalida) : 'Sin definir', '')
      + tarjetaKpi('Duración en sitio', duracionDias ? (duracionDias + ' ' + (duracionDias===1?'día':'días')) : 'Sin definir', '')
-     + tarjetaKpi('Costo estimado', dineroCent(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
+     + tarjetaKpi('Monto de inversión total', dineroCent(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
+     + tarjetaKpi('Costo de materiales', dineroCent(desglose.materiales), '')
+     + tarjetaKpi('Costo de mano de obra', dineroCent(desglose.manoObra), '')
      + '</div>';
+  h += '<p class="pista" style="margin:-10px 0 16px">Es un gasto informativo para el estado de resultados: '
+     + 'se muestra aparte y no afecta la utilidad.</p>';
 
   if(p.responsable){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Responsable</h3></div></div>'
@@ -8593,8 +8657,11 @@ function vistaProyectoImagen(){
        + p.conceptos.map(c => '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
            + '<td>' + dineroCent(c.precioUnitario) + '</td><td><b>' + dineroCent(c.cantidad * c.precioUnitario) + '</b></td></tr>').join('')
        + '</tbody></table></div>'
-       + '<div class="resumen" style="margin-top:10px"><div class="r-fila r-total"><span>Total estimado</span>'
-       +   '<span style="font-size:18px; font-weight:800">' + dineroCent(total) + '</span></div></div>';
+       + '<div class="resumen" style="margin-top:10px">'
+       +   '<div class="r-fila"><span>Costo de materiales</span><span>' + dineroCent(desglose.materiales) + '</span></div>'
+       +   '<div class="r-fila"><span>Costo de mano de obra</span><span>' + dineroCent(desglose.manoObra) + '</span></div>'
+       +   '<div class="r-fila r-total"><span>Monto de inversión total</span>'
+       +     '<span style="font-size:18px; font-weight:800">' + dineroCent(total) + '</span></div></div>';
   }
   h += '</div>';
 
@@ -8839,8 +8906,15 @@ function modalProyectoImagen(id, datosImportados){
         + '<thead><tr><th>Proveedor</th><th>Concepto</th><th>Cant.</th><th>Precio unitario</th><th></th></tr></thead>'
         + '<tbody>' + filas + '</tbody></table></div>';
     }
-    const total = conceptosTmp.reduce((s,c)=> s + c.cantidad * c.precioUnitario, 0);
-    $('resumenConceptosPI').innerHTML = '<b>Total estimado: ' + dineroCent(total) + '</b>';
+    pintarResumenConceptosPI();
+  }
+  /* Monto de inversión total = costo de materiales + costo de mano de obra
+     (ver esConceptoManoDeObra): un proveedor "Servicios"/"Servicios / IT" es
+     mano de obra, cualquier otro (o vacío) es material. */
+  function pintarResumenConceptosPI(){
+    const d = desgloseConceptosProyecto({ conceptos: conceptosTmp });
+    $('resumenConceptosPI').innerHTML = '<b>Monto de inversión total: ' + dineroCent(d.total) + '</b>'
+      + '<div class="pista">Costo de materiales: ' + dineroCent(d.materiales) + ' · Costo de mano de obra: ' + dineroCent(d.manoObra) + '</div>';
   }
   pintarConceptosPI();
   $('listaConceptosPI').addEventListener('input', ev=>{
@@ -8851,8 +8925,7 @@ function modalProyectoImagen(id, datosImportados){
     if(k === 'cantidad') c.cantidad = Math.max(0, parseFloat(campo.value) || 0);
     else if(k === 'precioUnitario'){ formatearMiles(campo); c.precioUnitario = aNumero(campo.value); }
     else c[k] = campo.value;
-    $('resumenConceptosPI').innerHTML = '<b>Total estimado: '
-      + dineroCent(conceptosTmp.reduce((s,x)=> s + x.cantidad * x.precioUnitario, 0)) + '</b>';
+    pintarResumenConceptosPI();
   });
   $('listaConceptosPI').addEventListener('click', ev=>{
     const quitar = ev.target.closest('[data-quitar-concepto-pi]');
