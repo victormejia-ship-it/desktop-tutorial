@@ -1223,6 +1223,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 <input type="file" id="archivoRestaurar" accept="application/json,.json" style="display:none">
 <input type="file" id="archivoPolizas" accept="application/json,.json" multiple style="display:none">
 <input type="file" id="archivoProyectoImagenExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
+<input type="file" id="archivoServiciosExtrasExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 
 <script>
 /* =========================================================================
@@ -3654,7 +3655,14 @@ function mapaHojasXlsx(mapaZip){
   return Array.from(wbDoc.getElementsByTagName('sheet')).map(s=>{
     const rid = s.getAttribute('r:id') || s.getAttributeNS(NS_R, 'id');
     const target = relPorId.get(rid) || '';
-    return { nombre: s.getAttribute('name'), ruta: 'xl/' + target.replace(/^\/?/, '') };
+    /* Excel/Google Sheets escriben el Target RELATIVO a xl/ ("worksheets/sheet1.xml"),
+       pero algunas librerías (p.ej. openpyxl) lo escriben ABSOLUTO desde la raíz
+       del paquete ("/xl/worksheets/sheet1.xml") — con el "/xl/" ya incluido.
+       Antes se le anteponía "xl/" sin distinguir los dos casos, y un archivo
+       absoluto terminaba apuntando a "xl/xl/worksheets/sheet1.xml" (no existe
+       en el zip), leyéndose como 0 filas sin ningún error visible. */
+    const ruta = target.startsWith('/') ? target.slice(1) : 'xl/' + target;
+    return { nombre: s.getAttribute('name'), ruta };
   }).filter(h => h.ruta !== 'xl/');
 }
 
@@ -9271,6 +9279,302 @@ function agregarPersonaServicioSiNueva(nombre){
   return limpio;
 }
 
+/* ---------------------------- Importar desde Excel (tablero de Monday.com) ----------------------------
+   El export real ("Servicios Pendientes - Cargo al Cliente") trae UNA sola
+   hoja con las 13 etapas como secciones seguidas: cada una arranca con un
+   renglón de una sola celda (el nombre de la etapa), luego el mismo
+   encabezado de 26 columnas repetido, y después sus renglones de datos
+   hasta la siguiente etapa. Se reconoce el TIPO de cada renglón por su
+   FORMA (cuántas celdas trae y en cuáles columnas) y no por su posición
+   fija, porque el archivo real además trae un título general en la fila 1 y
+   una sección de cola sin usar al final que no son ninguna de las 13
+   etapas — ambas se ignoran solas, al no encontrar coincidencia, sin
+   necesidad de un caso especial para cada una. */
+const ALIAS_COLUMNA_SERVICIO_EXTRA_XLSX = {
+  nombre: ['NAME'],
+  sitio: ['COMEDOR'],
+  fechaLiberacion: ['FECHA LIBERACION'],
+  fechaProgramadaInicio: ['FECHAS PROGRAMADAS - START'],
+  fechaProgramadaFin: ['FECHAS PROGRAMADAS - END'],
+  folioOC: ['FOLIO OC COMPRAS'],
+  folioSoporte: ['FOLIO SOPORTE'],
+  proveedor: ['PROVEEDOR'],
+  statusMaterial: ['STATUS MATERIAL / REFACCIONES'],
+  estadoServicio: ['ESTADO DE SERVICIO'],
+  estatusEjecucion: ['ESTATUS EJECUCION'],
+  fechaRealizado: ['FECHA SERVICIO RELIZADO', 'FECHA SERVICIO REALIZADO'],
+  subtotal: ['SUBTOTAL'],
+  comentarios: ['COMENTARIOS'],
+  registroCreacion: ['REGISTRO DE CREACION'],
+  folioCotiMtto: ['FOLIO COTI MTTO'],
+  personas: ['PERSONAS']
+};
+
+/* De etiqueta de sección ("Trabajos con Orden de Compra") a nuestro código
+   de estatus — se calcula una sola vez a partir de ETIQUETA_ESTATUS_SERVICIO_EXTRA,
+   nunca a mano, para que un cambio de texto ahí no desalinee al importador. */
+let mapaAliasEstatusServicioExtraXlsx = null;
+function aliasEstatusServicioExtraXlsx(){
+  if(!mapaAliasEstatusServicioExtraXlsx){
+    mapaAliasEstatusServicioExtraXlsx = {};
+    ESTATUS_SERVICIO_EXTRA.forEach(e=>{
+      mapaAliasEstatusServicioExtraXlsx[normalizarTextoEncabezadoXlsx(ETIQUETA_ESTATUS_SERVICIO_EXTRA[e])] = e;
+    });
+  }
+  return mapaAliasEstatusServicioExtraXlsx;
+}
+
+/* Inverso exacto de serialExcel(iso): una celda de fecha en el XML del xlsx
+   no trae más que el número de serie (el formato de fecha vive aparte, en el
+   estilo, y leerHojaXlsxComoFilas no lo resuelve) — mismo epoch y mismo
+   redondeo que ya usa el resto del tablero para ir de ISO a serie. */
+function fechaDesdeSerialExcel(n){
+  if(typeof n !== 'number' || !isFinite(n)) return '';
+  const ms = Date.UTC(1899, 11, 30) + Math.round(n) * 86400000;
+  const d = new Date(ms);
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+}
+function fechaCeldaServicioExtraXlsx(v){
+  if(typeof v === 'number') return fechaDesdeSerialExcel(v);
+  if(typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) return v.trim();
+  return '';
+}
+function textoCeldaServicioExtraXlsx(v){ return v == null ? '' : String(v).trim(); }
+
+/* El Subtotal del archivo real mezcla número puro (11412.5) y texto con coma
+   de miles ('11,791.49') en la MISMA columna — y por si acaso un futuro
+   export lo entrega con coma decimal ('7302,50', sin punto), también se
+   reconoce: una sola coma seguida de exactamente 2 dígitos se toma como
+   decimal, cualquier otro patrón de comas se quita como separador de miles. */
+function numeroServicioExtraXlsx(v){
+  if(typeof v === 'number') return v;
+  if(v == null) return 0;
+  let s = String(v).trim().replace(/[$\s]/g, '');
+  if(!s) return 0;
+  if(s.includes(',') && !s.includes('.')){
+    if(s.indexOf(',') === s.lastIndexOf(',') && /,\d{2}$/.test(s)) s = s.replace(',', '.');
+    else s = s.replace(/,/g, '');
+  }else{
+    s = s.replace(/,/g, '');
+  }
+  const n = parseFloat(s);
+  return isFinite(n) ? n : 0;
+}
+
+/* Vincula por NOMBRE (nunca por id, ver la convención de todo el tablero)
+   contra un sitio que YA exista en Forpass/Pólizas: si el "Comedor" del
+   Excel coincide, el servicio queda ligado a su cliente de verdad. El
+   tablero de origen no trae una columna de "cliente" aparte de "Comedor",
+   así que sin coincidencia se captura como prospecto libre, con el mismo
+   texto para cliente y sitio — es lo único que hay. */
+function vincularSitioServicioExtraXlsx(comedor){
+  if(!comedor) return null;
+  const norm = normalizarTextoEncabezadoXlsx(comedor);
+  const sitio = datos.sitios.find(s => normalizarTextoEncabezadoXlsx(s.nombre) === norm);
+  return sitio ? { sitio, cliente: clientePorId(sitio.clienteId) } : null;
+}
+
+/* Igual que buscarTablaCostosXlsx: el mapa de columnas se arma por NOMBRE de
+   encabezado y no por posición fija, por si un export futuro trae las
+   columnas en otro orden o le faltan algunas. */
+function mapaColumnasServicioExtraXlsx(filaEncabezado){
+  const normal = filaEncabezado.map(normalizarTextoEncabezadoXlsx);
+  const columnas = {};
+  Object.keys(ALIAS_COLUMNA_SERVICIO_EXTRA_XLSX).forEach(campo=>{
+    const idx = normal.findIndex(txt => ALIAS_COLUMNA_SERVICIO_EXTRA_XLSX[campo].includes(txt));
+    if(idx >= 0) columnas[campo] = idx;
+  });
+  return columnas;
+}
+
+/* generarFolioServicioExtra() numera con datos.serviciosExtras.length, que
+   durante todo este parseo (antes de confirmar e insertar nada) se queda
+   fijo — usarla tal cual le daría el MISMO folio a los ~240 renglones reales
+   que no traen Folio Soporte. Se numera aquí con un contador propio de la
+   corrida, arrancando donde se quedó el catálogo actual. */
+function generarFolioServicioExtraEnLote(fechaISO, n){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  return 'SE-' + ddmmaa + '-' + String(n).padStart(2,'0');
+}
+
+function extraerServiciosExtrasXlsx(hoja){
+  const servicios = [];
+  let estatusActual = null, columnas = null, noReconocidos = 0;
+  let numAuto = datos.serviciosExtras.length;
+  for(let i = 0; i < hoja.filas.length; i++){
+    const fila = hoja.filas[i] || [];
+    const noVacios = [];
+    fila.forEach((v, j)=>{ if(v !== null && v !== undefined && String(v).trim() !== '') noVacios.push(j); });
+    if(!noVacios.length) continue;
+
+    /* Título de sección: una sola celda ocupada, en la columna A. Si el
+       texto no es ninguna de las 13 etapas (el título general de la fila 1,
+       o una sección de cola que el tablero ya no usa), estatusActual queda
+       en null y sus renglones se cuentan como no reconocidos más abajo. */
+    if(noVacios.length === 1 && noVacios[0] === 0){
+      estatusActual = aliasEstatusServicioExtraXlsx()[normalizarTextoEncabezadoXlsx(fila[0])] || null;
+      continue;
+    }
+    /* Encabezado de columnas: se repite igual después de cada título. */
+    if(normalizarTextoEncabezadoXlsx(fila[0]) === 'NAME'){
+      columnas = mapaColumnasServicioExtraXlsx(fila);
+      continue;
+    }
+    if(!columnas || columnas.nombre === undefined) continue;
+    const nombre = textoCeldaServicioExtraXlsx(fila[columnas.nombre]);
+    if(!nombre) continue;
+    if(estatusActual === null){ noReconocidos++; continue; }
+
+    const celda = campo => columnas[campo] !== undefined ? fila[columnas[campo]] : '';
+    const comedor = textoCeldaServicioExtraXlsx(celda('sitio'));
+    const vinculo = vincularSitioServicioExtraXlsx(comedor);
+    const folioSoporte = textoCeldaServicioExtraXlsx(celda('folioSoporte'));
+    const folioCotiMtto = textoCeldaServicioExtraXlsx(celda('folioCotiMtto'));
+    const folioOC = textoCeldaServicioExtraXlsx(celda('folioOC'));
+
+    /* Sub-estatus del tablero de origen (material, servicio, ejecución) no
+       tienen campo propio en el módulo — se guardan como contexto legible
+       dentro de comentarios en vez de perderse, ya que ahí sí caben libres. */
+    const extras = [];
+    const statusMaterial = textoCeldaServicioExtraXlsx(celda('statusMaterial'));
+    const estadoServicio = textoCeldaServicioExtraXlsx(celda('estadoServicio'));
+    const estatusEjecucion = textoCeldaServicioExtraXlsx(celda('estatusEjecucion'));
+    if(statusMaterial) extras.push('Material: ' + statusMaterial);
+    if(estadoServicio) extras.push('Servicio: ' + estadoServicio);
+    if(estatusEjecucion) extras.push('Ejecución: ' + estatusEjecucion);
+    /* La columna "OC" del archivo real casi siempre trae un link a un PDF, no
+       un folio (a diferencia de "Folio Oc Compras") — no se importa. */
+    if(folioOC && !/^https?:\/\//i.test(folioOC)) extras.push('Folio OC compras: ' + folioOC);
+    if(folioCotiMtto && folioCotiMtto !== folioSoporte) extras.push('Folio Coti Mtto: ' + folioCotiMtto);
+
+    const comentariosBase = textoCeldaServicioExtraXlsx(celda('comentarios'));
+    const comentarios = [comentariosBase, extras.join(' · ')].filter(Boolean).join('\n');
+    const fechaAlta = fechaCeldaServicioExtraXlsx(celda('registroCreacion')) || hoyISO();
+    const folio = folioSoporte || generarFolioServicioExtraEnLote(fechaAlta, ++numAuto);
+
+    servicios.push(normalizarServicioExtra({
+      folio,
+      clienteId: vinculo ? vinculo.sitio.clienteId : '',
+      clienteNombre: vinculo && vinculo.cliente ? vinculo.cliente.nombre : comedor,
+      sitioId: vinculo ? vinculo.sitio.id : '',
+      sitioNombre: comedor,
+      nombre,
+      proveedor: textoCeldaServicioExtraXlsx(celda('proveedor')),
+      personaNombre: textoCeldaServicioExtraXlsx(celda('personas')),
+      estatus: estatusActual,
+      fecha: fechaAlta,
+      fechaLiberacion: fechaCeldaServicioExtraXlsx(celda('fechaLiberacion')),
+      fechaProgramadaInicio: fechaCeldaServicioExtraXlsx(celda('fechaProgramadaInicio')),
+      fechaProgramadaFin: fechaCeldaServicioExtraXlsx(celda('fechaProgramadaFin')),
+      fechaRealizado: fechaCeldaServicioExtraXlsx(celda('fechaRealizado')),
+      subtotal: numeroServicioExtraXlsx(celda('subtotal')),
+      comentarios
+    }));
+  }
+  return { servicios, noReconocidos };
+}
+
+/* Llave para no duplicar si el mismo Excel se vuelve a importar: el tablero
+   real trae folios de soporte repetidos A PROPÓSITO (varias líneas bajo el
+   mismo folio) y casi 1 de cada 10 renglones ni folio trae — comparar solo
+   por folio dejaría pasar duplicados o se comería renglones legítimos. Se
+   compara por lo que SIEMPRE identifica a un renglón —nombre, sitio, fecha
+   de alta y subtotal— y, cuando el Excel SÍ trae un folio real, también por
+   ese folio (desempata los pocos casos de dos renglones distintos con el
+   mismo nombre/sitio/fecha/monto, p.ej. una cotización vuelta a mandar). Un
+   folio con pinta de autogenerado (patrón "SE-ddmmaa-NN", ver
+   generarFolioServicioExtra/EnLote) NO cuenta para la llave: si contara, un
+   renglón sin folio propio nunca volvería a coincidir consigo mismo en una
+   reimportación, porque cada corrida le generaría uno distinto. */
+function llaveServicioExtraImportado(s){
+  const folioReal = /^SE-\d{6}-\d+$/.test(s.folio || '') ? '' : normalizarTextoEncabezadoXlsx(s.folio);
+  return normalizarTextoEncabezadoXlsx(s.nombre) + '|' + normalizarTextoEncabezadoXlsx(s.sitioNombre) + '|' + s.fecha + '|' + s.subtotal + '|' + folioReal;
+}
+
+/* Punto de entrada: a diferencia de importarProyectoImagenDesdeExcel (un
+   proyecto a la vez, prellenado en un modal para revisar antes de guardar),
+   aquí son miles de renglones de golpe — no hay modal que los pinte uno por
+   uno con sentido. Se resume por etapa, se confirma, y se importa directo a
+   datos.serviciosExtras; la sincronización con la nube queda en la cola de
+   siempre (ver encolar/vaciarCola), que la va subiendo de a un registro. */
+async function importarServiciosExtrasDesdeExcel(archivo){
+  if(!exigirPermiso()) return;
+  let hojas;
+  try{
+    hojas = await leerLibroXlsx(archivo);
+  }catch(e){
+    aviso('No se pudo leer el archivo: ' + (e && e.message ? e.message : 'formato no reconocido') + '.', true);
+    return;
+  }
+  let extraido = null;
+  for(const hoja of hojas){
+    const r = extraerServiciosExtrasXlsx(hoja);
+    if(r.servicios.length){ extraido = r; break; }
+  }
+  if(!extraido || !extraido.servicios.length){
+    aviso('No se reconoció ningún servicio en este Excel (se esperan las 13 etapas y columnas del tablero de Monday.com).', true);
+    return;
+  }
+
+  const yaExistentes = new Set(datos.serviciosExtras.map(llaveServicioExtraImportado));
+  const nuevos = [];
+  let repetidos = 0;
+  extraido.servicios.forEach(s=>{
+    const llave = llaveServicioExtraImportado(s);
+    if(yaExistentes.has(llave)){ repetidos++; return; }
+    yaExistentes.add(llave);
+    nuevos.push(s);
+  });
+
+  if(!nuevos.length){
+    aviso('Los ' + numero(extraido.servicios.length) + ' ' + plural(extraido.servicios.length,'servicio','servicios')
+      + ' de este archivo ya estaban importados (se detectaron por nombre, sitio, fecha y subtotal iguales).', true);
+    return;
+  }
+
+  const porEtapa = {};
+  nuevos.forEach(s => { porEtapa[s.estatus] = (porEtapa[s.estatus] || 0) + 1; });
+  const resumenEtapas = ESTATUS_SERVICIO_EXTRA.filter(e => porEtapa[e])
+    .map(e => esc(ETIQUETA_ESTATUS_SERVICIO_EXTRA[e]) + ': ' + numero(porEtapa[e]))
+    .join('<br>');
+  const sinSubtotal = nuevos.filter(s => !s.subtotal).length;
+
+  confirmar('Importar ' + numero(nuevos.length) + ' ' + plural(nuevos.length,'servicio','servicios'),
+    resumenEtapas + '<br><br>'
+    + (extraido.noReconocidos ? numero(extraido.noReconocidos) + ' ' + plural(extraido.noReconocidos,'renglón quedó fuera','renglones quedaron fuera')
+        + ' por venir en una sección que no es ninguna de las 13 etapas.<br>' : '')
+    + (repetidos ? numero(repetidos) + ' ya ' + plural(repetidos,'estaba importado','estaban importados') + ' y se ' + plural(repetidos,'omite','omiten') + '.<br>' : '')
+    + (sinSubtotal ? '<b>' + numero(sinSubtotal) + '</b> ' + plural(sinSubtotal,'servicio','servicios') + ' no ' + plural(sinSubtotal,'trae','traen')
+        + ' monto capturado en el Excel — ' + plural(sinSubtotal,'queda','quedan') + ' en $0, revísa' + plural(sinSubtotal,'lo','los') + ' después.<br>' : '')
+    + 'Los nombres de sitio se importan tal cual vienen en el Excel ("Comedor"); variantes de un mismo cliente escritas distinto '
+    + '(p. ej. "NAVISTAR" y "Navistar") NO se combinan solas.',
+    'Sí, importar', ()=>{
+      nuevos.forEach(s => datos.serviciosExtras.push(s));
+      guardarLocal();
+      anotar('importó', 'servicios extras', numero(nuevos.length) + ' desde ' + archivo.name);
+      estado.vista = 'servicios';
+      render();
+      aviso('Se importaron ' + numero(nuevos.length) + ' ' + plural(nuevos.length,'servicio','servicios')
+        + (repetidos ? ' (' + numero(repetidos) + ' ya ' + plural(repetidos,'existía','existían') + ' y se ' + plural(repetidos,'omitió','omitieron') + ')' : '')
+        + '. Subiéndolos a la nube en segundo plano; con esta cantidad puede tardar varios minutos — no hace falta esperar en esta pantalla.');
+      /* encolar() en un solo forEach síncrono, con miles de renglones, congela
+         la pestaña varios segundos de golpe (cada llamada reescribe la cola
+         completa en localStorage — barato para un guardado suelto, carísimo
+         ×2,500). Se manda en lotes chicos, cediendo el hilo entre uno y otro
+         (setTimeout 0), para que la pantalla siga respondiendo mientras se
+         encola todo; la subida real a Firestore ya era en segundo plano
+         desde antes (ver vaciarCola). */
+      (async ()=>{
+        const LOTE = 150;
+        for(let i = 0; i < nuevos.length; i += LOTE){
+          nuevos.slice(i, i + LOTE).forEach(s => encolar({ tipo:'poner', coleccion:'serviciosExtras', id:s.id, obj:s }));
+          await new Promise(r => setTimeout(r, 0));
+        }
+      })();
+    });
+}
+
 function botonRegresarServiciosExtras(){
   return '<div style="margin-bottom:14px">'
        + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-servicios-extras">'
@@ -9362,6 +9666,8 @@ function vistaServiciosExtras(){
      +   '<h2>Servicios Extras</h2>'
      +   '<p>' + numero(lista.length) + ' ' + plural(lista.length,'servicio','servicios') + '</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave" data-accion="importar-servicios-extras-excel" '
+     +     'title="Sube el Excel exportado del tablero (Monday.com) con las 13 etapas">' + ICONO.excel + 'Importar desde Excel</button>'
      +   '<button type="button" class="btn btn-suave" data-accion="gestionar-personas-servicio" '
      +     'title="Administrar el catálogo de personas responsables">' + ICONO.persona + 'Personas</button>'
      +   '<button type="button" class="btn btn-primario" data-accion="nuevo-servicio-extra">' + ICONO.mas + 'Nuevo servicio</button>'
@@ -14288,6 +14594,7 @@ $('vista').addEventListener('click', ev=>{
         });
     }
     else if(a === 'ir-servicios-extras') irAServiciosExtras();
+    else if(a === 'importar-servicios-extras-excel'){ if(exigirPermiso()) $('archivoServiciosExtrasExcel').click(); }
     else if(a === 'nuevo-servicio-extra'){ if(exigirPermiso()) modalServicioExtra(null); }
     else if(a === 'editar-servicio-extra'){ if(exigirPermiso()) modalServicioExtra(estado.servicioExtraId); }
     else if(a === 'borrar-servicio-extra'){
@@ -14698,6 +15005,14 @@ $('archivoProyectoImagenExcel').addEventListener('change', async ev=>{
   if(!archivo) return;
   if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar proyectos de imagen.', true); return; }
   await importarProyectoImagenDesdeExcel(archivo);
+});
+
+$('archivoServiciosExtrasExcel').addEventListener('change', async ev=>{
+  const archivo = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!archivo) return;
+  if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar servicios extras.', true); return; }
+  await importarServiciosExtrasDesdeExcel(archivo);
 });
 
 /* ======================= GENERADOR DE ARCHIVO XLSX =======================
