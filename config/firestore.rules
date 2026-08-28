@@ -129,30 +129,16 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
-    /* --- Servicios Extras (mantenimiento correctivo/reparaciones cotizadas
-           por trabajo, uno por incidente — el pipeline real de 13 etapas) ---
-       Noveno módulo. Mismo candado que /proyectosImagen: son costos y
-       cotizaciones comerciales, algunos todavía de un prospecto, no un
-       registro de campo abierto a cualquiera (decisión de Victor,
-       28-ago-2026). Capturar y corregir, cualquiera que edite; borrar, solo
-       Admin. */
+    /* --- Servicios Extras (módulo viejo, fusionado con Cotizaciones el
+           28-ago-2026 — ver ETAPAS_TABLERO_COTIZACION en index.html) ---
+       Ya no se escribe desde la página: todo lo nuevo se captura como
+       Cotización. Se deja SOLO lectura, y nada más para que
+       migrarServiciosExtrasACotizaciones() pueda recoger, la primera vez que
+       alguien se conecta, cualquier registro que ya se hubiera subido antes
+       de la fusión. Cuando ya no quede nada ahí, este bloque se puede quitar. */
     match /serviciosExtras/{id} {
-      allow read:   if puedeEditar();
-      allow create: if puedeEditar();
-      allow update: if puedeEditar();
-      allow delete: if esAdmin();
-    }
-
-    /* --- Catálogo de personas responsables de Servicios Extras ---
-       Mismo molde de documento único que /segmentos y /parametros, pero MÁS
-       permisivo para escribir: a diferencia de esos dos (listas de
-       configuración que solo Owner/Admin deben tocar), aquí cualquiera que
-       ya puede capturar un servicio también necesita poder dar de alta a una
-       persona nueva sin detenerse a pedirle a un Admin — es un catálogo de
-       trabajo, no una configuración del sistema. */
-    match /personasServicio/{doc} {
-      allow read:  if conAcceso();
-      allow write: if puedeEditar();
+      allow read: if puedeEditar();
+      allow write: if false;
     }
 
     /* --- Pólizas de mantenimiento preventivo ---
