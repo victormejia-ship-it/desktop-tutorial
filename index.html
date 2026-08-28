@@ -589,6 +589,18 @@ button.mes{cursor:pointer;}
 .resumen .r-total{border-top:1px solid rgba(255,255,255,.18); margin-top:6px; padding-top:9px;}
 .resumen .r-total span:last-child{font-size:17px; font-weight:700;}
 
+/* Variante en cuadrícula del mismo cajón: para un puñado de datos sueltos
+   (etiqueta arriba, valor abajo — Tipo de mantenimiento, Cargo a, Solicitud…)
+   en vez de una lista de renglones tipo recibo. Clase aparte de .resumen (y
+   no la misma con display:grid) porque .resumen YA se usa en varios lados
+   como lista vertical de .r-fila — convertirla a grid habría vuelto cada
+   renglón de ESOS una columna suelta en vez de una fila completa. */
+.resumen-datos{background:var(--navy); color:#fff; border-radius:13px; padding:15px 17px; margin-top:4px;
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:14px 22px;}
+.resumen-datos .d-label{font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:rgba(255,255,255,.65); font-weight:600;}
+.resumen-datos .d-valor{font-size:13.5px; font-weight:600; color:#fff; margin-top:3px; word-break:break-word;}
+.resumen-datos .d-valor.chico{font-size:12.5px; font-weight:500;}
+
 /* Rejilla de casillas de mes en el modal */
 .meses-modal{display:flex; gap:6px; flex-wrap:wrap;}
 .meses-modal .mes{width:34px; height:34px; font-size:11.5px;}
@@ -7419,7 +7431,7 @@ function vistaCotizacion(){
           : '')
      + '</div></div>';
 
-  h += '<div class="bloque"><div class="rodillo" style="overflow:visible"><div class="resumen">'
+  h += '<div class="bloque"><div class="rodillo" style="overflow:visible"><div class="resumen-datos">'
      +   '<div><div class="d-label">Tipo de mantenimiento</div><div class="d-valor chico">' + esc(cot.tipoMtto || '—') + '</div></div>'
      +   '<div><div class="d-label">Cargo a</div><div class="d-valor chico">' + (cot.cargoA === 'comedor' ? 'Comedor' : 'Cliente') + '</div></div>'
      +   '<div><div class="d-label">Solicitud</div><div class="d-valor chico">' + esc(cot.solicitud) + '</div></div>'
@@ -7435,7 +7447,7 @@ function vistaCotizacion(){
      vida nunca llena estos campos y no hace falta enseñarle un bloque vacío. */
   if(cot.proveedor || cot.fechaLiberacion || cot.fechaProgramadaInicio || cot.fechaProgramadaFin || cot.fechaRealizado){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Datos del tablero</h3></div></div>'
-       +   '<div class="resumen">'
+       +   '<div class="resumen-datos">'
        +     (cot.proveedor ? '<div><div class="d-label">Proveedor</div><div class="d-valor chico">' + esc(cot.proveedor) + '</div></div>' : '')
        +     '<div><div class="d-label">Liberación</div><div class="d-valor chico">' + (cot.fechaLiberacion ? fmtFecha(cot.fechaLiberacion) : 'Sin definir') + '</div></div>'
        +     '<div><div class="d-label">Programada — inicio</div><div class="d-valor chico">' + (cot.fechaProgramadaInicio ? fmtFecha(cot.fechaProgramadaInicio) : 'Sin definir') + '</div></div>'
@@ -7472,7 +7484,7 @@ function vistaCotizacion(){
            + '<td>' + dineroCent(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td></tr>'
          : '')
      + '</tbody></table></div>'
-     + '<div class="resumen" style="max-width:280px; margin-left:auto; margin-top:12px">'
+     + '<div class="resumen-datos" style="max-width:280px; margin-left:auto; margin-top:12px">'
      +   '<div><div class="d-label">Subtotal</div><div class="d-valor">' + dineroCent(lado==='costo' ? c.subtotalCosto : c.subtotalCliente) + '</div></div>'
      +   '<div><div class="d-label">IVA 16%</div><div class="d-valor">' + dineroCent(lado==='costo' ? c.ivaCosto : c.ivaCliente) + '</div></div>'
      +   '<div><div class="d-label">Total</div><div class="d-valor" style="font-size:19px">' + dineroCent(lado==='costo' ? c.totalCosto : c.totalCliente) + '</div></div>'
@@ -9711,7 +9723,7 @@ function vistaPoliza(){
   const sinCosto = p.partidas.filter(x => x.precioUnitario && !x.costoUnitario).length;
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Análisis de margen</h3>'
      +   '<p>Costo real de dar el servicio contra lo que se cobra por esta póliza.</p></div></div>'
-     +   '<div class="resumen">'
+     +   '<div class="resumen-datos">'
      +     '<div><div class="d-label">Precio anual</div><div class="d-valor">' + dineroCent(c.precioAnual) + '</div></div>'
      +     '<div><div class="d-label">Costo anual</div><div class="d-valor">' + dineroCent(c.costoAnual) + '</div></div>'
      +     '<div><div class="d-label">Margen</div><div class="d-valor" style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
@@ -12736,7 +12748,7 @@ function modalCotizacion(id, origenReporte){
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRenglonCot" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>'
     + '</div>'
 
-    + '<div class="seccion"><h4>Resumen</h4><div class="resumen" id="resumenCotizacion"></div></div>'
+    + '<div class="seccion"><h4>Resumen</h4><div class="resumen-datos" id="resumenCotizacion"></div></div>'
 
     + '<div class="seccion"><h4>Para el cliente</h4>'
     +   '<div class="fila2">'
