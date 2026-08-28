@@ -435,14 +435,15 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   border-bottom:1px solid var(--line);}
 .gantt-mes{flex:none; font-size:10.5px; font-weight:800; letter-spacing:.4px;
   color:#5d6479; padding:9px 0 9px 10px; border-left:1px solid var(--line); box-sizing:border-box;}
-.gantt-mes-espaciador{position:sticky; left:0; z-index:4; width:236px; background:#fff; border-left:0;}
+.gantt-mes-espaciador{position:sticky; left:0; z-index:4; width:260px; background:#fff; border-left:0;}
 .gantt-filas{position:relative;}
 .gantt-fila{display:flex; align-items:stretch; border-bottom:1px solid var(--line);}
 .gantt-fila:last-child{border-bottom:0;}
-.gantt-rotulo{position:sticky; left:0; z-index:2; background:#fff; flex:none; width:236px;
+.gantt-rotulo{position:sticky; left:0; z-index:2; background:#fff; flex:none; width:260px;
   padding:10px 12px; box-sizing:border-box; border-right:1px solid var(--line); cursor:pointer;}
 .gantt-rotulo:hover{background:var(--bg);}
-.gantt-pista{position:relative; flex:1 1 auto; height:56px;}
+.gantt-fechas{color:var(--navy); font-weight:600; margin-top:2px;}
+.gantt-pista{position:relative; flex:1 1 auto; min-height:56px;}
 .gantt-barra{position:absolute; top:50%; transform:translateY(-50%); height:28px; min-width:20px;
   border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;
   font-size:10.5px; font-weight:800; color:#fff; overflow:hidden; white-space:nowrap; padding:0 6px;
@@ -8365,9 +8366,27 @@ function filaGanttProyectoImagen(p, minF, pxPorDia){
        +   '<div class="gantt-rotulo" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
        +     '<div class="t-nombre" style="font-size:13px">' + esc(p.nombreProyecto || 'Proyecto') + '</div>'
        +     '<div class="pista">' + esc(p.clienteNombre || 'Prospecto') + '</div>'
+       +     '<div class="pista gantt-fechas">' + esc(etiquetaFechasGanttProyecto(p)) + '</div>'
        +   '</div>'
        +   '<div class="gantt-pista">' + marca + '</div>'
        + '</div>';
+}
+/* Las fechas de cada proyecto (entrada, salida, apertura) SIEMPRE visibles en
+   el rótulo, sin depender del title="" (que solo se ve al pasar el cursor):
+   en móvil, sobre todo, nadie hace hover. */
+function etiquetaFechasGanttProyecto(p){
+  if(p.fechaEntrada && p.fechaSalida){
+    let txt = fmtFecha(p.fechaEntrada) + ' – ' + fmtFecha(p.fechaSalida);
+    if(p.fechaObjetivo && (p.fechaObjetivo < p.fechaEntrada || p.fechaObjetivo > p.fechaSalida)){
+      txt += ' · Apertura ' + fmtFecha(p.fechaObjetivo);
+    }
+    return txt;
+  }
+  const partes = [];
+  if(p.fechaEntrada) partes.push('Entrada ' + fmtFecha(p.fechaEntrada));
+  if(p.fechaSalida) partes.push('Salida ' + fmtFecha(p.fechaSalida));
+  if(p.fechaObjetivo) partes.push('Apertura ' + fmtFecha(p.fechaObjetivo));
+  return partes.join(' · ');
 }
 function filaCronogramaProyectoSinFecha(p){
   return '<div class="cronograma-fila" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
@@ -8406,10 +8425,10 @@ function vistaCronogramaProyectosImagen(lista){
       .sort((a,b)=> rangoGanttProyectoImagen(a).inicio.localeCompare(rangoGanttProyectoImagen(b).inicio));
     const izqHoy = diasEntre(minF, hoy) * pxPorDia;
 
-    h += '<div class="gantt-caja"><div class="gantt" style="width:' + (236 + anchoEje) + 'px">'
+    h += '<div class="gantt-caja"><div class="gantt" style="width:' + (260 + anchoEje) + 'px">'
        +   '<div class="gantt-meses">' + ganttMesesHTML(minF, maxF, pxPorDia) + '</div>'
        +   '<div class="gantt-filas">'
-       +     (hoy >= minF && hoy < maxF ? '<div class="gantt-hoy" style="left:' + (236 + izqHoy) + 'px"><span class="gantt-hoy-etq">HOY</span></div>' : '')
+       +     (hoy >= minF && hoy < maxF ? '<div class="gantt-hoy" style="left:' + (260 + izqHoy) + 'px"><span class="gantt-hoy-etq">HOY</span></div>' : '')
        +     ordenados.map(p => filaGanttProyectoImagen(p, minF, pxPorDia)).join('')
        +   '</div>'
        + '</div></div>';
