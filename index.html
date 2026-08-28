@@ -408,6 +408,20 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 /* Parcial: ámbar, la misma señal que su chip en el detalle de la póliza. */
 .agenda-eq.parcial{background:var(--alerta-suave); border-color:#F0DCB4;}
 .agenda-eq.parcial b{color:#9a6a15;}
+
+/* Cronograma de Imagen/Aperturas: mismo molde de bloque que la agenda de
+   servicios (mes → filas), pero cada fila YA es un proyecto completo, sin
+   necesidad de agrupar por sitio como en pólizas. */
+.cronograma-fila{display:flex; align-items:center; gap:14px; padding:10px 4px;
+  border-bottom:1px solid var(--line); cursor:pointer; border-radius:8px;}
+.cronograma-fila:last-child{border-bottom:0;}
+.cronograma-fila:hover, .cronograma-fila:focus-visible{background:var(--bg);}
+.cronograma-fecha{flex:none; width:52px; text-align:center; font-size:11px;
+  font-weight:700; color:var(--gray); text-transform:uppercase;}
+.cronograma-fecha b{display:block; font-size:19px; font-weight:800; color:var(--navy);
+  text-transform:none;}
+.cronograma-info{flex:1; min-width:0;}
+.cronograma-chips{flex:none; display:flex; gap:6px; align-items:center;}
 /* El alta de cliente en línea, dentro del modal de la cotización. */
 .cliente-nuevo{background:var(--neutro-suave); border:1px solid var(--line); border-radius:11px;
   padding:12px 14px 10px; margin-top:10px;}
@@ -8221,6 +8235,105 @@ function tonoTarjetaProyectoImagen(estatus){
   return t === 'info' ? 'neutro' : t;
 }
 
+/* Agrupa una lista de proyectos por mes de su FECHA OBJETIVO — mismo criterio
+   que agruparAgenda() para pólizas: clave 'AAAA-MM', ordenado cronológico. */
+function agruparProyectosImagenPorMes(lista){
+  const meses = [];
+  lista.forEach(p=>{
+    const clave = p.fechaObjetivo.slice(0,7);
+    let g = meses.find(x => x.clave === clave);
+    if(!g){
+      const q = partes(clave + '-01');
+      g = { clave, etiqueta: MES_LARGO[q.m-1] + ' ' + q.a, proyectos:[] };
+      meses.push(g);
+    }
+    g.proyectos.push(p);
+  });
+  meses.sort((a,b)=> a.clave.localeCompare(b.clave));
+  meses.forEach(g => g.proyectos.sort((a,b)=> a.fechaObjetivo.localeCompare(b.fechaObjetivo)));
+  return meses;
+}
+
+/* Cronograma de Imagen/Aperturas: remodelaciones y aperturas se planean
+   contra una fecha objetivo, y ni las tarjetas ni la tabla dejan ver qué se
+   traslapa en el calendario. Mismo lenguaje visual que la Agenda de
+   servicios de pólizas (atrasados aparte, luego mes por mes), pero sin la
+   capa de "sitio" que ahí hace falta: cada fila YA es un proyecto completo. */
+function calcularCronogramaProyectosImagen(lista){
+  const hoy = hoyISO();
+  const atrasados = [], sinFecha = [], aTiempo = [];
+  lista.forEach(p=>{
+    if(!p.fechaObjetivo){ sinFecha.push(p); return; }
+    if(p.fechaObjetivo < hoy && p.estatus !== 'terminado' && p.estatus !== 'cancelado') atrasados.push(p);
+    else aTiempo.push(p);
+  });
+  sinFecha.sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  return {
+    atrasadosPorMes: agruparProyectosImagenPorMes(atrasados),
+    proximosPorMes: agruparProyectosImagenPorMes(aTiempo),
+    sinFecha
+  };
+}
+
+function filaCronogramaProyecto(p){
+  const dia = partes(p.fechaObjetivo);
+  return '<div class="cronograma-fila" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
+       +   '<div class="cronograma-fecha">' + MES_CORTO[dia.m-1] + '<b>' + dia.d + '</b></div>'
+       +   '<div class="cronograma-info">'
+       +     '<div class="t-nombre" style="font-size:13.5px">' + esc(p.nombreProyecto || 'Proyecto') + '</div>'
+       +     '<div class="pista">' + esc(p.clienteNombre || 'Prospecto') + (p.sitioNombre ? ' · ' + esc(p.sitioNombre) : '') + (p.folio ? ' · ' + esc(p.folio) : '') + '</div>'
+       +   '</div>'
+       +   '<div class="cronograma-chips">'
+       +     '<span class="insignia i-' + TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus] + '">' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus]) + '</span>'
+       +   '</div>'
+       + '</div>';
+}
+
+function filaCronogramaProyectoSinFecha(p){
+  return '<div class="cronograma-fila" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
+       +   '<div class="cronograma-fecha">—</div>'
+       +   '<div class="cronograma-info">'
+       +     '<div class="t-nombre" style="font-size:13.5px">' + esc(p.nombreProyecto || 'Proyecto') + '</div>'
+       +     '<div class="pista">' + esc(p.clienteNombre || 'Prospecto') + (p.sitioNombre ? ' · ' + esc(p.sitioNombre) : '') + (p.folio ? ' · ' + esc(p.folio) : '') + '</div>'
+       +   '</div>'
+       +   '<div class="cronograma-chips">'
+       +     '<span class="insignia i-' + TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus] + '">' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus]) + '</span>'
+       +   '</div>'
+       + '</div>';
+}
+
+function bloqueCronogramaProyectos(titulo, gruposDeMes, tono, explica){
+  if(!gruposDeMes.length) return '';
+  const total = gruposDeMes.reduce((s,g)=> s + g.proyectos.length, 0);
+  let h = '<div class="agenda-bloque a-' + tono + '">'
+        + '<div class="agenda-cabeza"><h3>' + esc(titulo)
+        +   ' <span class="agenda-cuenta">' + numero(total) + '</span></h3>'
+        + '<p class="pista">' + esc(explica) + '</p></div>';
+  gruposDeMes.forEach(g=>{
+    h += '<div class="agenda-mes"><div class="agenda-mes-tit">' + esc(g.etiqueta) + '</div>'
+       +   g.proyectos.map(filaCronogramaProyecto).join('')
+       + '</div>';
+  });
+  return h + '</div>';
+}
+
+function vistaCronogramaProyectosImagen(lista){
+  const c = calcularCronogramaProyectosImagen(lista);
+  let h = bloqueCronogramaProyectos('Atrasados', c.atrasadosPorMes, 'error',
+        'Ya pasó su fecha objetivo y el proyecto sigue sin terminar.');
+  h += bloqueCronogramaProyectos('Programados', c.proximosPorMes, 'neutro',
+        'Con fecha objetivo, mes por mes.');
+  if(c.sinFecha.length){
+    h += '<div class="agenda-bloque a-neutro">'
+       +   '<div class="agenda-cabeza"><h3>Sin fecha objetivo'
+       +     ' <span class="agenda-cuenta">' + numero(c.sinFecha.length) + '</span></h3>'
+       +     '<p class="pista">Captúrala en el proyecto para verlo acomodado en el cronograma.</p></div>'
+       +   c.sinFecha.map(filaCronogramaProyectoSinFecha).join('')
+       + '</div>';
+  }
+  return h;
+}
+
 function vistaProyectosImagen(){
   const lista = datos.proyectosImagen;
   let h = '';
@@ -8243,13 +8356,21 @@ function vistaProyectosImagen(){
   }
 
   const vistaTabla = estado.vistaProyectosImagen === 'tabla';
+  const vistaCalendario = estado.vistaProyectosImagen === 'calendario';
   h += '<div class="barra-busca">'
      +   '<input type="search" id="buscaProyectoImagen" placeholder="Buscar por folio, proyecto, sitio o cliente…" value="' + esc(estado.busca) + '">'
      +   '<select id="filtroProyectoImagen">'
      +     '<option value="todos">Todos los estatus</option>'
      +     ESTATUS_PROYECTO_IMAGEN.map(e => '<option value="' + e + '"' + (estado.filtro === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[e]) + '</option>').join('')
      +   '</select>'
-     +   controlAlternaVista('vistaProyectosImagen')
+     /* Aparte de controlAlternaVista (tarjetas/tabla, compartido con otros
+        módulos): un tercer modo propio de este módulo, porque solo aquí los
+        proyectos se planean contra una fecha objetivo. */
+     +   '<div class="alterna-vista" role="group" aria-label="Cómo ver la lista">'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaProyectosImagen" data-modo="tarjetas" aria-pressed="' + (!vistaTabla && !vistaCalendario) + '" title="Ver como tarjetas">' + ICONO.tarjetas + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaProyectosImagen" data-modo="tabla" aria-pressed="' + vistaTabla + '" title="Ver como tabla">' + ICONO.tabla + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaProyectosImagen" data-modo="calendario" aria-pressed="' + vistaCalendario + '" title="Ver cronograma por fecha objetivo">' + ICONO.calendario + '</button>'
+     +   '</div>'
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
@@ -8264,6 +8385,13 @@ function vistaProyectosImagen(){
 
   if(!filtrados.length){
     h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún proyecto coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  if(vistaCalendario){
+    /* filtrados no está vacío (ya se descartó arriba) y todo proyecto cae en
+       atrasados, programados o sin fecha, así que esto nunca vuelve ''. */
+    h += vistaCronogramaProyectosImagen(filtrados);
     return h;
   }
 
@@ -13006,7 +13134,12 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
-    else if(a === 'vista-lista'){ estado[acc.dataset.campo] = acc.dataset.modo === 'tabla' ? 'tabla' : 'tarjetas'; render(); }
+    else if(a === 'vista-lista'){
+      /* El modo viaja tal cual (no solo tarjetas/tabla): Imagen/Aperturas
+         agrega un tercer botón, "calendario", con su propio cronograma. */
+      estado[acc.dataset.campo] = acc.dataset.modo;
+      render();
+    }
     else if(a === 'nueva-cotizacion'){ if(exigirPermiso()) modalCotizacion(null); }
     else if(a === 'editar-cotizacion'){ if(exigirPermiso()) modalCotizacion(estado.cotizacionId); }
     /* Imprimir es solo lectura y ya se ve todo en pantalla: sin exigirPermiso,
