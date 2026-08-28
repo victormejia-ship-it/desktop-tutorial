@@ -267,23 +267,31 @@ if(!PI){
       + '</tr></table></div>';
   }
 
-  /* ---- Página 1: resumen + costos/conceptos — tamaño fijo, no se pagina.
-     Un desglose de costos de un proyecto de imagen es corto por naturaleza
-     (a diferencia de la lista de hallazgos de un levantamiento), así que no
-     hace falta medirlo/paginarlo como a las imágenes de abajo. ---- */
-  function costosTablaHTML(){
-    if(!PI.conceptos.length){
-      return '<div class="notas">Este proyecto todavía no tiene conceptos de costo capturados.</div>';
-    }
-    return '<table class="costos-tabla"><thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
-      + PI.conceptos.map(c => '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td class="num">' + esc(c.cantidad) + '</td>'
-          + '<td class="num">' + esc(c.precioUnitario) + '</td><td class="num">' + esc(c.subtotal) + '</td></tr>').join('')
-      + '<tr class="total"><td colspan="4" style="text-align:right">Total estimado</td><td class="num">' + esc(PI.totalConceptos) + '</td></tr>'
-      + '</tbody></table>';
+  /* ---- Costos/conceptos: se miden y paginan igual que las imágenes de
+     abajo. La primera versión asumía que un desglose de costos siempre es
+     corto y lo dejaba fijo en una sola hoja — un proyecto real con muchos
+     renglones de descripción larga (medido 28-ago-2026) demostró que no: la
+     tabla se salía de la hoja y se empalmaba con el pie. "Medir, no
+     predecir": mismo principio que paginarImagenes() y que paginar() en la
+     plantilla de cotizaciones. El total va como un renglón MÁS de la
+     tabla (no aparte), así que cae solo en la página donde de verdad quepa. */
+  function filaCostoHTML(c){
+    return '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td class="num">' + esc(c.cantidad) + '</td>'
+      + '<td class="num">' + esc(c.precioUnitario) + '</td><td class="num">' + esc(c.subtotal) + '</td></tr>';
   }
+  const filasCostoInfo = PI.conceptos.map(c => ({ html: filaCostoHTML(c) }));
+  if(filasCostoInfo.length){
+    filasCostoInfo.push({ html: '<tr class="total"><td colspan="4" style="text-align:right">Total estimado</td>'
+      + '<td class="num">' + esc(PI.totalConceptos) + '</td></tr>' });
+  }
+  const cabezaCostos = '<table class="costos-tabla"><thead><tr><th>Proveedor</th><th>Concepto</th>'
+    + '<th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>';
 
-  function paginaResumenHTML(){
-    let cuerpo = '';
+  /* Fecha de apertura/entrada/salida/duración y notas: solo en la PRIMERA
+     hoja, igual que "Fecha objetivo" siempre vivió ahí — repetirlas en cada
+     hoja de continuación de costos les quitaría espacio a los renglones sin
+     aportar nada nuevo. */
+  function preambuloResumenHTML(){
     const datosCalendario = [
       PI.fechaObjetivo ? '<b>Fecha de apertura:</b> ' + esc(PI.fechaObjetivo) : '',
       PI.fechaEntrada  ? '<b>Entrada al sitio:</b> ' + esc(PI.fechaEntrada) : '',
@@ -291,13 +299,63 @@ if(!PI){
       PI.duracionDias  ? '<b>Duración en sitio:</b> ' + esc(PI.duracionDias) + (PI.duracionDias === 1 ? ' día' : ' días') : '',
       PI.responsable   ? '<b>Responsable:</b> ' + esc(PI.responsable) : ''
     ].filter(Boolean);
-    if(datosCalendario.length){
-      cuerpo += '<div class="notas">' + datosCalendario.join(' · ') + '</div>';
+    let h = '';
+    if(datosCalendario.length) h += '<div class="notas">' + datosCalendario.join(' · ') + '</div>';
+    if(PI.notas) h += '<div class="notas"><b>Notas</b><br>' + esc(PI.notas) + '</div>';
+    return h;
+  }
+
+  function paginaCostosHTML(indices, esPrimera){
+    let cuerpo = esPrimera ? preambuloResumenHTML() : '';
+    if(!filasCostoInfo.length){
+      cuerpo += '<div class="notas">Este proyecto todavía no tiene conceptos de costo capturados.</div>';
+    }else{
+      cuerpo += cabezaCostos + indices.map(i => filasCostoInfo[i].html).join('') + '</tbody></table>';
     }
-    if(PI.notas) cuerpo += '<div class="notas"><b>Notas</b><br>' + esc(PI.notas) + '</div>';
-    cuerpo += costosTablaHTML();
-    return '<div class="page"><div class="sheet">' + cabeceraHTML()
+    return '<div class="page"><div class="sheet">' + cabeceraHTML(esPrimera)
       + '<div class="cuerpo">' + cuerpo + '</div>' + pieHTML() + '</div></div>';
+  }
+
+  /* Dos presupuestos de espacio, no uno: la primera hoja carga cabecera
+     completa (con metabar) + el preámbulo de fechas/notas ANTES de la
+     tabla, así que le queda menos aire que a una hoja de continuación
+     (cabecera sin metabar, tabla desde arriba). Se miden ambos casos por
+     separado, igual que se mide `pieTop` una sola vez en las demás
+     plantillas — aquí hacen falta dos porque el "top de la tabla" cambia
+     según qué tanto preámbulo haya encima. */
+  function paginarCostos(){
+    if(!filasCostoInfo.length) return [[]];
+
+    const medidor1 = document.createElement('div');
+    medidor1.style.position = 'fixed'; medidor1.style.left = '-9999px'; medidor1.style.top = '0';
+    medidor1.innerHTML = paginaCostosHTML(filasCostoInfo.map((_,i)=>i), true);
+    document.body.appendChild(medidor1);
+    const alturas = Array.from(medidor1.querySelectorAll('table.costos-tabla tbody tr')).map(tr => tr.getBoundingClientRect().height);
+    const alturaPrimera = medidor1.querySelector('.footwrap').getBoundingClientRect().top
+      - medidor1.querySelector('table.costos-tabla').getBoundingClientRect().top - 12;
+    document.body.removeChild(medidor1);
+
+    const medidor2 = document.createElement('div');
+    medidor2.style.position = 'fixed'; medidor2.style.left = '-9999px'; medidor2.style.top = '0';
+    medidor2.innerHTML = paginaCostosHTML(filasCostoInfo.map((_,i)=>i), false);
+    document.body.appendChild(medidor2);
+    const alturaContinuacion = medidor2.querySelector('.footwrap').getBoundingClientRect().top
+      - medidor2.querySelector('table.costos-tabla').getBoundingClientRect().top - 12;
+    document.body.removeChild(medidor2);
+
+    const paginas = [];
+    let actual = [], usado = 0, esPrimera = true;
+    alturas.forEach((h, i)=>{
+      const presupuesto = esPrimera ? alturaPrimera : alturaContinuacion;
+      if(usado + h > presupuesto && actual.length){
+        paginas.push(actual);
+        actual = []; usado = 0; esPrimera = false;
+      }
+      actual.push(i);
+      usado += h;
+    });
+    if(actual.length) paginas.push(actual);
+    return paginas;
   }
 
   /* Un plano casi siempre llega como PDF, no como foto — y un PDF no se
@@ -365,22 +423,31 @@ if(!PI){
   }
 
   function pintarPaginas(){
-    let html = paginaResumenHTML();
+    const paginasCostos = paginarCostos();
+    let html = paginasCostos.map((indices, i) => paginaCostosHTML(indices, i === 0)).join('');
+
+    /* Aserción permanente, por cada tabla que se paginó: lo que se coloca
+       tiene que ser exactamente lo que había que colocar. */
+    let bandaRoja = '';
+    const colocadosCostos = paginasCostos.reduce((s,p)=> s + p.length, 0);
+    if(colocadosCostos !== filasCostoInfo.length){
+      bandaRoja += '<div class="banda-roja">Este documento no cuadra: se iban a imprimir '
+        + filasCostoInfo.length + ' ' + (filasCostoInfo.length === 1 ? 'renglón de costo' : 'renglones de costo') + ' y se colocaron ' + colocadosCostos
+        + '. No se envíe así — avisa para revisar la plantilla.</div>';
+    }
+
     if(PI.imagenes.length){
       const paginasImg = paginarImagenes();
       html += paginasImg.map(indices => paginaImagenesHTML(indices)).join('');
 
-      /* Aserción permanente: lo que se coloca tiene que ser exactamente lo
-         que había que colocar — mismo principio que en la plantilla de
-         levantamientos. */
       const colocados = paginasImg.reduce((s,p)=> s + p.length, 0);
       if(colocados !== filasInfo.length){
-        html = '<div class="banda-roja">Este documento no cuadra: se iban a imprimir '
+        bandaRoja += '<div class="banda-roja">Este documento no cuadra: se iban a imprimir '
           + filasInfo.length + ' ' + (filasInfo.length === 1 ? 'imagen' : 'imágenes') + ' y se colocaron ' + colocados
-          + '. No se envíe así — avisa para revisar la plantilla.</div>' + html;
+          + '. No se envíe así — avisa para revisar la plantilla.</div>';
       }
     }
-    document.getElementById('doc').innerHTML = html;
+    document.getElementById('doc').innerHTML = bandaRoja + html;
   }
 
   pintarPaginas();
