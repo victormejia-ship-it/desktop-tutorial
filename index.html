@@ -422,6 +422,38 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   text-transform:none;}
 .cronograma-info{flex:1; min-width:0;}
 .cronograma-chips{flex:none; display:flex; gap:6px; align-items:center;}
+
+/* Gantt de Imagen/Aperturas: eje de fechas continuo en píxeles (ver
+   filaGanttProyectoImagen), no una columna por día — así un rango de varios
+   meses no significa cientos de columnas de tabla. */
+.gantt-alerta{background:var(--error-suave); border:1px solid #f0cbc9; border-radius:12px;
+  padding:11px 16px; margin-bottom:14px; font-size:12.5px; color:#a5322e; line-height:1.5;}
+.gantt-caja{border:1px solid var(--line); border-radius:14px; background:#fff;
+  overflow-x:auto; box-shadow:var(--sombra-suave);}
+.gantt{position:relative;}
+.gantt-meses{display:flex; position:sticky; top:0; background:#fff; z-index:3;
+  border-bottom:1px solid var(--line);}
+.gantt-mes{flex:none; font-size:10.5px; font-weight:800; letter-spacing:.4px;
+  color:#5d6479; padding:9px 0 9px 10px; border-left:1px solid var(--line); box-sizing:border-box;}
+.gantt-mes-espaciador{position:sticky; left:0; z-index:4; width:236px; background:#fff; border-left:0;}
+.gantt-filas{position:relative;}
+.gantt-fila{display:flex; align-items:stretch; border-bottom:1px solid var(--line);}
+.gantt-fila:last-child{border-bottom:0;}
+.gantt-rotulo{position:sticky; left:0; z-index:2; background:#fff; flex:none; width:236px;
+  padding:10px 12px; box-sizing:border-box; border-right:1px solid var(--line); cursor:pointer;}
+.gantt-rotulo:hover{background:var(--bg);}
+.gantt-pista{position:relative; flex:1 1 auto; height:56px;}
+.gantt-barra{position:absolute; top:50%; transform:translateY(-50%); height:28px; min-width:20px;
+  border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  font-size:10.5px; font-weight:800; color:#fff; overflow:hidden; white-space:nowrap; padding:0 6px;
+  box-sizing:border-box; transition:filter .12s;}
+.gantt-barra:hover{filter:brightness(1.08);}
+.gantt-barra.atrasada{box-shadow:0 0 0 2px var(--error);}
+.gantt-marcador{position:absolute; top:50%; width:14px; height:14px; transform:translate(-50%,-50%) rotate(45deg);
+  border-radius:3px; cursor:pointer; box-shadow:0 0 0 2px #fff, var(--sombra-suave);}
+.gantt-hoy{position:absolute; top:0; bottom:0; width:2px; background:var(--navy); z-index:1; opacity:.5;}
+.gantt-hoy-etq{position:absolute; top:2px; left:4px; font-size:9px; font-weight:800; color:var(--navy);
+  background:#fff; padding:1px 4px; border-radius:4px; white-space:nowrap;}
 /* El alta de cliente en línea, dentro del modal de la cotización. */
 .cliente-nuevo{background:var(--neutro-suave); border:1px solid var(--line); border-radius:11px;
   padding:12px 14px 10px; margin-top:10px;}
@@ -3467,7 +3499,14 @@ function normalizarProyectoImagen(p){
     tipo: TIPO_PROYECTO_IMAGEN.includes(p && p.tipo) ? p.tipo : 'apertura',
     estatus: ESTATUS_PROYECTO_IMAGEN.includes(p && p.estatus) ? p.estatus : 'diseno',
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fecha) ? p.fecha : hoyISO(),
+    /* fechaObjetivo = fecha de apertura (o de reapertura, en una
+       remodelación): el hito que le importa al negocio. fechaEntrada/
+       fechaSalida acotan la obra en el sitio — de ahí sale la duración del
+       cronograma. Las tres son independientes y opcionales: un proyecto en
+       diseño puede no tener ninguna todavía. */
     fechaObjetivo: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaObjetivo) ? p.fechaObjetivo : '',
+    fechaEntrada: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaEntrada) ? p.fechaEntrada : '',
+    fechaSalida: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaSalida) ? p.fechaSalida : '',
     responsable: (p && p.responsable ? String(p.responsable) : '').trim(),
     notas: (p && p.notas ? String(p.notas) : '').trim(),
     conceptos,
@@ -5236,6 +5275,9 @@ function armarPayloadProyectoImagen(p){
     estatusEtiqueta: ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus],
     estatusTono: TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus],
     fechaObjetivo: p.fechaObjetivo ? fechaDocumento(p.fechaObjetivo) : '',
+    fechaEntrada: p.fechaEntrada ? fechaDocumento(p.fechaEntrada) : '',
+    fechaSalida: p.fechaSalida ? fechaDocumento(p.fechaSalida) : '',
+    duracionDias: (p.fechaEntrada && p.fechaSalida) ? (diasEntre(p.fechaEntrada, p.fechaSalida) + 1) : null,
     responsable: p.responsable || '',
     notas: p.notas || '',
     conceptos: p.conceptos.map(c => ({
@@ -8235,60 +8277,98 @@ function tonoTarjetaProyectoImagen(estatus){
   return t === 'info' ? 'neutro' : t;
 }
 
-/* Agrupa una lista de proyectos por mes de su FECHA OBJETIVO — mismo criterio
-   que agruparAgenda() para pólizas: clave 'AAAA-MM', ordenado cronológico. */
-function agruparProyectosImagenPorMes(lista){
-  const meses = [];
-  lista.forEach(p=>{
-    const clave = p.fechaObjetivo.slice(0,7);
-    let g = meses.find(x => x.clave === clave);
-    if(!g){
-      const q = partes(clave + '-01');
-      g = { clave, etiqueta: MES_LARGO[q.m-1] + ' ' + q.a, proyectos:[] };
-      meses.push(g);
-    }
-    g.proyectos.push(p);
-  });
-  meses.sort((a,b)=> a.clave.localeCompare(b.clave));
-  meses.forEach(g => g.proyectos.sort((a,b)=> a.fechaObjetivo.localeCompare(b.fechaObjetivo)));
-  return meses;
-}
+/* ===================== Cronograma tipo Gantt (Imagen/Aperturas) =====================
+   Una remodelación o apertura no es un solo punto en el calendario: tiene
+   entrada al sitio, salida/fin de obra (de ahí sale la duración) y una fecha
+   de apertura que puede caer días después de que la obra termina. Un listado
+   por mes (la primera versión de este cronograma) no deja ver ESO — cuánto
+   dura cada obra ni qué tanto se traslapan dos proyectos. Por eso cada
+   proyecto se dibuja como una barra sobre un eje de fechas continuo, al
+   estilo Gantt, en vez de una columna por día (con varios meses de rango
+   serían cientos de columnas): la posición y el ancho de cada barra se
+   calculan en píxeles a partir de la diferencia de días, no del layout. */
 
-/* Cronograma de Imagen/Aperturas: remodelaciones y aperturas se planean
-   contra una fecha objetivo, y ni las tarjetas ni la tabla dejan ver qué se
-   traslapa en el calendario. Mismo lenguaje visual que la Agenda de
-   servicios de pólizas (atrasados aparte, luego mes por mes), pero sin la
-   capa de "sitio" que ahí hace falta: cada fila YA es un proyecto completo. */
-function calcularCronogramaProyectosImagen(lista){
+/* true si el proyecto tiene AL MENOS una fecha capturada (apertura, entrada
+   o salida) — sin ninguna de las tres no hay dónde dibujarlo en el eje. */
+function tieneCalendarioProyectoImagen(p){
+  return !!(p.fechaEntrada || p.fechaSalida || p.fechaObjetivo);
+}
+/* Inicio/fin a dibujar: la más temprana y la más tardía de las tres fechas
+   capturadas. Con solo una fecha (p.ej. nomás la apertura, muy común al
+   principio), inicio === fin y se dibuja como marcador, no como barra. */
+function rangoGanttProyectoImagen(p){
+  const candidatas = [p.fechaEntrada, p.fechaSalida, p.fechaObjetivo].filter(Boolean).sort();
+  return { inicio: candidatas[0], fin: candidatas[candidatas.length - 1] };
+}
+/* Ventana visible del eje: de la fecha más temprana a la más tardía entre
+   todos los proyectos (y hoy, para que la línea de "HOY" siempre quepa),
+   con margen y redondeado a mes completo para que los encabezados de mes no
+   salgan cortados a la mitad. */
+function calcularRangoGanttProyectosImagen(lista){
+  const fechas = [hoyISO()];
+  lista.forEach(p=>{ const r = rangoGanttProyectoImagen(p); fechas.push(r.inicio, r.fin); });
+  let minF = fechas.reduce((a,b)=> b < a ? b : a);
+  let maxF = fechas.reduce((a,b)=> b > a ? b : a);
+  minF = sumarDias(minF, -10);
+  maxF = sumarDias(maxF, 20);
+  minF = minF.slice(0,8) + '01';
+  maxF = sumarMeses(maxF.slice(0,8) + '01', 1);   /* primer día del mes SIGUIENTE al último: límite exclusivo */
+  return { minF, maxF };
+}
+/* Mismo color que ya usan las insignias de estatus (vía TONO_ESTATUS_
+   PROYECTO_IMAGEN), pero como relleno sólido en vez de fondo suave + texto
+   de color: una barra angosta con fondo pastel y texto oscuro no se lee. */
+const RELLENO_TONO_GANTT = { info:'#103580', alerta:'#E8A33D', ok:'#3FA66B', neutro:'#8a90a3' };
+function colorBarraProyectoImagen(estatus){
+  return RELLENO_TONO_GANTT[TONO_ESTATUS_PROYECTO_IMAGEN[estatus]] || RELLENO_TONO_GANTT.neutro;
+}
+function ganttMesesHTML(minF, maxF, pxPorDia){
+  let h = '<div class="gantt-mes gantt-mes-espaciador"></div>';
+  let cursor = minF;
+  while(cursor < maxF){
+    const q = partes(cursor);
+    const siguiente = sumarMeses(cursor, 1);
+    const dias = diasEntre(cursor, siguiente < maxF ? siguiente : maxF);
+    h += '<div class="gantt-mes" style="width:' + (dias * pxPorDia) + 'px">' + MES_CORTO[q.m-1].toUpperCase() + ' ' + q.a + '</div>';
+    cursor = siguiente;
+  }
+  return h;
+}
+function filaGanttProyectoImagen(p, minF, pxPorDia){
+  const r = rangoGanttProyectoImagen(p);
+  const esBarra = !!(p.fechaEntrada && p.fechaSalida);
   const hoy = hoyISO();
-  const atrasados = [], sinFecha = [], aTiempo = [];
-  lista.forEach(p=>{
-    if(!p.fechaObjetivo){ sinFecha.push(p); return; }
-    if(p.fechaObjetivo < hoy && p.estatus !== 'terminado' && p.estatus !== 'cancelado') atrasados.push(p);
-    else aTiempo.push(p);
-  });
-  sinFecha.sort((a,b)=> b.fecha.localeCompare(a.fecha));
-  return {
-    atrasadosPorMes: agruparProyectosImagenPorMes(atrasados),
-    proximosPorMes: agruparProyectosImagenPorMes(aTiempo),
-    sinFecha
-  };
-}
-
-function filaCronogramaProyecto(p){
-  const dia = partes(p.fechaObjetivo);
-  return '<div class="cronograma-fila" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
-       +   '<div class="cronograma-fecha">' + MES_CORTO[dia.m-1] + '<b>' + dia.d + '</b></div>'
-       +   '<div class="cronograma-info">'
-       +     '<div class="t-nombre" style="font-size:13.5px">' + esc(p.nombreProyecto || 'Proyecto') + '</div>'
-       +     '<div class="pista">' + esc(p.clienteNombre || 'Prospecto') + (p.sitioNombre ? ' · ' + esc(p.sitioNombre) : '') + (p.folio ? ' · ' + esc(p.folio) : '') + '</div>'
+  const atrasado = !!(p.fechaSalida && p.fechaSalida < hoy && p.estatus !== 'terminado' && p.estatus !== 'cancelado');
+  const color = colorBarraProyectoImagen(p.estatus);
+  const izq = diasEntre(minF, r.inicio) * pxPorDia;
+  let marca = '';
+  if(esBarra){
+    const dias = diasEntre(p.fechaEntrada, p.fechaSalida) + 1;
+    const ancho = Math.max(dias * pxPorDia, 20);
+    marca += '<div class="gantt-barra' + (atrasado ? ' atrasada' : '') + '" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button" '
+      +   'style="left:' + izq + 'px; width:' + ancho + 'px; background:' + color + '" '
+      +   'title="' + esc(p.nombreProyecto || 'Proyecto') + ' — entrada ' + fmtFecha(p.fechaEntrada) + ', salida ' + fmtFecha(p.fechaSalida) + '">'
+      +   (ancho >= 40 ? dias + (dias === 1 ? ' día' : ' días') : '')
+      + '</div>';
+    /* La apertura puede caer días después de que termina la obra (limpieza,
+       montaje final): si no coincide con la barra, se marca aparte. */
+    if(p.fechaObjetivo && (p.fechaObjetivo < p.fechaEntrada || p.fechaObjetivo > p.fechaSalida)){
+      const izqObj = diasEntre(minF, p.fechaObjetivo) * pxPorDia;
+      marca += '<div class="gantt-marcador" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button" '
+        +   'style="left:' + izqObj + 'px; background:var(--navy)" title="Apertura: ' + fmtFecha(p.fechaObjetivo) + '"></div>';
+    }
+  }else{
+    marca += '<div class="gantt-marcador" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button" '
+      +   'style="left:' + izq + 'px; background:' + color + '" title="' + esc(p.nombreProyecto || 'Proyecto') + ' — ' + fmtFecha(r.inicio) + '"></div>';
+  }
+  return '<div class="gantt-fila">'
+       +   '<div class="gantt-rotulo" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
+       +     '<div class="t-nombre" style="font-size:13px">' + esc(p.nombreProyecto || 'Proyecto') + '</div>'
+       +     '<div class="pista">' + esc(p.clienteNombre || 'Prospecto') + '</div>'
        +   '</div>'
-       +   '<div class="cronograma-chips">'
-       +     '<span class="insignia i-' + TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus] + '">' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus]) + '</span>'
-       +   '</div>'
+       +   '<div class="gantt-pista">' + marca + '</div>'
        + '</div>';
 }
-
 function filaCronogramaProyectoSinFecha(p){
   return '<div class="cronograma-fila" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
        +   '<div class="cronograma-fecha">—</div>'
@@ -8301,34 +8381,46 @@ function filaCronogramaProyectoSinFecha(p){
        +   '</div>'
        + '</div>';
 }
-
-function bloqueCronogramaProyectos(titulo, gruposDeMes, tono, explica){
-  if(!gruposDeMes.length) return '';
-  const total = gruposDeMes.reduce((s,g)=> s + g.proyectos.length, 0);
-  let h = '<div class="agenda-bloque a-' + tono + '">'
-        + '<div class="agenda-cabeza"><h3>' + esc(titulo)
-        +   ' <span class="agenda-cuenta">' + numero(total) + '</span></h3>'
-        + '<p class="pista">' + esc(explica) + '</p></div>';
-  gruposDeMes.forEach(g=>{
-    h += '<div class="agenda-mes"><div class="agenda-mes-tit">' + esc(g.etiqueta) + '</div>'
-       +   g.proyectos.map(filaCronogramaProyecto).join('')
-       + '</div>';
-  });
-  return h + '</div>';
-}
-
 function vistaCronogramaProyectosImagen(lista){
-  const c = calcularCronogramaProyectosImagen(lista);
-  let h = bloqueCronogramaProyectos('Atrasados', c.atrasadosPorMes, 'error',
-        'Ya pasó su fecha objetivo y el proyecto sigue sin terminar.');
-  h += bloqueCronogramaProyectos('Programados', c.proximosPorMes, 'neutro',
-        'Con fecha objetivo, mes por mes.');
-  if(c.sinFecha.length){
-    h += '<div class="agenda-bloque a-neutro">'
-       +   '<div class="agenda-cabeza"><h3>Sin fecha objetivo'
-       +     ' <span class="agenda-cuenta">' + numero(c.sinFecha.length) + '</span></h3>'
-       +     '<p class="pista">Captúrala en el proyecto para verlo acomodado en el cronograma.</p></div>'
-       +   c.sinFecha.map(filaCronogramaProyectoSinFecha).join('')
+  const conCalendario = lista.filter(tieneCalendarioProyectoImagen);
+  const sinCalendario = lista.filter(p => !tieneCalendarioProyectoImagen(p));
+
+  let h = '';
+  if(!conCalendario.length){
+    h += '<div class="agenda-bloque a-neutro"><div class="agenda-cabeza">'
+       +   '<h3>Ningún proyecto filtrado tiene fechas capturadas</h3>'
+       +   '<p class="pista">Agrega fecha de apertura, entrada al sitio o salida en cada proyecto para verlo aquí.</p>'
+       + '</div></div>';
+  }else{
+    const hoy = hoyISO();
+    const atrasados = conCalendario.filter(p => p.fechaSalida && p.fechaSalida < hoy && p.estatus !== 'terminado' && p.estatus !== 'cancelado');
+    if(atrasados.length){
+      h += '<div class="gantt-alerta"><b>' + numero(atrasados.length) + ' ' + plural(atrasados.length,'proyecto atrasado','proyectos atrasados') + '</b>: '
+         +   atrasados.map(p => esc(p.nombreProyecto || 'Proyecto')).join(', ') + '.</div>';
+    }
+
+    const { minF, maxF } = calcularRangoGanttProyectosImagen(conCalendario);
+    const pxPorDia = 26;
+    const anchoEje = diasEntre(minF, maxF) * pxPorDia;
+    const ordenados = conCalendario.slice()
+      .sort((a,b)=> rangoGanttProyectoImagen(a).inicio.localeCompare(rangoGanttProyectoImagen(b).inicio));
+    const izqHoy = diasEntre(minF, hoy) * pxPorDia;
+
+    h += '<div class="gantt-caja"><div class="gantt" style="width:' + (236 + anchoEje) + 'px">'
+       +   '<div class="gantt-meses">' + ganttMesesHTML(minF, maxF, pxPorDia) + '</div>'
+       +   '<div class="gantt-filas">'
+       +     (hoy >= minF && hoy < maxF ? '<div class="gantt-hoy" style="left:' + (236 + izqHoy) + 'px"><span class="gantt-hoy-etq">HOY</span></div>' : '')
+       +     ordenados.map(p => filaGanttProyectoImagen(p, minF, pxPorDia)).join('')
+       +   '</div>'
+       + '</div></div>';
+  }
+
+  if(sinCalendario.length){
+    h += '<div class="agenda-bloque a-neutro" style="margin-top:16px">'
+       +   '<div class="agenda-cabeza"><h3>Sin fechas capturadas'
+       +     ' <span class="agenda-cuenta">' + numero(sinCalendario.length) + '</span></h3>'
+       +     '<p class="pista">Captura la fecha de apertura, la entrada al sitio o la salida para verlo en el cronograma.</p></div>'
+       +   sinCalendario.map(filaCronogramaProyectoSinFecha).join('')
        + '</div>';
   }
   return h;
@@ -8453,10 +8545,13 @@ function vistaProyectoImagen(){
      +   '<span class="insignia i-neutro">' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</span>'
      + '</div>';
 
+  const duracionDias = (p.fechaEntrada && p.fechaSalida) ? diasEntre(p.fechaEntrada, p.fechaSalida) + 1 : null;
   h += '<div class="kpis">'
      + tarjetaKpi('Sitio / ubicación', esc(p.sitioNombre || 'Sin especificar'), '')
-     + tarjetaKpi('Fecha de alta', fmtFecha(p.fecha), '')
-     + tarjetaKpi('Fecha objetivo', p.fechaObjetivo ? fmtFecha(p.fechaObjetivo) : 'Sin definir', '')
+     + tarjetaKpi('Fecha de apertura', p.fechaObjetivo ? fmtFecha(p.fechaObjetivo) : 'Sin definir', '')
+     + tarjetaKpi('Entrada al sitio', p.fechaEntrada ? fmtFecha(p.fechaEntrada) : 'Sin definir', '')
+     + tarjetaKpi('Salida / fin de obra', p.fechaSalida ? fmtFecha(p.fechaSalida) : 'Sin definir', '')
+     + tarjetaKpi('Duración en sitio', duracionDias ? (duracionDias + ' ' + (duracionDias===1?'día':'días')) : 'Sin definir', '')
      + tarjetaKpi('Costo estimado', dineroCent(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
      + '</div>';
 
@@ -8580,8 +8675,14 @@ function modalProyectoImagen(id, datosImportados){
 
     + '<div class="fila2">'
     +   '<div class="campo"><label>Fecha de alta</label><input type="date" id="piFecha" value="' + esc(p ? p.fecha : ((pre && pre.fecha) || hoyISO())) + '"></div>'
-    +   '<div class="campo"><label>Fecha objetivo (opcional)</label><input type="date" id="piFechaObjetivo" value="' + esc(p ? p.fechaObjetivo : '') + '"></div>'
+    +   '<div class="campo"><label>Fecha de apertura (opcional)</label><input type="date" id="piFechaObjetivo" value="' + esc(p ? p.fechaObjetivo : '') + '"></div>'
     + '</div>'
+
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Entrada al sitio (opcional)</label><input type="date" id="piFechaEntrada" value="' + esc(p ? p.fechaEntrada : '') + '"></div>'
+    +   '<div class="campo"><label>Salida / fin de obra (opcional)</label><input type="date" id="piFechaSalida" value="' + esc(p ? p.fechaSalida : '') + '"></div>'
+    + '</div>'
+    + '<p class="pista" id="piDuracionPista" style="margin:-10px 0 14px"></p>'
 
     + '<div class="campo"><label>Responsable (opcional)</label>'
     +   '<input type="text" id="piResponsable" placeholder="Quién lleva el proyecto" value="' + esc(p ? p.responsable : (pre ? pre.responsable : '')) + '"></div>'
@@ -8609,6 +8710,22 @@ function modalProyectoImagen(id, datosImportados){
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Crear proyecto') + '</button>';
 
   abrirModal(p ? 'Editar proyecto' : 'Nuevo proyecto de imagen', cuerpo, pie);
+
+  /* Duración = días en sitio entre entrada y salida. Se muestra en vivo para
+     que la fecha de apertura capturada arriba se pueda contrastar contra lo
+     que en realidad dura la obra, sin tener que guardar primero. */
+  function pintarDuracionPI(){
+    const ei = $('piFechaEntrada').value, es = $('piFechaSalida').value;
+    const el = $('piDuracionPista');
+    if(!ei || !es){ el.textContent = ''; return; }
+    if(es < ei){ el.textContent = 'La salida no puede ser antes de la entrada.'; el.style.color = 'var(--error)'; return; }
+    el.style.color = '';
+    const dias = diasEntre(ei, es) + 1;
+    el.textContent = 'Duración: ' + dias + ' ' + (dias === 1 ? 'día' : 'días') + ' en sitio.';
+  }
+  pintarDuracionPI();
+  $('piFechaEntrada').addEventListener('change', pintarDuracionPI);
+  $('piFechaSalida').addEventListener('change', pintarDuracionPI);
 
   /* ---- Cliente / sitio: prospecto libre vs existente, "+ Nuevo" inline ----
      Mismo patrón que modalLevantamiento, con un paso extra: aquí el cliente
@@ -8834,6 +8951,12 @@ function modalProyectoImagen(id, datosImportados){
       aviso('Ponle un nombre al proyecto.', true);
       return;
     }
+    const fechaEntrada = $('piFechaEntrada').value, fechaSalida = $('piFechaSalida').value;
+    if(fechaEntrada && fechaSalida && fechaSalida < fechaEntrada){
+      aviso('La salida / fin de obra no puede ser antes de la entrada al sitio.', true);
+      $('piFechaSalida').focus();
+      return;
+    }
 
     const datosProyecto = {
       id: p ? p.id : nuevoId(),
@@ -8844,6 +8967,7 @@ function modalProyectoImagen(id, datosImportados){
       estatus: $('piEstatus').value,
       fecha: $('piFecha').value,
       fechaObjetivo: $('piFechaObjetivo').value,
+      fechaEntrada, fechaSalida,
       responsable: $('piResponsable').value.trim(),
       notas: $('piNotas').value.trim(),
       conceptos: conceptosTmp,

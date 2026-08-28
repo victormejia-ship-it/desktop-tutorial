@@ -284,12 +284,15 @@ if(!PI){
 
   function paginaResumenHTML(){
     let cuerpo = '';
-    if(PI.fechaObjetivo || PI.responsable){
-      cuerpo += '<div class="notas">'
-        + (PI.fechaObjetivo ? '<b>Fecha objetivo:</b> ' + esc(PI.fechaObjetivo) : '')
-        + (PI.fechaObjetivo && PI.responsable ? ' · ' : '')
-        + (PI.responsable ? '<b>Responsable:</b> ' + esc(PI.responsable) : '')
-        + '</div>';
+    const datosCalendario = [
+      PI.fechaObjetivo ? '<b>Fecha de apertura:</b> ' + esc(PI.fechaObjetivo) : '',
+      PI.fechaEntrada  ? '<b>Entrada al sitio:</b> ' + esc(PI.fechaEntrada) : '',
+      PI.fechaSalida   ? '<b>Salida / fin de obra:</b> ' + esc(PI.fechaSalida) : '',
+      PI.duracionDias  ? '<b>Duración en sitio:</b> ' + esc(PI.duracionDias) + (PI.duracionDias === 1 ? ' día' : ' días') : '',
+      PI.responsable   ? '<b>Responsable:</b> ' + esc(PI.responsable) : ''
+    ].filter(Boolean);
+    if(datosCalendario.length){
+      cuerpo += '<div class="notas">' + datosCalendario.join(' · ') + '</div>';
     }
     if(PI.notas) cuerpo += '<div class="notas"><b>Notas</b><br>' + esc(PI.notas) + '</div>';
     cuerpo += costosTablaHTML();
