@@ -258,6 +258,15 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .tp-final .tp-label{font-size:14.5px; font-weight:700; color:var(--navy);}
 .tp-final .tp-monto{font-size:24px; font-weight:800; font-variant-numeric:tabular-nums;}
 
+/* Gráficas de Resultados: leyenda en HTML (texto nítido, seleccionable) y el
+   dibujo mismo en SVG inline — sin librerías, para no meter una dependencia
+   externa a una app de un solo archivo. */
+.grafica-leyenda{display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--gray); margin:-4px 0 14px;}
+.grafica-leyenda span{display:inline-flex; align-items:center; gap:6px;}
+.grafica-leyenda i{width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0;}
+.grafica-leyenda i.linea{width:14px; height:2px; border-radius:1px;}
+.svg-vacio{padding:26px 0; text-align:center; color:var(--gray); font-size:13px;}
+
 .t-cabeza{display:flex; align-items:flex-start; gap:10px;}
 .t-nombre{font-size:16.5px; font-weight:700; color:var(--navy); line-height:1.25; word-break:break-word;}
 .t-sub{font-size:11.5px; color:var(--gray); margin-top:2px;}
@@ -6371,6 +6380,264 @@ function rangoPeriodoResultados(modo, desde, hasta){
   return { inicio: anioMes + '-01', fin: anioMes + '-' + String(ultimoDia).padStart(2,'0') };
 }
 
+/* ============================================================================
+   Gráficas del estado de resultados — para dirección, que necesita ver la
+   tendencia de un vistazo y no solo la tabla de un periodo a la vez.
+   Todo en SVG inline, sin librería externa: es una app de un solo archivo.
+   ========================================================================= */
+
+/* Orden y color FIJOS de las tres fuentes de ingreso: el mismo Forpass/
+   Pólizas/Cotizaciones en todas las gráficas de esta vista, sin importar el
+   periodo o el filtro — que el color cambie según qué tan grande salió cada
+   quien confundiría más de lo que ayuda. Verificado con el validador de
+   paleta del proyecto (contraste CVD y sobre fondo blanco). */
+const COLOR_INGRESO_FORPASS = '#2456a8';
+const COLOR_INGRESO_POLIZAS = '#54C682'; /* = var(--accent) */
+const COLOR_INGRESO_COTIZACIONES = '#8C5FBF';
+const COLOR_UTILIDAD_GRAFICA = '#00143D'; /* = var(--navy-oscuro) */
+const FUENTES_INGRESO = [
+  { clave:'ingresoForpass', etiqueta:'Forpass', color:COLOR_INGRESO_FORPASS },
+  { clave:'ingresoPolizas', etiqueta:'Pólizas', color:COLOR_INGRESO_POLIZAS },
+  { clave:'ingresoCotizaciones', etiqueta:'Cotizaciones', color:COLOR_INGRESO_COTIZACIONES }
+];
+
+/* "$1,284,000" ocupa demasiado en un eje: "$1.3M" dice lo mismo en la mitad
+   del espacio. */
+function abrevMoneda(n){
+  const signo = n < 0 ? '-' : '';
+  const v = Math.abs(Number(n) || 0);
+  if(v >= 1000000) return signo + '$' + (Math.round(v/100000)/10) + 'M';
+  if(v >= 1000) return signo + '$' + Math.round(v/1000) + 'k';
+  return signo + '$' + Math.round(v);
+}
+
+/* Blanco o tinta navy sobre un color de relleno, el que de verdad se lea
+   mejor — el verde de marca es demasiado claro para texto blanco encima. */
+function luminanciaRelativa(hex){
+  const c = hex.replace('#','');
+  const r = parseInt(c.substr(0,2),16)/255, g = parseInt(c.substr(2,2),16)/255, b = parseInt(c.substr(4,2),16)/255;
+  const lin = x => x <= 0.03928 ? x/12.92 : Math.pow((x+0.055)/1.055, 2.4);
+  return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+}
+function colorTextoSobre(hexFondo){
+  const L = luminanciaRelativa(hexFondo);
+  const contrasteBlanco = 1.05 / (L + 0.05);
+  const contrasteNavy = (L + 0.05) / (luminanciaRelativa(COLOR_UTILIDAD_GRAFICA) + 0.05);
+  return contrasteBlanco >= contrasteNavy ? '#fff' : COLOR_UTILIDAD_GRAFICA;
+}
+
+/* Camino de una barra VERTICAL con las esquinas de arriba redondeadas y la
+   base cuadrada (nace del cero) — para no tener que redondear los 4 lados
+   de cada segmento de una barra apilada. */
+function pathBarraTope(x, y, w, h, r){
+  if(h <= 0 || w <= 0) return '';
+  r = Math.max(0, Math.min(r, w/2, h));
+  if(r <= 0.01) return 'M' + x + ',' + (y+h) + ' L' + x + ',' + y + ' L' + (x+w) + ',' + y + ' L' + (x+w) + ',' + (y+h) + ' Z';
+  return 'M' + x + ',' + (y+h)
+       + ' L' + x + ',' + (y+r)
+       + ' Q' + x + ',' + y + ' ' + (x+r) + ',' + y
+       + ' L' + (x+w-r) + ',' + y
+       + ' Q' + (x+w) + ',' + y + ' ' + (x+w) + ',' + (y+r)
+       + ' L' + (x+w) + ',' + (y+h)
+       + ' Z';
+}
+/* Lo mismo pero para una barra HORIZONTAL, redondeando solo el lado
+   derecho (el "extremo con datos"; el izquierdo es la base, en cero). */
+function pathBarraDerechaRedonda(x, y, w, h, r){
+  if(h <= 0 || w <= 0) return '';
+  r = Math.max(0, Math.min(r, w, h/2));
+  if(r <= 0.01) return 'M' + x + ',' + y + ' L' + (x+w) + ',' + y + ' L' + (x+w) + ',' + (y+h) + ' L' + x + ',' + (y+h) + ' Z';
+  return 'M' + x + ',' + y
+       + ' L' + (x+w-r) + ',' + y
+       + ' Q' + (x+w) + ',' + y + ' ' + (x+w) + ',' + (y+r)
+       + ' L' + (x+w) + ',' + (y+h-r)
+       + ' Q' + (x+w) + ',' + (y+h) + ' ' + (x+w-r) + ',' + (y+h)
+       + ' L' + x + ',' + (y+h)
+       + ' Z';
+}
+
+/* Los últimos `n` meses completos (incluye el actual), cada uno con el
+   mismo calcularResultados() que ya usa el resto de esta vista — así la
+   tendencia no depende de qué periodo tenga elegido el selector de arriba. */
+function tendenciaMensualResultados(n){
+  const anclaMes = hoyISO().slice(0,7) + '-01';
+  const meses = [];
+  for(let i = n - 1; i >= 0; i--){
+    const inicioMes = sumarMeses(anclaMes, -i);
+    const anioMes = inicioMes.slice(0,7);
+    const ultimoDia = new Date(Number(anioMes.slice(0,4)), Number(anioMes.slice(5,7)), 0).getDate();
+    const finMes = anioMes + '-' + String(ultimoDia).padStart(2,'0');
+    meses.push({ anio:Number(anioMes.slice(0,4)), mesNum:Number(anioMes.slice(5,7)), r:calcularResultados(inicioMes, finMes) });
+  }
+  return meses;
+}
+
+function leyendaFuentesIngreso(incluirUtilidad){
+  let h = '<div class="grafica-leyenda">';
+  FUENTES_INGRESO.forEach(f => { h += '<span><i style="background:' + f.color + '"></i>' + esc(f.etiqueta) + '</span>'; });
+  if(incluirUtilidad) h += '<span><i class="linea" style="background:' + COLOR_UTILIDAD_GRAFICA + '"></i>Utilidad bruta</span>';
+  return h + '</div>';
+}
+
+/* La gráfica principal: barras apiladas (ingreso por fuente) + una línea
+   (utilidad bruta) en la MISMA escala de pesos — no son dos ejes distintos,
+   es la misma unidad, así que compartirlo es válido y es justo lo que
+   dirección necesita ver junto: de dónde vino el ingreso y si al final quedó
+   ganancia. */
+function graficaTendenciaResultados(meses){
+  if(!meses.length) return '<p class="svg-vacio">Sin datos suficientes todavía.</p>';
+
+  const W = 900, H = 300, mI = 58, mD = 14, mA = 22, mB = 34;
+  const anchoPlot = W - mI - mD, altoPlot = H - mA - mB;
+
+  let yMax = Math.max(1, ...meses.map(m => m.r.ingresoTotal)) * 1.12;
+  let yMin = Math.min(0, ...meses.map(m => m.r.utilidadBruta));
+  if(yMin < 0) yMin *= 1.12;
+
+  const escY = v => mA + altoPlot - ((v - yMin) / (yMax - yMin)) * altoPlot;
+  const n = meses.length;
+  const anchoGrupo = anchoPlot / n;
+  const anchoBarra = Math.min(26, anchoGrupo * 0.56);
+  const GAP = 2;
+
+  /* Cuadrícula: líneas limpias y parejas entre el mínimo y el máximo — nunca
+     punteadas (eso se lee como "proyección" y aquí todo es real). */
+  let svg = '';
+  const pasos = 4;
+  for(let i = 0; i <= pasos; i++){
+    const v = yMin + (yMax - yMin) * (i / pasos);
+    const y = escY(v);
+    svg += '<line x1="' + mI + '" y1="' + y.toFixed(1) + '" x2="' + (W-mD) + '" y2="' + y.toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>'
+         + '<text x="' + (mI-8) + '" y="' + (y+3.5).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--gray)">' + esc(abrevMoneda(v)) + '</text>';
+  }
+  /* El cero, si hay meses en números rojos, se marca un poco más firme: es
+     la única línea que de verdad separa "ganó" de "perdió". */
+  if(yMin < 0){
+    const y0 = escY(0);
+    svg += '<line x1="' + mI + '" y1="' + y0.toFixed(1) + '" x2="' + (W-mD) + '" y2="' + y0.toFixed(1) + '" stroke="var(--gray-claro)" stroke-width="1.3"/>';
+  }
+
+  let svgEjeX = '';
+  meses.forEach((m,i) => {
+    const x0 = mI + i*anchoGrupo + (anchoGrupo-anchoBarra)/2;
+    let cum = 0;
+    const activos = FUENTES_INGRESO.filter(f => (m.r[f.clave]||0) > 0);
+    activos.forEach((f,k) => {
+      const v = m.r[f.clave] || 0;
+      const yTop = escY(cum+v), yBottom = escY(cum);
+      const esUltimo = k === activos.length-1;
+      const alto = (yBottom - yTop) - (esUltimo ? 0 : GAP);
+      if(alto > 0){
+        svg += '<path d="' + pathBarraTope(x0, yTop, anchoBarra, alto, 4) + '" fill="' + f.color + '">'
+             +   '<title>' + esc(f.etiqueta + ' — ' + MES_CORTO[m.mesNum-1] + ' ' + m.anio + ': ' + dinero(v)) + '</title>'
+             + '</path>';
+      }
+      cum += v;
+    });
+    const mostrarAnio = i === 0 || m.mesNum === 1;
+    const etiqueta = MES_CORTO[m.mesNum-1] + (mostrarAnio ? " '" + String(m.anio).slice(2) : '');
+    svgEjeX += '<text x="' + (x0+anchoBarra/2).toFixed(1) + '" y="' + (H-mB+16) + '" text-anchor="middle" font-size="10" fill="var(--gray)">' + esc(etiqueta) + '</text>';
+  });
+  svg += svgEjeX;
+
+  const puntos = meses.map((m,i) => ({ x: mI + i*anchoGrupo + anchoGrupo/2, y: escY(m.r.utilidadBruta), m }));
+  svg += '<path d="' + puntos.map((p,i) => (i===0?'M':'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ')
+       + '" fill="none" stroke="' + COLOR_UTILIDAD_GRAFICA + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+  puntos.forEach(p => {
+    svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4" fill="' + COLOR_UTILIDAD_GRAFICA + '" stroke="#fff" stroke-width="2">'
+         +   '<title>' + esc('Utilidad bruta — ' + MES_CORTO[p.m.mesNum-1] + ' ' + p.m.anio + ': ' + dinero(p.m.r.utilidadBruta)) + '</title>'
+         + '</circle>';
+  });
+  /* Etiqueta directa solo en el mes más reciente: es el que de verdad le
+     importa a dirección de un vistazo; el resto queda en la cuadrícula y el
+     detalle al pasar el mouse. */
+  const u = puntos[puntos.length-1];
+  const arriba = u.y > mA + 14;
+  svg += '<text x="' + u.x.toFixed(1) + '" y="' + (arriba ? u.y-10 : u.y+18).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + COLOR_UTILIDAD_GRAFICA + '">' + esc(dinero(u.m.r.utilidadBruta)) + '</text>';
+
+  return '<div class="rodillo"><svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:640px; width:100%; height:auto; display:block" '
+       + 'role="img" aria-label="Ingreso por fuente y utilidad bruta, mes a mes, de los últimos ' + n + ' meses">' + svg + '</svg></div>';
+}
+
+/* Una sola barra horizontal apilada: de qué tamaño es cada fuente dentro del
+   ingreso de ESTE periodo (el que tenga elegido el selector de arriba). Es
+   la forma recomendada para "parte del todo" — más segura de leer que un
+   pastel para comparar tres tamaños. */
+function graficaComposicionIngreso(r){
+  if(!r.ingresoTotal) return '<p class="svg-vacio">Sin ingresos capturados en este periodo.</p>';
+
+  const W = 900, H = 76, mI = 10, mD = 10, altoBarra = 42;
+  const anchoPlot = W - mI - mD, y = (H-altoBarra)/2, GAP = 2;
+  const activos = FUENTES_INGRESO.map(f => ({ ...f, valor: r[f.clave]||0 })).filter(f => f.valor > 0);
+
+  let x = mI, svg = '';
+  activos.forEach((f,k) => {
+    const w = (f.valor / r.ingresoTotal) * anchoPlot;
+    const esUltimo = k === activos.length-1;
+    const wSeg = w - (esUltimo ? 0 : GAP);
+    if(wSeg > 0){
+      const pct = f.valor / r.ingresoTotal * 100;
+      const d = esUltimo
+        ? pathBarraDerechaRedonda(x, y, wSeg, altoBarra, 6)
+        : 'M'+x+','+y+' L'+(x+wSeg)+','+y+' L'+(x+wSeg)+','+(y+altoBarra)+' L'+x+','+(y+altoBarra)+' Z';
+      svg += '<path d="' + d + '" fill="' + f.color + '"><title>' + esc(f.etiqueta + ': ' + dinero(f.valor) + ' (' + pct.toFixed(1) + '%)') + '</title></path>';
+      /* Etiqueta adentro solo si de verdad cabe con aire a los lados —
+         nunca recortada. */
+      if(pct >= 12){
+        svg += '<text x="' + (x+wSeg/2).toFixed(1) + '" y="' + (y+altoBarra/2+4.5).toFixed(1) + '" text-anchor="middle" font-size="13" font-weight="700" fill="' + colorTextoSobre(f.color) + '">' + Math.round(pct) + '%</text>';
+      }
+    }
+    x += w;
+  });
+
+  return '<div class="rodillo"><svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:380px; width:100%; height:auto; display:block" '
+       + 'role="img" aria-label="Composición del ingreso del periodo por fuente">' + svg + '</svg></div>';
+}
+
+/* Línea sencilla del margen bruto %, mes a mes — un solo color basta (un
+   solo indicador no necesita leyenda: el título de la tarjeta ya dice qué
+   es). Eje propio en porcentaje: mezclarlo con la gráfica de pesos de arriba
+   sería el error clásico de doble eje. */
+function graficaMargenTendencia(meses){
+  if(!meses.length) return '<p class="svg-vacio">Sin datos suficientes todavía.</p>';
+
+  const W = 900, H = 160, mI = 46, mD = 14, mA = 16, mB = 30;
+  const anchoPlot = W-mI-mD, altoPlot = H-mA-mB;
+  const valores = meses.map(m => m.r.margenPct);
+  let yMax = Math.max(10, ...valores), yMin = Math.min(0, ...valores);
+  const rango = (yMax - yMin) || 10;
+  yMax += rango*0.15; yMin -= rango*0.15;
+
+  const escY = v => mA + altoPlot - ((v-yMin)/(yMax-yMin)) * altoPlot;
+  const escX = i => mI + (i / (meses.length-1 || 1)) * anchoPlot;
+  const y0 = escY(0);
+
+  let svg = '<line x1="' + mI + '" y1="' + y0.toFixed(1) + '" x2="' + (W-mD) + '" y2="' + y0.toFixed(1) + '" stroke="var(--gray-claro)" stroke-width="1"/>'
+          + '<text x="' + (mI-8) + '" y="' + (y0+3.5).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--gray)">0%</text>';
+
+  const puntos = meses.map((m,i) => ({ x:escX(i), y:escY(m.r.margenPct), m }));
+  svg += '<path d="' + puntos.map((p,i) => (i===0?'M':'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ')
+       + '" fill="none" stroke="' + COLOR_UTILIDAD_GRAFICA + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+
+  const pasoEtiquetaX = Math.ceil(meses.length / 6);
+  puntos.forEach((p,i) => {
+    const primero = i === 0, ultimo = i === puntos.length-1;
+    svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + (ultimo ? 4.5 : 3) + '" fill="' + COLOR_UTILIDAD_GRAFICA + '" stroke="#fff" stroke-width="2">'
+         +   '<title>' + esc(MES_CORTO[p.m.mesNum-1] + ' ' + p.m.anio + ': ' + p.m.r.margenPct.toFixed(1) + '% de margen') + '</title>'
+         + '</circle>';
+    if(primero || ultimo){
+      const arriba = p.y > mA+14;
+      svg += '<text x="' + (p.x + (primero?4:-4)).toFixed(1) + '" y="' + (arriba ? p.y-9 : p.y+17).toFixed(1) + '" text-anchor="' + (primero?'start':'end') + '" font-size="11" font-weight="700" fill="' + COLOR_UTILIDAD_GRAFICA + '">' + p.m.r.margenPct.toFixed(1) + '%</text>';
+    }
+    if(i % pasoEtiquetaX === 0 || ultimo){
+      svg += '<text x="' + p.x.toFixed(1) + '" y="' + (H-mB+16) + '" text-anchor="middle" font-size="10" fill="var(--gray)">' + MES_CORTO[p.m.mesNum-1] + '</text>';
+    }
+  });
+
+  return '<div class="rodillo"><svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:520px; width:100%; height:auto; display:block" '
+       + 'role="img" aria-label="Margen bruto porcentual, mes a mes, de los últimos ' + meses.length + ' meses">' + svg + '</svg></div>';
+}
+
 function calcularResultados(inicio, fin){
   const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
               numPagosForpass:0, numCobrosPolizas:0, numServiciosPolizas:0, numCotizaciones:0 };
@@ -6497,6 +6764,41 @@ function vistaResultados(){
      + tarjetaKpi('Utilidad bruta', dineroCent(r.utilidadBruta), r.margenPct.toFixed(1) + '% de margen sobre el ingreso',
          r.utilidadBruta >= 0 ? 'k-ok' : 'k-error')
      + '</div>';
+
+  /* Gráficas para dirección: la tendencia no depende del selector de arriba
+     (siempre son los últimos 12 meses cerrados), la composición sí — es la
+     de ESTE periodo, para leerse junto con las tarjetas y la tabla de abajo. */
+  const tendencia12m = tendenciaMensualResultados(12);
+  const hayTendencia = tendencia12m.some(m => m.r.ingresoTotal || m.r.costoTotal);
+
+  if(hayTendencia){
+    h += '<div class="bloque">'
+       +   '<div class="bloque-cabeza"><div>'
+       +     '<h3>Ingresos y utilidad — últimos 12 meses</h3>'
+       +     '<p>Cada barra es el ingreso del mes por fuente; la línea es la utilidad bruta de ese mes.</p>'
+       +   '</div></div>'
+       +   leyendaFuentesIngreso(true)
+       +   graficaTendenciaResultados(tendencia12m)
+       + '</div>';
+
+    h += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; margin-bottom:18px">'
+       +   '<div class="bloque" style="margin-bottom:0">'
+       +     '<div class="bloque-cabeza"><div>'
+       +       '<h3>De dónde viene el ingreso de este periodo</h3>'
+       +       '<p>' + dineroCent(r.ingresoTotal) + ' en total</p>'
+       +     '</div></div>'
+       +     leyendaFuentesIngreso(false)
+       +     graficaComposicionIngreso(r)
+       +   '</div>'
+       +   '<div class="bloque" style="margin-bottom:0">'
+       +     '<div class="bloque-cabeza"><div>'
+       +       '<h3>Margen bruto — últimos 12 meses</h3>'
+       +       '<p>Utilidad bruta como % del ingreso, mes con mes</p>'
+       +     '</div></div>'
+       +     graficaMargenTendencia(tendencia12m)
+       +   '</div>'
+       + '</div>';
+  }
 
   h += '<div class="tabla-pyl">'
      +   '<div class="tp-seccion">Ingresos</div>'
