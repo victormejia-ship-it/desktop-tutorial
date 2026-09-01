@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="brandBg" x1="0" y1="0" x2="200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3f9e63"/>
+      <stop offset="1" stop-color="#1c4a30"/>
+    </linearGradient>
+    <linearGradient id="leafGrad" x1="120" y1="30" x2="176" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f7b26a"/>
+      <stop offset="1" stop-color="#e0722f"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="200" height="200" rx="46" fill="url(#brandBg)"/>
+  <rect x="3" y="3" width="194" height="194" rx="43" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+
+  <path d="M158 34c14 16 15 40 -1 56 -13 13 -32 16 -32 16 0 0 1 -21 10 -37 9 -16 23 -35 23 -35Z" fill="url(#leafGrad)"/>
+  <path d="M141 63c-9 12 -12 27 -12 27" stroke="#1c4a30" stroke-width="3" stroke-linecap="round" opacity="0.35" fill="none"/>
+
+  <text x="100" y="132" text-anchor="middle"
+        font-family="'Segoe UI', system-ui, -apple-system, sans-serif"
+        font-weight="800" font-size="92" letter-spacing="-4" fill="#ffffff">NB</text>
+</svg>
