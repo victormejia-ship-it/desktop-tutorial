@@ -5465,15 +5465,34 @@ function calcularPoliza(p){
   const fin = sumarMeses(p.fechaInicio, MESES_POLIZA);
 
   const totales = p.partidas.map(totalRenglon);
-  /* El SUBTOTAL es la suma de los renglones, sin tocar. El descuento se aplica
-     UNA vez, aquí, sobre el total — nunca repartido entre los equipos, que es
-     como se vuelve invisible. Se redondea a centavos enteros para que el
-     documento y la cobranza partan del mismo número exacto. */
+  /* El SUBTOTAL es la suma de los renglones a precio de venta, sin tocar. */
   const subtotal = totales.reduce((t,n)=> t + n, 0);
   const subtotalCent = aCentavos(subtotal);
+
+  /* Costo real de dar el servicio. Se calcula AQUÍ ARRIBA, antes del precio,
+     porque una póliza 'interno' se cobra sobre esto — ver abajo — y no sobre
+     el precio de venta. Sigue siendo SIN descuento/aumento: eso es una
+     decisión comercial y no cambia lo que de verdad cuesta operar la
+     póliza. */
+  const costos = p.partidas.map(costoTotalRenglon);
+  const costoAnual = costos.reduce((t,n)=> t + n, 0);
+  const costoAnualCent = aCentavos(costoAnual);
+
+  /* La BASE sobre la que se aplica el % de la póliza (descuento o aumento,
+     ver normalizarPoliza). Para 'cliente' es el precio de venta de siempre
+     —el subtotal—; para 'interno' no tiene caso cargarle a Plato Express el
+     precio de venta al público que nunca le cobramos: ahí la base es lo que
+     de verdad cuesta el servicio, y el % es el cargo administrativo que se
+     le suma encima. Se redondea a centavos enteros para que el documento y
+     la cobranza partan del mismo número exacto. */
+  const esInterno = p.cargoA === 'interno';
+  const baseCent = esInterno ? costoAnualCent : subtotalCent;
+  const base = deCentavos(baseCent);
+  const etiquetaBase = esInterno ? 'Costo anual' : 'Subtotal';
+
   const descuento = p.descuento || 0;
-  const descuentoCent = descuento ? Math.round(subtotalCent * descuento / 100) : 0;
-  const precioAnualCent = subtotalCent - descuentoCent;
+  const descuentoCent = descuento ? Math.round(baseCent * descuento / 100) : 0;
+  const precioAnualCent = baseCent - descuentoCent;
   const precioAnual = deCentavos(precioAnualCent);
   /* Entre 12 fijo, no entre una variable: la póliza es anual por contrato.
      Este es el mensual NOMINAL, el que se imprime en el documento. Ojo: por
@@ -5483,12 +5502,6 @@ function calcularPoliza(p){
   const cuotaCent = Math.floor(precioAnualCent / MESES_POLIZA);
   const precioMensual = deCentavos(cuotaCent);
 
-  /* Costo real de dar el servicio, para el análisis costo vs precio vs
-     margen. SIN descuento: el descuento es una decisión comercial y no
-     cambia lo que de verdad cuesta operar la póliza. */
-  const costos = p.partidas.map(costoTotalRenglon);
-  const costoAnual = costos.reduce((t,n)=> t + n, 0);
-  const costoAnualCent = aCentavos(costoAnual);
   const utilidadCent = precioAnualCent - costoAnualCent;
   const utilidadAnual = deCentavos(utilidadCent);
   const margenPct = precioAnualCent ? (utilidadCent / precioAnualCent * 100) : 0;
@@ -5569,6 +5582,11 @@ function calcularPoliza(p){
 
   return { hoy, fin, precioAnual, precioAnualCent, precioMensual, totales,
            subtotal, subtotalCent, descuento, descuentoCent,
+           /* esInterno/base/etiquetaBase: sobre qué número se aplicó el %
+              (costo anual si es 'interno', subtotal de venta si es
+              'cliente') — lo necesita cualquier pantalla que quiera mostrar
+              "de dónde sale" el precio anual sin repetir la cuenta. */
+           esInterno, base, baseCent, etiquetaBase,
            montoDescuento: deCentavos(descuentoCent),
            /* Un descuento negativo es, en realidad, un AUMENTO — la póliza es
               'interno' y en vez de restarle al total se le suma (ver
@@ -5840,13 +5858,16 @@ function armarPayloadPoliza(p){
        cambia entre uno y otro — ver esAumento en calcularPoliza(). */
     totales: { anual:   dineroCent(c.precioAnual),
                mensual: dineroCent(c.precioMensual),
-               subtotal: c.descuento ? dineroCent(c.subtotal) : '',
+               /* Para 'interno' la base es el costo anual, no el precio de
+                  venta — ver base/etiquetaBase en calcularPoliza(). */
+               subtotal: c.descuento ? dineroCent(c.base) : '',
+               etiquetaSubtotal: c.etiquetaBase,
                etiquetaDescuento: c.esAumento ? 'Aumento' : 'Descuento',
                signoDescuento: c.esAumento ? '+' : '−',
                descuento: c.descuento ? c.descuentoAbs + '%' : '',
                montoDescuento: c.descuento ? dineroCent(c.montoDescuentoAbs) : '',
                crudo:   { anual: c.precioAnual, mensual: c.precioMensual,
-                          subtotal: c.subtotal, descuento: c.descuento,
+                          subtotal: c.base, descuento: c.descuento,
                           montoDescuento: c.montoDescuentoAbs } },
 
     /* Lo que el vendedor/analyst haya anotado en "Notas" del formulario de la
@@ -10468,11 +10489,14 @@ function vistaPoliza(){
            + '</tr>';
        }).join('')
      + '</tbody></table></div>'
-     /* Con descuento se enseñan los tres renglones: sin el subtotal a la vista,
-        el «Precio anual» no cuadra contra la suma de la columna de arriba y
-        parece un error de la app. */
+     /* Con descuento/aumento se enseñan los tres renglones: sin la base a la
+        vista, el «Precio anual» no cuadra contra la columna de arriba y
+        parece un error de la app. Para 'interno' la base es el costo (la
+        columna de arriba sigue mostrando precio de venta, que aquí ya no
+        interviene), por eso el texto lo aclara. */
      + (c.descuento
-         ? '<div class="c-fila" style="margin-top:12px"><span>Subtotal — suma de los renglones</span><b>' + dineroCent(c.subtotal) + '</b></div>'
+         ? '<div class="c-fila" style="margin-top:12px"><span>' + esc(c.etiquetaBase)
+             + (c.esInterno ? ' — suma de costos, no de precios de venta' : ' — suma de los renglones') + '</span><b>' + dineroCent(c.base) + '</b></div>'
            + '<div class="c-fila"><span>' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>'
            +   '<b style="color:' + (c.esAumento ? 'var(--ok)' : 'var(--error)') + '">' + (c.esAumento ? '+' : '−') + dineroCent(c.montoDescuentoAbs) + '</b></div>'
            + '<div class="c-fila"><span>Precio anual — ya con ' + (c.esAumento ? 'el aumento' : 'el descuento') + '</span><b>' + dineroCent(c.precioAnual) + '</b></div>'
@@ -12890,7 +12914,7 @@ function modalPoliza(id, origenLevantamiento){
       /* El pie va FUERA del contenedor que se recorre a lo ancho: los totales son
          lo que más se mira y no pueden quedar escondidos a la derecha. */
       + '<div class="pie-renglones">'
-      +   '<div id="pieBloqueDesc" style="display:none"><span>Subtotal</span><b id="pieSubtotal"></b></div>'
+      +   '<div id="pieBloqueDesc" style="display:none"><span id="pieSubtotalEtiqueta">Subtotal</span><b id="pieSubtotal"></b></div>'
       +   '<div id="pieBloqueDesc2" style="display:none"><span id="pieDescEtiqueta">Descuento</span><b id="pieDescuento" style="color:var(--error)"></b></div>'
       +   '<div><span>Precio anual</span><b id="pieAnual"></b></div>'
       +   '<div><span>Mensual (anual ÷ ' + MESES_POLIZA + ')</span><b id="pieMensual"></b></div>'
@@ -12957,7 +12981,8 @@ function modalPoliza(id, origenLevantamiento){
       $('pieBloqueDesc').style.display  = hay ? '' : 'none';
       $('pieBloqueDesc2').style.display = hay ? '' : 'none';
       if(hay){
-        $('pieSubtotal').textContent = dineroCent(c.subtotal);
+        $('pieSubtotalEtiqueta').textContent = c.etiquetaBase;
+        $('pieSubtotal').textContent = dineroCent(c.base);
         $('pieDescEtiqueta').textContent = (c.esAumento ? 'Aumento ' : 'Descuento ') + c.descuentoAbs + '%';
         $('pieDescuento').textContent = (c.esAumento ? '+' : '−') + dineroCent(c.montoDescuentoAbs);
         $('pieDescuento').style.color = c.esAumento ? 'var(--ok)' : 'var(--error)';
