@@ -7027,28 +7027,29 @@ function calcularResultados(inicio, fin){
   });
 
   /* Pólizas: el INGRESO se cuenta cuando se COBRA (uno solo si es anual,
-     doce si es mensual) — cargoA==='interno' NO entra: ese cobro marcado no
-     es dinero que haya puesto un cliente, es un gasto que absorbimos
-     nosotros mismos (ver normalizarPoliza()).
+     doce si es mensual) — TAMBIÉN si es cargoA='interno' (Plato Express y
+     similares, decisión de Victor 01-sep-2026): ahí el "cobro" ya no es el
+     precio de venta, es costo + el % de aumento administrativo (ver
+     calcularPoliza(): esInterno hace que precioAnual/montos salgan de
+     costoAnual, no del subtotal de venta) — ese aumento SÍ es ingreso real
+     para Forguard, solo que interno en vez de con un cliente externo.
 
-     El COSTO en cambio se cuenta cuando se HACE el servicio, no cuando se
-     cobra: son dos calendarios distintos —facturación vs. mantenimiento
-     real— y mezclarlos dejaba meses sin costo (nada cobrado ese mes) al
-     lado de meses con el costo del año completo (cobro anual de golpe). El
-     costo de cada equipo se reconoce en CADA mes de su calendario que caiga
-     dentro del período, multiplicado por su cantidad — es lo que de verdad
-     se gasta ese mes en mantenerlo. Y SÍ entra aunque la póliza sea
-     cargoA='interno': el gasto de mandar al técnico es real aunque no se le
-     esté cobrando a un cliente. */
+     El COSTO se cuenta cuando se HACE el servicio, no cuando se cobra: son
+     dos calendarios distintos —facturación vs. mantenimiento real— y
+     mezclarlos dejaba meses sin costo (nada cobrado ese mes) al lado de
+     meses con el costo del año completo (cobro anual de golpe). El costo de
+     cada equipo se reconoce en CADA mes de su calendario que caiga dentro
+     del período, multiplicado por su cantidad — es lo que de verdad se
+     gasta ese mes en mantenerlo. Con esto, una póliza interna deja de verse
+     en $0 de margen: ingreso (costo+aumento) menos costo (el mismo costo)
+     da justo el aumento, que es la utilidad real de cargarlo internamente. */
   datos.polizas.forEach(p=>{
-    if(p.cargoA !== 'interno'){
-      const c = calcularPoliza(p);
-      p.cobros.forEach((cobrado, i)=>{
-        if(!cobrado) return;
-        const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
-        if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.numCobrosPolizas++; }
-      });
-    }
+    const c = calcularPoliza(p);
+    p.cobros.forEach((cobrado, i)=>{
+      if(!cobrado) return;
+      const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
+      if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.numCobrosPolizas++; }
+    });
     p.partidas.forEach(x=>{
       const costoServicio = (x.costoUnitario || 0) * x.cantidad;
       if(!costoServicio) return;
