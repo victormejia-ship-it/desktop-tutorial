@@ -1273,6 +1273,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 <input type="file" id="archivoPolizas" accept="application/json,.json" multiple style="display:none">
 <input type="file" id="archivoProyectoImagenExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 <input type="file" id="archivoCotizacionesExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
+<input type="file" id="archivoPolizaExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 
 <script>
 /* =========================================================================
@@ -3972,6 +3973,272 @@ async function importarProyectoImagenDesdeExcel(archivo){
   });
   aviso('Se importaron ' + conceptos.length + ' ' + plural(conceptos.length, 'concepto', 'conceptos')
     + ' desde ' + archivo.name + '. Revisa cliente, sitio, tipo y estatus antes de guardar.');
+}
+
+/* ------------------- Importar una póliza desde Excel (hoja "BASE") -------------------
+   El formato real de Victor trae tres hojas — BASE (portada + tabla de
+   equipos), DESCRIP. TRAB y Equipos (el catálogo de costos/descripciones) —
+   pero como con Imagen/Aperturas, aquí no importa en qué hoja ni en qué fila
+   esté cada cosa: se busca por encabezado y por etiqueta, nunca por celda
+   fija, porque cada cliente acomoda un poco distinto su copia de la
+   plantilla.
+
+   La tabla de equipos siempre trae, además de EQUIPO/CANT/MARCA/PRECIO
+   UNIT./FRECUENCIA, un tramo de columnas "mmm-aa" (mar-26, abr-26…) — una
+   por mes de vigencia, con un 1 marcando en qué meses le toca servicio a
+   cada renglón. Esas columnas se detectan por patrón, en el orden en que
+   aparecen, y su POSICIÓN (no el mes real) es el corrimiento 0..11 que pide
+   normalizarPartida — así no hace falta que la vigencia empiece en enero. */
+const MES_ABR_POLIZA_XLSX = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+function esColumnaMesPolizaXlsx(txtNorm){
+  return /^(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)-\d{2}$/.test(txtNorm);
+}
+/* De la primera columna de mes ("MAR-26") al día 1 de ese mes calendario:
+   así el corrimiento 0 de cada partida cae justo en el mes real que dice el
+   Excel, sin tener que sumar/restar nada a mano en el modal. */
+function fechaInicioDesdePrimerMesPolizaXlsx(txtNorm){
+  const m = /^(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)-(\d{2})$/.exec(txtNorm || '');
+  if(!m) return '';
+  const mes = MES_ABR_POLIZA_XLSX.indexOf(m[1]) + 1;
+  return (2000 + parseInt(m[2],10)) + '-' + String(mes).padStart(2,'0') + '-01';
+}
+
+const ALIAS_COLUMNA_EQUIPO_POLIZA_XLSX = {
+  equipo: ['EQUIPO', 'CONCEPTO', 'DESCRIPCION'],
+  cantidad: ['CANT', 'CANT.', 'CANTIDAD'],
+  marca: ['MARCA'],
+  precioUnitario: ['PRECIO UNIT.MTTO.', 'PRECIO UNIT MTTO', 'PRECIO UNITARIO', 'P. UNITARIO', 'PRECIO UNIT'],
+  frecuencia: ['FRECUENCIA', 'FRECUENCIA ']
+};
+/* Igual que buscarTablaCostosXlsx (Imagen/Aperturas): recorre TODAS las hojas
+   y TODOS los renglones buscando el que más se parezca a un encabezado de
+   tabla de equipos, y de paso ubica las columnas de mes de ESE MISMO
+   renglón. Nunca hay que decirle en qué hoja está. */
+function buscarTablaEquiposPolizaXlsx(hojas){
+  let mejor = null;
+  hojas.forEach(hoja=>{
+    hoja.filas.forEach((fila,i)=>{
+      const normal = fila.map(normalizarTextoEncabezadoXlsx);
+      const columnas = {};
+      let encontrados = 0;
+      Object.keys(ALIAS_COLUMNA_EQUIPO_POLIZA_XLSX).forEach(campo=>{
+        const idx = normal.findIndex(txt => ALIAS_COLUMNA_EQUIPO_POLIZA_XLSX[campo].includes(txt));
+        if(idx >= 0){ columnas[campo] = idx; encontrados++; }
+      });
+      const columnasMes = [];
+      normal.forEach((txt, idx) => { if(esColumnaMesPolizaXlsx(txt)) columnasMes.push(idx); });
+      const esTablaEquipos = columnas.equipo !== undefined && columnas.precioUnitario !== undefined && columnasMes.length >= 1;
+      const puntaje = encontrados + columnasMes.length;
+      if(esTablaEquipos && (!mejor || puntaje > mejor.puntaje)){
+        mejor = { hoja: hoja.nombre, filaEncabezado: i, columnas, columnasMes, puntaje };
+      }
+    });
+  });
+  return mejor;
+}
+function extraerEquiposPolizaXlsx(hoja, tabla){
+  const filas = [];
+  let vaciosSeguidos = 0;
+  for(let i = tabla.filaEncabezado + 1; i < hoja.filas.length; i++){
+    const fila = hoja.filas[i] || [];
+    const nombre = fila[tabla.columnas.equipo];
+    if(typeof nombre !== 'string' || !nombre.trim() || /^TOTAL/i.test(nombre.trim())){
+      /* Igual que en Imagen: se tolera hasta 5 renglones vacíos seguidos —
+         a veces hay aire entre secciones — antes de dar la tabla por
+         terminada, para no seguir leyendo basura mucho más abajo. */
+      if(filas.length && ++vaciosSeguidos >= 5) break;
+      continue;
+    }
+    vaciosSeguidos = 0;
+    const precioUnitario = fila[tabla.columnas.precioUnitario];
+    if(typeof precioUnitario !== 'number') continue;
+    const cantidad = (tabla.columnas.cantidad !== undefined && typeof fila[tabla.columnas.cantidad] === 'number')
+      ? fila[tabla.columnas.cantidad] : 1;
+    const marca = tabla.columnas.marca !== undefined ? textoCeldaCotizacionXlsx(fila[tabla.columnas.marca]) : '';
+    const mesesServicio = tabla.columnasMes
+      .map((col, offset) => (typeof fila[col] === 'number' && fila[col]) ? offset : -1)
+      .filter(o => o >= 0);
+    /* La frecuencia manda la columna si la trae; si no, se cuenta cuántos
+       meses quedaron marcados — nunca 0, para que normalizarPartida no la
+       fuerce a 1 con un calendario ya lleno. */
+    const frecuencia = (tabla.columnas.frecuencia !== undefined && typeof fila[tabla.columnas.frecuencia] === 'number')
+      ? fila[tabla.columnas.frecuencia] : (mesesServicio.length || 1);
+    filas.push({ concepto: nombre.trim(), marca, cantidad, precioUnitario, frecuencia, mesesServicio });
+  }
+  return filas;
+}
+/* Consolida renglones que en el papel son "el mismo equipo, x veces": mismo
+   nombre, marca, precio, frecuencia Y calendario exacto — el Excel real trae
+   un renglón por UNIDAD física (una fila por cada trampa de grasa, por
+   ejemplo) pero el modelo de la póliza no guarda modelo/serie por unidad, así
+   que se suman en un solo renglón con cantidad > 1, igual que lo capturaría
+   una persona a mano. Dos renglones con el mismo nombre pero calendarios
+   distintos (dos tandas de mantenimiento corridas) NO se mezclan. */
+function consolidarEquiposPolizaXlsx(filas){
+  const grupos = new Map();
+  filas.forEach(f=>{
+    const llave = [normalizarTextoEncabezadoXlsx(f.concepto), normalizarTextoEncabezadoXlsx(f.marca),
+      f.precioUnitario, f.frecuencia, f.mesesServicio.join(',')].join('|');
+    if(!grupos.has(llave)) grupos.set(llave, Object.assign({}, f, { cantidad:0 }));
+    grupos.get(llave).cantidad += f.cantidad;
+  });
+  return [...grupos.values()];
+}
+
+/* La hoja "Equipos" (o su prima "DESCRIP. TRAB") que Victor deja pegada en
+   cada póliza es la misma hoja de costos 2025/2026 de siempre —ver
+   COSTOS_CATALOGO_2026— así que se busca igual que la tabla de equipos: por
+   encabezado, sin importar el nombre de la pestaña. */
+const ALIAS_COLUMNA_CATALOGO_POLIZA_XLSX = {
+  equipo: ['EQUIPO'],
+  costoInsumos: ['COSTO INSUMOS'],
+  costoManoObra: ['COSTO MANO DE OBRA'],
+  descripcion: ['DESCRIPCION DE TRABAJO', 'DESCRIPCION DE TRABAJOS A REALIZAR', 'DESCRIPCION']
+};
+function buscarTablaCatalogoPolizaXlsx(hojas){
+  let mejor = null;
+  hojas.forEach(hoja=>{
+    hoja.filas.forEach((fila,i)=>{
+      const normal = fila.map(normalizarTextoEncabezadoXlsx);
+      const columnas = {};
+      let encontrados = 0;
+      Object.keys(ALIAS_COLUMNA_CATALOGO_POLIZA_XLSX).forEach(campo=>{
+        const idx = normal.findIndex(txt => ALIAS_COLUMNA_CATALOGO_POLIZA_XLSX[campo].includes(txt));
+        if(idx >= 0){ columnas[campo] = idx; encontrados++; }
+      });
+      if(columnas.equipo !== undefined && encontrados >= 2 && (!mejor || encontrados > mejor.encontrados)){
+        mejor = { hoja: hoja.nombre, filaEncabezado: i, columnas, encontrados };
+      }
+    });
+  });
+  return mejor;
+}
+/* Nombre de equipo (normalizado) -> costos/descripción de ESTE archivo. Sirve
+   de segunda opción cuando el equipo todavía no está en datos.catalogo — la
+   primera opción siempre es el catálogo vivo de la app, nunca esta hoja. */
+function mapaCatalogoPolizaDesdeXlsx(hojas){
+  const mapa = new Map();
+  const tabla = buscarTablaCatalogoPolizaXlsx(hojas);
+  if(!tabla) return mapa;
+  const hoja = hojas.find(h => h.nombre === tabla.hoja);
+  for(let i = tabla.filaEncabezado + 1; i < hoja.filas.length; i++){
+    const fila = hoja.filas[i] || [];
+    const nombre = fila[tabla.columnas.equipo];
+    if(typeof nombre !== 'string' || !nombre.trim()) continue;
+    const llave = normalizarTextoEncabezadoXlsx(nombre);
+    if(mapa.has(llave)) continue; /* la primera aparición gana */
+    mapa.set(llave, {
+      costoInsumos: (tabla.columnas.costoInsumos !== undefined && typeof fila[tabla.columnas.costoInsumos] === 'number') ? fila[tabla.columnas.costoInsumos] : 0,
+      costoManoObra: (tabla.columnas.costoManoObra !== undefined && typeof fila[tabla.columnas.costoManoObra] === 'number') ? fila[tabla.columnas.costoManoObra] : 0,
+      descripcion: tabla.columnas.descripcion !== undefined ? textoCeldaCotizacionXlsx(fila[tabla.columnas.descripcion]) : ''
+    });
+  }
+  return mapa;
+}
+function equipoDeCatalogoAppPorNombre(nombre){
+  const norm = normalizarTextoEncabezadoXlsx(nombre);
+  return catalogo().find(e => e.activo && normalizarTextoEncabezadoXlsx(e.concepto) === norm) || null;
+}
+/* El costo interno de un renglón importado. El catalogoId se liga por nombre
+   siempre que exista —así la descripción se sigue rellenando sola desde ahí,
+   ver descripcionDe()— pero el COSTO se toma de la fuente que de verdad
+   traiga un número: el catálogo vivo de la app si ya lo tiene capturado, o
+   si no, la hoja de costos de este mismo Excel (hay equipos en el catálogo
+   semilla que todavía nadie enriqueció con «Importar costos»). En cero si
+   ninguna de las dos lo trae — igual que cualquier renglón nuevo sin costo
+   capturado, nunca se inventa un margen. */
+function costoUnitarioPolizaXlsx(concepto, mapaCatalogoXlsx){
+  const delCatalogoApp = equipoDeCatalogoAppPorNombre(concepto);
+  const costoCatalogo = delCatalogoApp ? costoTotalEquipo(delCatalogoApp) : 0;
+  const catalogoId = delCatalogoApp ? delCatalogoApp.id : '';
+  if(costoCatalogo > 0) return { costoUnitario: costoCatalogo, catalogoId, descripcion: '' };
+  const delXlsx = mapaCatalogoXlsx.get(normalizarTextoEncabezadoXlsx(concepto));
+  const costoXlsx = delXlsx ? costoTotalEquipo(delXlsx) : 0;
+  if(costoXlsx > 0) return { costoUnitario: costoXlsx, catalogoId, descripcion: catalogoId ? '' : delXlsx.descripcion };
+  return { costoUnitario: 0, catalogoId, descripcion: '' };
+}
+
+/* Metadatos sueltos de la portada (a quién es la póliza, cuándo se elaboró):
+   se buscan por ETIQUETA, no por celda fija, porque la plantilla a veces
+   pone el valor a la derecha de la etiqueta y a veces una fila abajo. Se
+   prueba a la derecha primero (mismo renglón) y si no hay nada, abajo. */
+function valorCercaDeEtiquetaPolizaXlsx(hojas, etiquetas){
+  for(const hoja of hojas){
+    for(let r = 0; r < hoja.filas.length; r++){
+      const fila = hoja.filas[r] || [];
+      for(let c = 0; c < fila.length; c++){
+        if(typeof fila[c] !== 'string' || !etiquetas.includes(normalizarTextoEncabezadoXlsx(fila[c]))) continue;
+        for(let c2 = c+1; c2 < fila.length; c2++){
+          if(fila[c2] != null && String(fila[c2]).trim() !== '') return fila[c2];
+        }
+        for(let r2 = r+1; r2 <= r+2 && r2 < hoja.filas.length; r2++){
+          const v2 = (hoja.filas[r2] || [])[c];
+          if(v2 != null && String(v2).trim() !== '') return v2;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/* Punto de entrada: lee el archivo, arma los renglones YA CONSOLIDADOS y con
+   su costo resuelto, y abre el modal de "Nueva póliza" PRELLENADO — igual que
+   Imagen/Aperturas, nunca se guarda solo. Cliente, sitio y fechas los sigue
+   confirmando la persona; lo único que ahorra Excel es no tener que
+   teclear equipo por equipo un contrato que ya viene armado. */
+async function importarPolizaDesdeExcel(archivo){
+  if(!exigirPermiso()) return;
+  let hojas;
+  try{
+    hojas = await leerLibroXlsx(archivo);
+  }catch(e){
+    aviso('No se pudo leer el archivo: ' + (e && e.message ? e.message : 'formato no reconocido') + '.', true);
+    return;
+  }
+
+  const tabla = buscarTablaEquiposPolizaXlsx(hojas);
+  if(!tabla){
+    aviso('No se encontró una tabla de equipos reconocible en este Excel (se buscan columnas como Equipo, Precio unit. y los meses de servicio, ej. "mar-26").', true);
+    return;
+  }
+  const hoja = hojas.find(h => h.nombre === tabla.hoja);
+  const filasEquipo = extraerEquiposPolizaXlsx(hoja, tabla);
+  if(!filasEquipo.length){
+    aviso('Se encontró el encabezado de la tabla de equipos, pero ningún renglón con datos debajo.', true);
+    return;
+  }
+
+  const mapaCatalogoXlsx = mapaCatalogoPolizaDesdeXlsx(hojas);
+  const partidas = consolidarEquiposPolizaXlsx(filasEquipo).map(f=>{
+    const { costoUnitario, catalogoId, descripcion } = costoUnitarioPolizaXlsx(f.concepto, mapaCatalogoXlsx);
+    return { concepto: f.concepto, marca: f.marca, catalogoId, descripcion, cantidad: f.cantidad,
+      precioUnitario: f.precioUnitario, costoUnitario, frecuencia: f.frecuencia, mesesServicio: f.mesesServicio };
+  });
+
+  const sitioNombreXlsx = textoCeldaCotizacionXlsx(valorCercaDeEtiquetaPolizaXlsx(hojas, ['UNIDAD', 'SITIO', 'CLIENTE', 'NOMBRE DEL SITIO']));
+  const fechaElabCelda = valorCercaDeEtiquetaPolizaXlsx(hojas, ['FECHA DE ELABORACION']);
+  const fechaElaboracion = typeof fechaElabCelda === 'number' ? fechaDesdeSerialExcel(fechaElabCelda) : fechaCeldaCotizacionXlsx(fechaElabCelda);
+  const primerMesTxt = normalizarTextoEncabezadoXlsx((hoja.filas[tabla.filaEncabezado] || [])[tabla.columnasMes[0]]);
+  const fechaInicio = fechaInicioDesdePrimerMesPolizaXlsx(primerMesTxt) || fechaElaboracion || hoyISO();
+
+  /* Si el nombre del sitio ya existe en Forpass, se liga solo — el mismo
+     criterio que ya usan los demás importadores de la app. Si no, la persona
+     lo crea desde el propio modal con "+ Nuevo" al revisar. */
+  const sitioLigado = sitioNombreXlsx
+    ? datos.sitios.find(s => normalizarTextoEncabezadoXlsx(s.nombre) === normalizarTextoEncabezadoXlsx(sitioNombreXlsx))
+    : null;
+
+  modalPoliza(null, {
+    clienteId: sitioLigado ? sitioLigado.clienteId : '',
+    sitioId: sitioLigado ? sitioLigado.id : '',
+    sitioNombre: sitioNombreXlsx,
+    fechaCotizacion: fechaElaboracion || hoyISO(),
+    fechaInicio,
+    partidas,
+    notas: 'Importado de ' + archivo.name + ' (' + partidas.length + ' ' + plural(partidas.length, 'renglón', 'renglones') + ').'
+  });
+  aviso('Se importaron ' + partidas.length + ' ' + plural(partidas.length, 'renglón', 'renglones')
+    + ' desde ' + archivo.name + '. Revisa cliente, sitio y fechas antes de guardar.');
 }
 
 /* Numera las partidas como en el documento: consecutivas con la misma
@@ -7398,6 +7665,10 @@ function vistaPolizas(){
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-polizas" '
             + 'title="Cargar una cotización ya extraída de su PDF">' + ICONO.subir + 'Importar JSON</button>'
+          : '')
+     +   (puedeEditar()
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-poliza-excel" '
+            + 'title="Cargar el Excel de la póliza (hoja BASE con sus equipos y meses de servicio)">' + ICONO.excel + 'Importar desde Excel</button>'
           : '')
      +   (datos.polizas.length && puedeEditar()
           ? '<button type="button" class="btn btn-primario" data-accion="nueva-poliza">' + ICONO.mas + 'Nueva cotización</button>'
@@ -12263,7 +12534,15 @@ function modalPoliza(id, origenLevantamiento){
      de verdad. hechosDetalle viaja adentro sin que el formulario lo toque — si
      no se arrastrara, editar una póliza borraría su historial de servicios. */
   let partidasTmp = (p ? p.partidas : []).map(x => Object.assign({}, x, { mesesServicio: x.mesesServicio.slice() }));
-  if(!p && origenLevantamiento){
+  /* Este mismo segundo parámetro sirve para dos orígenes de "nueva póliza ya
+     prellenada": un levantamiento (trae .hallazgos) o un Excel importado
+     (trae .partidas ya armadas, listas para normalizarPartida). Nunca los
+     dos a la vez. */
+  const esImportacionExcel = !p && origenLevantamiento && Array.isArray(origenLevantamiento.partidas);
+  if(esImportacionExcel){
+    partidasTmp = origenLevantamiento.partidas.map(normalizarPartida);
+  }
+  if(!p && origenLevantamiento && Array.isArray(origenLevantamiento.hallazgos)){
     /* Un renglón por equipo DISTINTO con hallazgo (mismo criterio de "clave"
        que calcularFuncionamientoLevantamiento): dos hallazgos del mismo
        equipo no duplican renglón. Precio/costo/frecuencia se sugieren del
@@ -12375,9 +12654,9 @@ function modalPoliza(id, origenLevantamiento){
     +   '</div>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Fecha de la cotización</label>'
-    +       '<input type="date" id="pCotizacion" value="' + esc(p ? p.fechaCotizacion : hoyISO()) + '"></div>'
+    +       '<input type="date" id="pCotizacion" value="' + esc(p ? p.fechaCotizacion : ((origenLevantamiento && origenLevantamiento.fechaCotizacion) || hoyISO())) + '"></div>'
     +     '<div class="campo"><label>Inicio de la vigencia</label>'
-    +       '<input type="date" id="pInicio" value="' + esc(p ? p.fechaInicio : hoyISO()) + '"' + soloL + '>'
+    +       '<input type="date" id="pInicio" value="' + esc(p ? p.fechaInicio : ((origenLevantamiento && origenLevantamiento.fechaInicio) || hoyISO())) + '"' + soloL + '>'
     +       '<div class="pista">Manda el calendario: los meses de servicio se cuentan desde aquí.</div></div>'
     +   '</div>'
     +   '<div class="campo"><label>Facturación</label><select id="pFacturacion"' + bloq + '>'
@@ -12437,12 +12716,13 @@ function modalPoliza(id, origenLevantamiento){
     + '<div class="seccion"><h4>Resumen</h4><div class="resumen" id="resumenPoliza"></div></div>'
 
     + '<div class="campo"><label>Notas (opcional)</label>'
-    +   '<textarea id="pNotas" placeholder="Condiciones, accesos, contacto en sitio…">' + esc(p ? p.notas : '') + '</textarea></div>';
+    +   '<textarea id="pNotas" placeholder="Condiciones, accesos, contacto en sitio…">' + esc(p ? p.notas : ((origenLevantamiento && origenLevantamiento.notas) || '')) + '</textarea></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Crear cotización') + '</button>';
 
-  abrirModal(p ? 'Editar póliza' : (origenLevantamiento ? 'Nueva póliza desde el levantamiento ' + (origenLevantamiento.folio || '') : 'Nueva cotización de póliza'), cuerpo, pie);
+  abrirModal(p ? 'Editar póliza' : (esImportacionExcel ? 'Nueva póliza importada de Excel'
+    : (origenLevantamiento ? 'Nueva póliza desde el levantamiento ' + (origenLevantamiento.folio || '') : 'Nueva cotización de póliza')), cuerpo, pie);
   $('modal').classList.add('enorme');
 
   /* Si la cuenta no trae teléfono, se dice de frente y se sigue: la póliza guarda
@@ -14519,6 +14799,7 @@ $('vista').addEventListener('click', ev=>{
         });
     }
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
+    else if(a === 'importar-poliza-excel'){ if(exigirPermiso()) $('archivoPolizaExcel').click(); }
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-agenda') irAAgenda(false);
     else if(a === 'ver-agenda-pendiente') irAAgenda(true);
@@ -14973,6 +15254,14 @@ $('archivoCotizacionesExcel').addEventListener('change', async ev=>{
   if(!archivo) return;
   if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar cotizaciones.', true); return; }
   await importarCotizacionesDesdeExcel(archivo);
+});
+
+$('archivoPolizaExcel').addEventListener('change', async ev=>{
+  const archivo = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!archivo) return;
+  if(!puedeEditar()){ aviso('Tu permiso no alcanza para importar pólizas.', true); return; }
+  await importarPolizaDesdeExcel(archivo);
 });
 
 /* ======================= GENERADOR DE ARCHIVO XLSX =======================
