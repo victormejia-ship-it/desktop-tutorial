@@ -3110,6 +3110,14 @@ function generarFolioCotizacion(fechaISO){
   return 'SERV-' + ddmmaa + '-' + String(datos.cotizaciones.length + 1).padStart(2,'0');
 }
 
+/* Folio por default al crear una póliza nueva: POL-NNN. Consecutivo GLOBAL
+   —cuántas pólizas ya existen, no de un día en particular—, mismo criterio
+   que generarFolioCotizacion(). Es solo una sugerencia inicial: el campo
+   del formulario sigue siendo texto libre y se puede corregir a mano. */
+function generarFolioPoliza(){
+  return 'POL-' + String(datos.polizas.length + 1).padStart(3,'0');
+}
+
 /* ============================ Reportes (tickets) ============================
    Cuarto módulo: el reporte que levanta CUALQUIERA —no solo quien cotiza— para
    avisar que un equipo falló. Es la puerta de entrada al trabajo correctivo;
@@ -12731,7 +12739,7 @@ function modalPoliza(id, origenLevantamiento){
     +       'aquí se corrige el caso en que no coincidió. Hay pólizas en sitios sin Forpass.</div></div>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Folio (opcional)</label>'
-    +       '<input type="text" id="pFolio" placeholder="Ej. COT-2026-0041" value="' + esc(p ? p.folio : '') + '"></div>'
+    +       '<input type="text" id="pFolio" placeholder="Ej. COT-2026-0041" value="' + esc(p ? p.folio : generarFolioPoliza()) + '"></div>'
     +     '<div class="campo"><label>Estatus</label><select id="pEstatus"' + bloq + '>'
     /* Las opciones dependen del ROL: la regla del servidor solo deja a un
        Analyst mover el estatus entre 'cotizacion' y 'enviada' — 'activa' y
