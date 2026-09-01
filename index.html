@@ -588,8 +588,11 @@ button.mes{cursor:pointer;}
 }
 .modal.ancho{max-width:860px;}
 /* La cotización de una póliza llega a 34 renglones de ocho columnas: 860 px no
-   alcanzan y la tabla se volvía ilegible a fuerza de comprimir. */
-.modal.enorme{max-width:1180px;}
+   alcanzan y la tabla se volvía ilegible a fuerza de comprimir. Con Modelo y
+   Serie como columnas propias (junto a Marca) hacen falta unos px más: la
+   tabla ya trae su propio scroll horizontal (.rodillo) para cuando aun así
+   no quepa completa. */
+.modal.enorme{max-width:1320px;}
 /* Vista previa del documento de cotización: un iframe a la plantilla real
    —los MISMOS datos, el mismo cálculo—, no una segunda maqueta que se pueda
    desalinear. Alto fijo con scroll propio del iframe: el documento mide
@@ -598,6 +601,15 @@ button.mes{cursor:pointer;}
 .iframe-previa{width:100%; height:78vh; border:0; border-radius:10px; background:#E9EBEE; display:block;}
 @keyframes sube{ from{opacity:0; transform:translateY(16px) scale(.99);} to{opacity:1; transform:none;} }
 .modal-cabeza{padding:19px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; position:sticky; top:0; background:#fff; z-index:2;}
+/* La tabla de equipos vive en su propia caja con scroll: el modal en sí tiene
+   overflow:hidden (para las esquinas redondeadas) y eso le rompe el "sticky"
+   a cualquier cosa que dependa de desplazarse contra la ventana completa del
+   modal. Con su propio scroll interno, la barra para agregar equipos
+   (buscador + chips) se puede fijar contra ESTA caja sin tocar el modal ni
+   el resto de las pantallas que lo usan. */
+.equipos-scroll{max-height:min(58vh, 560px); overflow-y:auto; border:1px solid var(--line); border-radius:10px;}
+.equipo-fijo{position:sticky; top:0; background:#fff; z-index:1; padding:10px 10px 8px; border-bottom:1px solid var(--line);}
+.equipos-scroll #listaPartidas{padding:0 10px 10px;}
 .modal-cabeza h3{font-size:16px; font-weight:700; color:var(--navy); flex:1;}
 .modal-cabeza .cerrar{background:none; border:none; cursor:pointer; color:var(--gray); font-size:22px; line-height:1; padding:2px 6px; border-radius:7px; font-family:inherit;}
 .modal-cabeza .cerrar:hover{background:var(--bg); color:var(--ink);}
@@ -12888,20 +12900,24 @@ function modalPoliza(id, origenLevantamiento){
     + '</div>'
 
     + '<div class="seccion"><h4>Equipos cotizados</h4>'
-    +   '<div class="busca-equipo">'
-    +     '<input type="text" id="pBuscaEquipo" list="pCatalogoEquipos" autocomplete="off"'
-    +       ' placeholder="Escribe un equipo del catálogo y elígelo para agregarlo…"' + bloq + '>'
-    +     '<datalist id="pCatalogoEquipos">'
-    +       catalogo().filter(e => e.activo).map(e => '<option value="' + esc(e.concepto) + '">').join('')
-    +     '</datalist>'
-    +     '<span class="cuantos-zona">'
-    +       '<button type="button" class="btn btn-suave btn-mini" id="btnOtroEquipo"' + bloq + '>' + ICONO.mas + 'Agregar otro</button>'
-    +       '<input type="number" id="pCuantos" class="cuantos" min="1" max="' + MAX_RENGLONES + '" step="1" value="1"'
-    +         ' title="Cuántos renglones vacíos agregar de un golpe" aria-label="Cuántos renglones agregar"' + bloq + '>'
-    +     '</span>'
+    +   '<div class="equipos-scroll">'
+    +     '<div class="equipo-fijo" id="equipoFijo">'
+    +       '<div class="busca-equipo">'
+    +         '<input type="text" id="pBuscaEquipo" list="pCatalogoEquipos" autocomplete="off"'
+    +           ' placeholder="Escribe un equipo del catálogo y elígelo para agregarlo…"' + bloq + '>'
+    +         '<datalist id="pCatalogoEquipos">'
+    +           catalogo().filter(e => e.activo).map(e => '<option value="' + esc(e.concepto) + '">').join('')
+    +         '</datalist>'
+    +         '<span class="cuantos-zona">'
+    +           '<button type="button" class="btn btn-suave btn-mini" id="btnOtroEquipo"' + bloq + '>' + ICONO.mas + 'Agregar otro</button>'
+    +           '<input type="number" id="pCuantos" class="cuantos" min="1" max="' + MAX_RENGLONES + '" step="1" value="1"'
+    +             ' title="Cuántos renglones vacíos agregar de un golpe" aria-label="Cuántos renglones agregar"' + bloq + '>'
+    +         '</span>'
+    +       '</div>'
+    +       '<div class="chips-equipo" id="chipsEquipo"></div>'
+    +     '</div>'
+    +     '<div id="listaPartidas"></div>'
     +   '</div>'
-    +   '<div class="chips-equipo" id="chipsEquipo"></div>'
-    +   '<div id="listaPartidas"></div>'
     + '</div>'
 
     + '<div class="seccion"><h4>Resumen</h4><div class="resumen" id="resumenPoliza"></div></div>'
@@ -13015,6 +13031,12 @@ function modalPoliza(id, origenLevantamiento){
         + '<td class="num">' + (i+1) + '</td>'
         + '<td class="equipo"><input type="text" data-campo="concepto" value="' + esc(x.concepto) + '" placeholder="Nombre del equipo"' + soloL + '></td>'
         + '<td class="marca"><input type="text" data-campo="marca" value="' + esc(x.marca) + '" placeholder="—"' + soloL + '></td>'
+        /* Modelo y número de serie: solo control interno del equipo, no salen
+           en la cotización impresa. Van junto a Marca porque son del mismo
+           tipo de dato (identifican la unidad), no una configuración avanzada
+           como el calendario o el código de barras/QR. */
+        + '<td class="marca"><input type="text" data-campo="modelo" value="' + esc(x.modelo) + '" placeholder="—" title="Modelo (solo control interno)"' + soloL + '></td>'
+        + '<td class="marca"><input type="text" data-campo="serie" value="' + esc(x.serie) + '" placeholder="—" title="Número de serie (solo control interno)"' + soloL + '></td>'
         + '<td class="mini"><input type="number" min="1" step="1" data-campo="cantidad" value="' + x.cantidad + '"' + soloL + '></td>'
         + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioUnitario" value="' + numero(x.precioUnitario) + '"' + soloL + '></td>'
         + '<td class="med"><input type="text" inputmode="decimal" data-campo="costoUnitario" value="' + numero(x.costoUnitario) + '"' + soloL + '></td>'
@@ -13025,7 +13047,7 @@ function modalPoliza(id, origenLevantamiento){
         +   '<button type="button" class="icono-mini' + (x._abierta ? ' on' : '') + '" data-meses-mano="' + i + '" '
         +     'data-tip="Calendario"' + bloq + '>' + ICONO.calendario + '</button>'
         +   '<button type="button" class="icono-mini' + (x._infoAbierta ? ' on' : '') + '" data-info-mano="' + i + '" '
-        +     'data-tip="Modelo, serie y código"' + bloq + '>' + ICONO.codigoBarras + '</button>'
+        +     'data-tip="Código (barras / QR)"' + bloq + '>' + ICONO.codigoBarras + '</button>'
         +   '<button type="button" class="icono-mini" data-duplicar="' + i + '" '
         +     'data-tip="Duplicar"' + bloq + '>' + ICONO.respaldo + '</button>'
         +   '<button type="button" class="icono-mini" data-quitar="' + i + '" '
@@ -13042,7 +13064,7 @@ function modalPoliza(id, origenLevantamiento){
           '<button type="button" class="mes' + (lim.mesesServicio.includes(m) ? ' serv' : '') + '" data-mes="' + m + '" '
           + 'aria-pressed="' + (lim.mesesServicio.includes(m) ? 'true' : 'false') + '"' + bloq + '>'
           + esc(etiquetaMesServicio(ini, m)) + '</button>').join('');
-        extra += '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="9">'
+        extra += '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="11">'
           +   '<div class="pista" style="margin-bottom:7px">Meses de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
           +     'Los servicios al año se ajustan solos a los que marques, y el arranque pasa a «a mano».</div>'
           +   '<div class="meses-modal con-mes" data-meses>' + casillas + '</div>'
@@ -13050,21 +13072,19 @@ function modalPoliza(id, origenLevantamiento){
           + '</td></tr>';
       }
 
-      /* Modelo, número de serie y código (barras) del equipo: solo para control
-         interno — no se manda a imprimir en la cotización del cliente. Cerrado
-         por omisión, igual que el calendario a mano. Si cantidad > 1 el código
-         es de TODO el renglón (unidades idénticas); para números de serie
-         distintos por unidad hay que usar "Duplicar" y separar en cantidad 1. */
+      /* Código (barras / QR) del equipo: solo para control interno — no se
+         manda a imprimir en la cotización del cliente. Cerrado por omisión,
+         igual que el calendario a mano. Si cantidad > 1 el código es de TODO
+         el renglón (unidades idénticas); para números de serie distintos por
+         unidad hay que usar "Duplicar" y separar en cantidad 1. */
       if(x._infoAbierta){
         const barras = svgCodigoBarras(lim.codigo);
-        extra += '<tr class="fila-info" data-idx="' + i + '"><td></td><td colspan="9">'
-          +   '<div class="pista" style="margin-bottom:7px">Datos internos de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
-          +     'Solo para control de equipo: no aparecen en la cotización que ve el cliente.'
-          +     (x.cantidad > 1 ? ' Este renglón tiene ' + x.cantidad + ' unidades: si necesitas número de serie o código distinto por unidad, usa «Duplicar» y captúralos por separado.' : '')
+        extra += '<tr class="fila-info" data-idx="' + i + '"><td></td><td colspan="11">'
+          +   '<div class="pista" style="margin-bottom:7px">Código de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
+          +     'Solo para control de equipo: no aparece en la cotización que ve el cliente.'
+          +     (x.cantidad > 1 ? ' Este renglón tiene ' + x.cantidad + ' unidades: si necesitas un código distinto por unidad, usa «Duplicar» y captúralos por separado.' : '')
           +   '</div>'
           +   '<div class="info-equipo">'
-          +     '<label>Modelo<input type="text" data-campo="modelo" value="' + esc(x.modelo) + '" placeholder="—"' + soloL + '></label>'
-          +     '<label>Número de serie<input type="text" data-campo="serie" value="' + esc(x.serie) + '" placeholder="—"' + soloL + '></label>'
           +     '<label>Código (barras / QR)<input type="text" data-campo="codigo" value="' + esc(x.codigo) + '" placeholder="Escanea o captura" maxlength="30"' + soloL + '>'
           +       (bloq ? '' : '<button type="button" class="btn btn-suave btn-mini" data-generar-codigo="' + i + '">Generar</button>') + '</label>'
           +   '</div>'
@@ -13077,7 +13097,7 @@ function modalPoliza(id, origenLevantamiento){
 
     $('listaPartidas').innerHTML =
         '<div class="rodillo"><table class="tabla-renglones">'
-      + '<thead><tr><th></th><th class="equipo">Equipo</th><th class="marca">Marca</th><th>Cant.</th><th>P. unitario</th><th>Costo unit.</th>'
+      + '<thead><tr><th></th><th class="equipo">Equipo</th><th class="marca">Marca</th><th class="marca">Modelo</th><th class="marca">Serie</th><th>Cant.</th><th>P. unitario</th><th>Costo unit.</th>'
       +   '<th>Serv./año</th><th>Arranque</th><th>Total</th><th></th></tr></thead>'
       + '<tbody>' + filas + '</tbody></table></div>'
       /* El pie va FUERA del contenedor que se recorre a lo ancho: los totales son
@@ -13185,6 +13205,15 @@ function modalPoliza(id, origenLevantamiento){
       +   dineroCent(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</span></div>';
   }
 
+  /* Orden alfabético por nombre de equipo (insensible a mayúsculas/acentos).
+     Solo se llama al agregar DESDE EL CATÁLOGO (buscador o chips): ahí el
+     nombre ya se conoce de una vez. Los renglones en blanco de "Agregar otro"
+     no se reordenan solos —se escriben de arriba hacia abajo con Tab— para no
+     mover la fila de bajo el cursor a media captura. */
+  function ordenarPartidasPorEquipo(){
+    partidasTmp.sort((a,b) => (a.concepto||'').localeCompare(b.concepto||'', 'es', {sensitivity:'base'}));
+  }
+
   /* Agrega un renglón y deja el cursor donde toca seguir capturando. */
   function agregarRenglon(base, foco){
     /* Candado de respaldo. Los controles que llegan aquí ya van apagados, pero
@@ -13195,10 +13224,15 @@ function modalPoliza(id, origenLevantamiento){
       aviso('Una cotización aguanta ' + MAX_RENGLONES + ' renglones. Ya no cabe otro.', true);
       return;
     }
-    partidasTmp.push(normalizarPartida(base));
+    const nuevo = normalizarPartida(base);
+    partidasTmp.push(nuevo);
+    ordenarPartidasPorEquipo();
     pintarPartidas();
     if(foco === null) return;          /* quien llama se encarga del foco */
-    const fila = $('listaPartidas').querySelector('tr[data-idx="' + (partidasTmp.length-1) + '"]');
+    /* El renglón nuevo ya no está forzosamente al final: el orden alfabético
+       lo pudo meter a la mitad de la tabla. */
+    const idx = partidasTmp.indexOf(nuevo);
+    const fila = $('listaPartidas').querySelector('tr[data-idx="' + idx + '"]');
     const campo = fila && fila.querySelector('[data-campo="' + (foco || 'concepto') + '"]');
     if(campo){ campo.focus(); campo.select && campo.select(); }
   }
