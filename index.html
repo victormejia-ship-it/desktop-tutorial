@@ -261,11 +261,39 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 /* Gráficas de Resultados: leyenda en HTML (texto nítido, seleccionable) y el
    dibujo mismo en SVG inline — sin librerías, para no meter una dependencia
    externa a una app de un solo archivo. */
-.grafica-leyenda{display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--gray); margin:-4px 0 14px;}
-.grafica-leyenda span{display:inline-flex; align-items:center; gap:6px;}
+.grafica-leyenda{display:flex; gap:6px; flex-wrap:wrap; font-size:12px; color:var(--gray); margin:-4px 0 14px;}
+.grafica-leyenda span, .grafica-leyenda button{display:inline-flex; align-items:center; gap:6px;}
 .grafica-leyenda i{width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0;}
 .grafica-leyenda i.linea{width:14px; height:2px; border-radius:1px;}
+/* Cada fuente de la leyenda es un botón: clic para aislarla/ocultarla de la
+   gráfica, como en cualquier tablero de verdad — no es solo un dibujo. */
+.grafica-leyenda button{all:unset; cursor:pointer; padding:4px 8px; border-radius:7px; color:var(--gray);
+  transition:background .12s, opacity .12s;}
+.grafica-leyenda button:hover{background:var(--bg);}
+.grafica-leyenda button:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+.grafica-leyenda button.apagada{opacity:.4;}
+.grafica-leyenda button.apagada i{background:var(--gray-claro) !important;}
 .svg-vacio{padding:26px 0; text-align:center; color:var(--gray); font-size:13px;}
+
+/* ---------- Tooltip interactivo de las gráficas de Resultados ---------- */
+.grafica-hit{fill:transparent; cursor:pointer;}
+.grafica-hit:hover{fill:rgba(0,35,105,.05);}
+.eje-cruce{stroke:var(--gray-claro); stroke-width:1; opacity:0; pointer-events:none;}
+.eje-cruce.activo{opacity:1;}
+.grafica-tt{
+  position:fixed; z-index:210; pointer-events:none; opacity:0; visibility:hidden;
+  background:#fff; border:1px solid var(--line); border-radius:11px; box-shadow:var(--sombra);
+  padding:11px 14px; font-size:12.5px; color:var(--ink); min-width:160px;
+  transition:opacity .1s; top:0; left:0;
+}
+.grafica-tt.visible{opacity:1; visibility:visible;}
+.grafica-tt .tt-titulo{font-weight:700; color:var(--navy); font-size:13px; margin-bottom:6px; white-space:nowrap;}
+.grafica-tt .tt-fila{display:flex; align-items:center; gap:16px; justify-content:space-between; padding:2.5px 0;}
+.grafica-tt .tt-fila > span:first-child{display:flex; align-items:center; gap:6px; color:var(--gray); white-space:nowrap;}
+.grafica-tt .tt-fila i{width:8px; height:8px; border-radius:2px; display:inline-block; flex-shrink:0;}
+.grafica-tt .tt-monto{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap;}
+.grafica-tt .tt-total{border-top:1px solid var(--line); margin-top:5px; padding-top:6px; font-weight:700; color:var(--navy);}
+.grafica-tt .tt-negativo{color:var(--error);}
 
 .t-cabeza{display:flex; align-items:flex-start; gap:10px;}
 .t-nombre{font-size:16.5px; font-weight:700; color:var(--navy); line-height:1.25; word-break:break-word;}
@@ -1240,6 +1268,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="grafica-tt" id="graficaTT" role="tooltip" aria-hidden="true"></div>
 <input type="file" id="archivoRestaurar" accept="application/json,.json" style="display:none">
 <input type="file" id="archivoPolizas" accept="application/json,.json" multiple style="display:none">
 <input type="file" id="archivoProyectoImagenExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
@@ -5819,6 +5848,10 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                  levantamientoId:null, proyectoImagenId:null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
+                 /* Qué fuentes de ingreso están "apagadas" en las gráficas de
+                    Resultados (clic en su leyenda) — es una preferencia de
+                    pantalla, no dato, así que no se sube a la nube. */
+                 fuentesOcultasResultados:[],
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
                  /* Cómo se ve cada lista: en tarjetas (el default de siempre) o en
                     tabla, más compacta para revisar muchas de un vistazo. Es
@@ -6400,6 +6433,11 @@ const FUENTES_INGRESO = [
   { clave:'ingresoPolizas', etiqueta:'Pólizas', color:COLOR_INGRESO_POLIZAS },
   { clave:'ingresoCotizaciones', etiqueta:'Cotizaciones', color:COLOR_INGRESO_COTIZACIONES }
 ];
+/* 'ingresoForpass' -> 'ingreso-forpass': un atributo data-* tiene que nacer en
+   kebab-case en el HTML para que el navegador lo mapee de vuelta al mismo
+   nombre en camelCase de `dataset` — si se escribe con mayúsculas el propio
+   parser de HTML las aplana y el dataset ya no coincide. */
+function claveKebab(s){ return s.replace(/[A-Z]/g, c => '-' + c.toLowerCase()); }
 
 /* "$1,284,000" ocupa demasiado en un eje: "$1.3M" dice lo mismo en la mitad
    del espacio. */
@@ -6474,7 +6512,13 @@ function tendenciaMensualResultados(n){
 
 function leyendaFuentesIngreso(incluirUtilidad){
   let h = '<div class="grafica-leyenda">';
-  FUENTES_INGRESO.forEach(f => { h += '<span><i style="background:' + f.color + '"></i>' + esc(f.etiqueta) + '</span>'; });
+  FUENTES_INGRESO.forEach(f => {
+    const apagada = estado.fuentesOcultasResultados.includes(f.clave);
+    h += '<button type="button" class="' + (apagada?'apagada':'') + '" data-accion="toggle-fuente-resultado" data-fuente="' + f.clave + '" '
+       +   'aria-pressed="' + (!apagada) + '" title="Clic para ' + (apagada ? 'volver a mostrar' : 'aislar') + ' ' + esc(f.etiqueta) + '">'
+       +   '<i style="background:' + f.color + '"></i>' + esc(f.etiqueta)
+       + '</button>';
+  });
   if(incluirUtilidad) h += '<span><i class="linea" style="background:' + COLOR_UTILIDAD_GRAFICA + '"></i>Utilidad bruta</span>';
   return h + '</div>';
 }
@@ -6483,14 +6527,19 @@ function leyendaFuentesIngreso(incluirUtilidad){
    (utilidad bruta) en la MISMA escala de pesos — no son dos ejes distintos,
    es la misma unidad, así que compartirlo es válido y es justo lo que
    dirección necesita ver junto: de dónde vino el ingreso y si al final quedó
-   ganancia. */
+   ganancia. Interactiva: clic en la leyenda aísla una fuente (y reescala), y
+   pasar el mouse por cualquier mes muestra su detalle completo con una línea
+   guía — el mismo mecanismo de "columna completa como blanco de mouse" que
+   usan las gráficas de verdad, no solo un punto de 4px que hay que acertar. */
 function graficaTendenciaResultados(meses){
   if(!meses.length) return '<p class="svg-vacio">Sin datos suficientes todavía.</p>';
 
   const W = 900, H = 300, mI = 58, mD = 14, mA = 22, mB = 34;
   const anchoPlot = W - mI - mD, altoPlot = H - mA - mB;
+  const fuentesVisibles = FUENTES_INGRESO.filter(f => !estado.fuentesOcultasResultados.includes(f.clave));
+  const ingresoVisible = m => fuentesVisibles.reduce((s,f) => s + (m.r[f.clave]||0), 0);
 
-  let yMax = Math.max(1, ...meses.map(m => m.r.ingresoTotal)) * 1.12;
+  let yMax = Math.max(1, ...meses.map(m => Math.max(ingresoVisible(m), m.r.utilidadBruta))) * 1.12;
   let yMin = Math.min(0, ...meses.map(m => m.r.utilidadBruta));
   if(yMin < 0) yMin *= 1.12;
 
@@ -6517,26 +6566,31 @@ function graficaTendenciaResultados(meses){
     svg += '<line x1="' + mI + '" y1="' + y0.toFixed(1) + '" x2="' + (W-mD) + '" y2="' + y0.toFixed(1) + '" stroke="var(--gray-claro)" stroke-width="1.3"/>';
   }
 
-  let svgEjeX = '';
+  let svgEjeX = '', svgHits = '';
   meses.forEach((m,i) => {
     const x0 = mI + i*anchoGrupo + (anchoGrupo-anchoBarra)/2;
     let cum = 0;
-    const activos = FUENTES_INGRESO.filter(f => (m.r[f.clave]||0) > 0);
+    const activos = fuentesVisibles.filter(f => (m.r[f.clave]||0) > 0);
     activos.forEach((f,k) => {
       const v = m.r[f.clave] || 0;
       const yTop = escY(cum+v), yBottom = escY(cum);
       const esUltimo = k === activos.length-1;
       const alto = (yBottom - yTop) - (esUltimo ? 0 : GAP);
-      if(alto > 0){
-        svg += '<path d="' + pathBarraTope(x0, yTop, anchoBarra, alto, 4) + '" fill="' + f.color + '">'
-             +   '<title>' + esc(f.etiqueta + ' — ' + MES_CORTO[m.mesNum-1] + ' ' + m.anio + ': ' + dinero(v)) + '</title>'
-             + '</path>';
-      }
+      if(alto > 0) svg += '<path d="' + pathBarraTope(x0, yTop, anchoBarra, alto, 4) + '" fill="' + f.color + '"/>';
       cum += v;
     });
     const mostrarAnio = i === 0 || m.mesNum === 1;
     const etiqueta = MES_CORTO[m.mesNum-1] + (mostrarAnio ? " '" + String(m.anio).slice(2) : '');
     svgEjeX += '<text x="' + (x0+anchoBarra/2).toFixed(1) + '" y="' + (H-mB+16) + '" text-anchor="middle" font-size="10" fill="var(--gray)">' + esc(etiqueta) + '</text>';
+    /* Un blanco de mouse por mes, del ancho de todo su grupo y del alto de
+       toda la gráfica: acertarle a una barra angosta o a un punto de 4px es
+       frustrante, esto se puede tocar en cualquier parte de la columna. */
+    svgHits += '<rect class="grafica-hit" data-tt-tipo="mes" x="' + (mI+i*anchoGrupo).toFixed(1) + '" y="' + mA + '" width="' + anchoGrupo.toFixed(1) + '" height="' + altoPlot + '" '
+             +   'data-mes="' + m.mesNum + '" data-anio="' + m.anio + '" data-costo="' + Math.round(m.r.costoTotal) + '" '
+             +   'data-utilidad="' + Math.round(m.r.utilidadBruta) + '" data-margen="' + m.r.margenPct.toFixed(1) + '" '
+             +   'data-cruce-x="' + (mI+i*anchoGrupo+anchoGrupo/2).toFixed(1) + '" '
+             +   FUENTES_INGRESO.map(f => 'data-' + claveKebab(f.clave) + '="' + Math.round(m.r[f.clave]||0) + '"').join(' ')
+             + '/>';
   });
   svg += svgEjeX;
 
@@ -6544,9 +6598,7 @@ function graficaTendenciaResultados(meses){
   svg += '<path d="' + puntos.map((p,i) => (i===0?'M':'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ')
        + '" fill="none" stroke="' + COLOR_UTILIDAD_GRAFICA + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
   puntos.forEach(p => {
-    svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4" fill="' + COLOR_UTILIDAD_GRAFICA + '" stroke="#fff" stroke-width="2">'
-         +   '<title>' + esc('Utilidad bruta — ' + MES_CORTO[p.m.mesNum-1] + ' ' + p.m.anio + ': ' + dinero(p.m.r.utilidadBruta)) + '</title>'
-         + '</circle>';
+    svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4" fill="' + COLOR_UTILIDAD_GRAFICA + '" stroke="#fff" stroke-width="2"/>';
   });
   /* Etiqueta directa solo en el mes más reciente: es el que de verdad le
      importa a dirección de un vistazo; el resto queda en la cuadrícula y el
@@ -6555,6 +6607,11 @@ function graficaTendenciaResultados(meses){
   const arriba = u.y > mA + 14;
   svg += '<text x="' + u.x.toFixed(1) + '" y="' + (arriba ? u.y-10 : u.y+18).toFixed(1) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + COLOR_UTILIDAD_GRAFICA + '">' + esc(dinero(u.m.r.utilidadBruta)) + '</text>';
 
+  /* La línea guía y los blancos de mouse van AL FINAL: tienen que quedar
+     encima de todo para que un mismo mouseover cubra la barra, la línea y
+     el punto sin importar cuál esté debajo. */
+  svg += '<line class="eje-cruce" y1="' + mA + '" y2="' + (H-mB) + '" x1="0" x2="0"/>' + svgHits;
+
   return '<div class="rodillo"><svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:640px; width:100%; height:auto; display:block" '
        + 'role="img" aria-label="Ingreso por fuente y utilidad bruta, mes a mes, de los últimos ' + n + ' meses">' + svg + '</svg></div>';
 }
@@ -6562,7 +6619,9 @@ function graficaTendenciaResultados(meses){
 /* Una sola barra horizontal apilada: de qué tamaño es cada fuente dentro del
    ingreso de ESTE periodo (el que tenga elegido el selector de arriba). Es
    la forma recomendada para "parte del todo" — más segura de leer que un
-   pastel para comparar tres tamaños. */
+   pastel para comparar tres tamaños. Aislar una fuente aquí no la quita ni
+   reacomoda el resto (seguirían sin sumar 100% del total real, que es justo
+   lo que este dibujo promete): solo la apaga visualmente en su mismo lugar. */
 function graficaComposicionIngreso(r){
   if(!r.ingresoTotal) return '<p class="svg-vacio">Sin ingresos capturados en este periodo.</p>';
 
@@ -6577,14 +6636,16 @@ function graficaComposicionIngreso(r){
     const wSeg = w - (esUltimo ? 0 : GAP);
     if(wSeg > 0){
       const pct = f.valor / r.ingresoTotal * 100;
+      const apagada = estado.fuentesOcultasResultados.includes(f.clave);
       const d = esUltimo
         ? pathBarraDerechaRedonda(x, y, wSeg, altoBarra, 6)
         : 'M'+x+','+y+' L'+(x+wSeg)+','+y+' L'+(x+wSeg)+','+(y+altoBarra)+' L'+x+','+(y+altoBarra)+' Z';
-      svg += '<path d="' + d + '" fill="' + f.color + '"><title>' + esc(f.etiqueta + ': ' + dinero(f.valor) + ' (' + pct.toFixed(1) + '%)') + '</title></path>';
+      svg += '<path class="grafica-hit" d="' + d + '" fill="' + f.color + '" opacity="' + (apagada?0.22:1) + '" '
+           +   'data-tt-tipo="segmento" data-etiqueta="' + esc(f.etiqueta) + '" data-valor="' + Math.round(f.valor) + '" data-pct="' + pct.toFixed(1) + '"/>';
       /* Etiqueta adentro solo si de verdad cabe con aire a los lados —
-         nunca recortada. */
-      if(pct >= 12){
-        svg += '<text x="' + (x+wSeg/2).toFixed(1) + '" y="' + (y+altoBarra/2+4.5).toFixed(1) + '" text-anchor="middle" font-size="13" font-weight="700" fill="' + colorTextoSobre(f.color) + '">' + Math.round(pct) + '%</text>';
+         nunca recortada — y solo si la fuente sigue encendida. */
+      if(pct >= 12 && !apagada){
+        svg += '<text x="' + (x+wSeg/2).toFixed(1) + '" y="' + (y+altoBarra/2+4.5).toFixed(1) + '" text-anchor="middle" font-size="13" font-weight="700" fill="' + colorTextoSobre(f.color) + '" style="pointer-events:none">' + Math.round(pct) + '%</text>';
       }
     }
     x += w;
@@ -6597,7 +6658,8 @@ function graficaComposicionIngreso(r){
 /* Línea sencilla del margen bruto %, mes a mes — un solo color basta (un
    solo indicador no necesita leyenda: el título de la tarjeta ya dice qué
    es). Eje propio en porcentaje: mezclarlo con la gráfica de pesos de arriba
-   sería el error clásico de doble eje. */
+   sería el error clásico de doble eje. No se ve afectada por aislar una
+   fuente arriba: el margen es de toda la empresa, no de una sola fuente. */
 function graficaMargenTendencia(meses){
   if(!meses.length) return '<p class="svg-vacio">Sin datos suficientes todavía.</p>';
 
@@ -6611,6 +6673,7 @@ function graficaMargenTendencia(meses){
   const escY = v => mA + altoPlot - ((v-yMin)/(yMax-yMin)) * altoPlot;
   const escX = i => mI + (i / (meses.length-1 || 1)) * anchoPlot;
   const y0 = escY(0);
+  const anchoBanda = anchoPlot / meses.length;
 
   let svg = '<line x1="' + mI + '" y1="' + y0.toFixed(1) + '" x2="' + (W-mD) + '" y2="' + y0.toFixed(1) + '" stroke="var(--gray-claro)" stroke-width="1"/>'
           + '<text x="' + (mI-8) + '" y="' + (y0+3.5).toFixed(1) + '" text-anchor="end" font-size="10" fill="var(--gray)">0%</text>';
@@ -6620,11 +6683,10 @@ function graficaMargenTendencia(meses){
        + '" fill="none" stroke="' + COLOR_UTILIDAD_GRAFICA + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
 
   const pasoEtiquetaX = Math.ceil(meses.length / 6);
+  let svgHits = '';
   puntos.forEach((p,i) => {
     const primero = i === 0, ultimo = i === puntos.length-1;
-    svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + (ultimo ? 4.5 : 3) + '" fill="' + COLOR_UTILIDAD_GRAFICA + '" stroke="#fff" stroke-width="2">'
-         +   '<title>' + esc(MES_CORTO[p.m.mesNum-1] + ' ' + p.m.anio + ': ' + p.m.r.margenPct.toFixed(1) + '% de margen') + '</title>'
-         + '</circle>';
+    svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + (ultimo ? 4.5 : 3) + '" fill="' + COLOR_UTILIDAD_GRAFICA + '" stroke="#fff" stroke-width="2"/>';
     if(primero || ultimo){
       const arriba = p.y > mA+14;
       svg += '<text x="' + (p.x + (primero?4:-4)).toFixed(1) + '" y="' + (arriba ? p.y-9 : p.y+17).toFixed(1) + '" text-anchor="' + (primero?'start':'end') + '" font-size="11" font-weight="700" fill="' + COLOR_UTILIDAD_GRAFICA + '">' + p.m.r.margenPct.toFixed(1) + '%</text>';
@@ -6632,7 +6694,10 @@ function graficaMargenTendencia(meses){
     if(i % pasoEtiquetaX === 0 || ultimo){
       svg += '<text x="' + p.x.toFixed(1) + '" y="' + (H-mB+16) + '" text-anchor="middle" font-size="10" fill="var(--gray)">' + MES_CORTO[p.m.mesNum-1] + '</text>';
     }
+    svgHits += '<rect class="grafica-hit" data-tt-tipo="margen" x="' + (p.x-anchoBanda/2).toFixed(1) + '" y="' + mA + '" width="' + anchoBanda.toFixed(1) + '" height="' + altoPlot + '" '
+             +   'data-mes="' + p.m.mesNum + '" data-anio="' + p.m.anio + '" data-margen="' + p.m.r.margenPct.toFixed(1) + '" data-cruce-x="' + p.x.toFixed(1) + '"/>';
   });
+  svg += '<line class="eje-cruce" y1="' + mA + '" y2="' + (H-mB) + '" x1="0" x2="0"/>' + svgHits;
 
   return '<div class="rodillo"><svg viewBox="0 0 ' + W + ' ' + H + '" style="min-width:520px; width:100%; height:auto; display:block" '
        + 'role="img" aria-label="Margen bruto porcentual, mes a mes, de los últimos ' + meses.length + ' meses">' + svg + '</svg></div>';
@@ -14246,6 +14311,12 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-polizas') irAPolizas();
     else if(a === 'nueva-poliza'){ if(exigirPermiso()) modalPoliza(null); }
     else if(a === 'ir-cotizaciones') regresarACotizaciones();
+    else if(a === 'toggle-fuente-resultado'){
+      const clave = acc.dataset.fuente;
+      const i = estado.fuentesOcultasResultados.indexOf(clave);
+      if(i === -1) estado.fuentesOcultasResultados.push(clave); else estado.fuentesOcultasResultados.splice(i,1);
+      render();
+    }
     else if(a === 'ir-resumen-clientes') irAResumenClientes();
     else if(a === 'ir-cliente-forpass') irAlClienteEnForpass(estado.clienteId);
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
@@ -14703,6 +14774,71 @@ $('vista').addEventListener('click', ev=>{
 
   const irQR = t.closest('[data-ir-cotizacion-resumen]');
   if(irQR){ irADetalleCotizacion(irQR.dataset.irCotizacionResumen); return; }
+});
+
+/* ---------------- Tooltip interactivo de las gráficas de Resultados ----------------
+   Un solo mecanismo para las tres gráficas: cada una deja "blancos de mouse"
+   invisibles (rect.grafica-hit) con el detalle en atributos data-*; aquí
+   nada más se lee, se arma el contenido y se posiciona el tooltip cerca del
+   cursor sin que se salga de la pantalla. */
+function contenidoGraficaTT(el){
+  const tipo = el.dataset.ttTipo;
+  const mesTxt = () => MES_CORTO[Number(el.dataset.mes)-1] + ' ' + el.dataset.anio;
+  if(tipo === 'mes'){
+    let h = '<div class="tt-titulo">' + esc(mesTxt()) + '</div>';
+    FUENTES_INGRESO.forEach(f=>{
+      const v = Number(el.dataset[f.clave] || 0);
+      if(!v) return;
+      h += '<div class="tt-fila"><span><i style="background:' + f.color + '"></i>' + esc(f.etiqueta) + '</span><span class="tt-monto">' + dinero(v) + '</span></div>';
+    });
+    const utilidad = Number(el.dataset.utilidad);
+    h += '<div class="tt-fila tt-total"><span>Utilidad bruta</span><span class="tt-monto' + (utilidad < 0 ? ' tt-negativo' : '') + '">' + dinero(utilidad) + '</span></div>'
+       + '<div class="tt-fila"><span>Margen</span><span class="tt-monto">' + Number(el.dataset.margen).toFixed(1) + '%</span></div>';
+    return h;
+  }
+  if(tipo === 'margen'){
+    return '<div class="tt-titulo">' + esc(mesTxt()) + '</div>'
+         + '<div class="tt-fila"><span>Margen bruto</span><span class="tt-monto">' + Number(el.dataset.margen).toFixed(1) + '%</span></div>';
+  }
+  if(tipo === 'segmento'){
+    return '<div class="tt-titulo">' + esc(el.dataset.etiqueta) + '</div>'
+         + '<div class="tt-fila"><span>' + dinero(Number(el.dataset.valor)) + '</span><span class="tt-monto">' + Number(el.dataset.pct).toFixed(1) + '%</span></div>';
+  }
+  return '';
+}
+function posicionarGraficaTT(ev){
+  const tt = $('graficaTT');
+  const pad = 16;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  const r = tt.getBoundingClientRect();
+  if(x + r.width > window.innerWidth - 8) x = ev.clientX - r.width - pad;
+  if(y + r.height > window.innerHeight - 8) y = ev.clientY - r.height - pad;
+  tt.style.left = Math.max(4,x) + 'px'; tt.style.top = Math.max(4,y) + 'px';
+}
+function ocultarGraficaTT(){
+  $('graficaTT').classList.remove('visible');
+  document.querySelectorAll('.eje-cruce.activo').forEach(l => l.classList.remove('activo'));
+}
+$('vista').addEventListener('mouseover', ev=>{
+  const el = ev.target.closest && ev.target.closest('.grafica-hit');
+  if(!el) return;
+  $('graficaTT').innerHTML = contenidoGraficaTT(el);
+  $('graficaTT').classList.add('visible');
+  posicionarGraficaTT(ev);
+  const svg = el.closest('svg');
+  const cruce = svg && svg.querySelector('.eje-cruce');
+  if(cruce && el.dataset.cruceX){
+    cruce.setAttribute('x1', el.dataset.cruceX); cruce.setAttribute('x2', el.dataset.cruceX);
+    cruce.classList.add('activo');
+  }
+});
+$('vista').addEventListener('mousemove', ev=>{
+  if($('graficaTT').classList.contains('visible')) posicionarGraficaTT(ev);
+});
+$('vista').addEventListener('mouseout', ev=>{
+  const salioDelHit = ev.target.closest && ev.target.closest('.grafica-hit');
+  const entroAOtro = ev.relatedTarget && ev.relatedTarget.closest && ev.relatedTarget.closest('.grafica-hit');
+  if(salioDelHit && !entroAOtro) ocultarGraficaTT();
 });
 
 /* Abrir una tarjeta con Enter o barra espaciadora. */
