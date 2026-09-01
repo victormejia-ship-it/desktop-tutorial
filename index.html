@@ -5040,14 +5040,21 @@ function normalizarPoliza(p){
     folio: (p.folio || '').trim(),
     estatus: ESTATUS_POLIZA.includes(p.estatus) ? p.estatus : 'cotizacion',
     facturacion,
-    /* Descuento comercial, en PORCENTAJE, a nivel de la póliza y NUNCA dentro
-       de un renglón: los precios siguen siendo precios. Es lo único que se
-       guarda del descuento — el monto y el total se derivan siempre, como todo
-       lo demás. Guardar el monto sería exactamente el error de MXGT01, donde el
-       5% vivía enterrado en los totales y por eso el papel dejó de cuadrar.
-       Se acota a [0, 100] y a dos decimales: un 5.125% no existe en una
-       negociación y sí produce centavos que nadie puede reproducir a mano. */
-    descuento: Math.max(0, Math.min(100,
+    /* Ajuste comercial, en PORCENTAJE, a nivel de la póliza y NUNCA dentro de
+       un renglón: los precios siguen siendo precios. Es lo único que se
+       guarda — el monto y el total se derivan siempre, como todo lo demás.
+       Guardar el monto sería exactamente el error de MXGT01, donde el 5%
+       vivía enterrado en los totales y por eso el papel dejó de cuadrar.
+
+       El SIGNO decide qué es: positivo, un descuento normal (cargoA
+       'cliente'); negativo, un AUMENTO (cargoA 'interno' — cuando la
+       absorbemos nosotros, no se le da un descuento a nadie, se le suma un
+       cargo administrativo al costo real antes de cargárselo a quien
+       corresponda). Se acota a [-500, 100]: no se puede descontar más del
+       100% del precio, y un aumento tiene tope de sobra en 500%. Dos
+       decimales, como siempre: un 5.125% no existe en una negociación y sí
+       produce centavos que nadie puede reproducir a mano. */
+    descuento: Math.max(-500, Math.min(100,
       Math.round((parseFloat(p.descuento) || 0) * 100) / 100)),
     /* La que sale en la portada del documento. */
     fechaCotizacion: /^\d{4}-\d{2}-\d{2}$/.test(p.fechaCotizacion||'') ? p.fechaCotizacion : hoyISO(),
@@ -5563,6 +5570,14 @@ function calcularPoliza(p){
   return { hoy, fin, precioAnual, precioAnualCent, precioMensual, totales,
            subtotal, subtotalCent, descuento, descuentoCent,
            montoDescuento: deCentavos(descuentoCent),
+           /* Un descuento negativo es, en realidad, un AUMENTO — la póliza es
+              'interno' y en vez de restarle al total se le suma (ver
+              normalizarPoliza). Estos dos son solo para pintarlo: el signo y
+              el porcentaje/monto siempre en positivo, para no andar
+              repitiendo Math.abs() en cada lugar que lo muestra. */
+           esAumento: descuento < 0,
+           descuentoAbs: Math.abs(descuento),
+           montoDescuentoAbs: Math.abs(deCentavos(descuentoCent)),
            costos, costoAnual, costoAnualCent, utilidadAnual, margenPct,
            montos, montosCent, costoMontos, costoMontosCent,
            cobrados, debidos, cobrosAtrasados, adeudo, cobrado, proximoCobro,
@@ -5818,17 +5833,21 @@ function armarPayloadPoliza(p){
       return out;
     })(),
 
-    /* Con descuento viajan los tres números ya formateados. `descuento` es el
-       porcentaje como texto listo para el papel («5%»), y va vacío si no hay:
-       la plantilla decide si pinta el bloque, no si calcula. */
+    /* Con descuento (o aumento) viajan los números ya formateados. `descuento`
+       es el porcentaje como texto listo para el papel («5%», siempre en
+       positivo), y va vacío si no hay: la plantilla decide si pinta el
+       bloque, no si calcula. `etiquetaDescuento`/`signoDescuento` son lo que
+       cambia entre uno y otro — ver esAumento en calcularPoliza(). */
     totales: { anual:   dineroCent(c.precioAnual),
                mensual: dineroCent(c.precioMensual),
                subtotal: c.descuento ? dineroCent(c.subtotal) : '',
-               descuento: c.descuento ? c.descuento + '%' : '',
-               montoDescuento: c.descuento ? dineroCent(c.montoDescuento) : '',
+               etiquetaDescuento: c.esAumento ? 'Aumento' : 'Descuento',
+               signoDescuento: c.esAumento ? '+' : '−',
+               descuento: c.descuento ? c.descuentoAbs + '%' : '',
+               montoDescuento: c.descuento ? dineroCent(c.montoDescuentoAbs) : '',
                crudo:   { anual: c.precioAnual, mensual: c.precioMensual,
                           subtotal: c.subtotal, descuento: c.descuento,
-                          montoDescuento: c.montoDescuento } },
+                          montoDescuento: c.montoDescuentoAbs } },
 
     /* Lo que el vendedor/analyst haya anotado en "Notas" del formulario de la
        póliza (condiciones, accesos, contacto en sitio…). Se imprime como su
@@ -10454,8 +10473,9 @@ function vistaPoliza(){
         parece un error de la app. */
      + (c.descuento
          ? '<div class="c-fila" style="margin-top:12px"><span>Subtotal — suma de los renglones</span><b>' + dineroCent(c.subtotal) + '</b></div>'
-           + '<div class="c-fila"><span>Descuento ' + c.descuento + '%</span><b style="color:var(--error)">−' + dineroCent(c.montoDescuento) + '</b></div>'
-           + '<div class="c-fila"><span>Precio anual — ya con descuento</span><b>' + dineroCent(c.precioAnual) + '</b></div>'
+           + '<div class="c-fila"><span>' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>'
+           +   '<b style="color:' + (c.esAumento ? 'var(--ok)' : 'var(--error)') + '">' + (c.esAumento ? '+' : '−') + dineroCent(c.montoDescuentoAbs) + '</b></div>'
+           + '<div class="c-fila"><span>Precio anual — ya con ' + (c.esAumento ? 'el aumento' : 'el descuento') + '</span><b>' + dineroCent(c.precioAnual) + '</b></div>'
          : '<div class="c-fila" style="margin-top:12px"><span>Precio anual — suma de los renglones</span><b>' + dineroCent(c.precioAnual) + '</b></div>')
      + '<div class="c-fila"><span>Precio mensual — anual ÷ ' + MESES_POLIZA + '</span><b>' + dineroCent(c.precioMensual) + '</b></div>'
      + '</div>';
@@ -12670,19 +12690,25 @@ function modalPoliza(id, origenLevantamiento){
     +     '<div class="pista">Si la absorbemos nosotros, esta póliza deja de contar como ingreso en Resultados.</div></div>'
     +   '<div class="campo" id="zonaCargoAInterno" hidden><label>¿A quién se le carga?</label>'
     +     '<input type="text" id="pCargoAInterno" placeholder="Ej. Plato Express" value="' + esc(p ? p.cargoAInterno : '') + '"></div>'
-    /* El descuento solo lo VE quien lo puede poner. A un Analyst no se le enseña
-       una casilla que el servidor le va a negar; y si la póliza ya trae uno, se
-       le muestra como texto para que sepa con qué está trabajando. */
+    /* El ajuste (descuento o aumento) solo lo VE quien lo puede poner. A un
+       Analyst no se le enseña una casilla que el servidor le va a negar; y si
+       la póliza ya trae uno, se le muestra como texto para que sepa con qué
+       está trabajando. El campo SIEMPRE captura un número positivo — es
+       pintarCargoA() quien decide, según "Cargo a", si eso es un descuento
+       (cliente) o un aumento (interno); leerForm() es quien de verdad le
+       pone el signo al guardar. */
     +   (esAdmin()
-        ? '<div class="campo"><label>Descuento (%)</label>'
-          + '<input type="number" id="pDescuento" min="0" max="100" step="0.01" '
-          +   'value="' + (p && p.descuento ? p.descuento : '') + '" placeholder="0">'
-          + '<div class="pista">Se aplica al total, se imprime como renglón aparte y '
-          +   '<b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.</div>'
+        ? '<div class="campo"><label id="pEtiquetaDescuento">' + (p && p.descuento < 0 ? 'Aumento (%)' : 'Descuento (%)') + '</label>'
+          + '<input type="number" id="pDescuento" min="0" max="500" step="0.01" '
+          +   'value="' + (p && p.descuento ? Math.abs(p.descuento) : '') + '" placeholder="0">'
+          + '<div class="pista" id="pPistaDescuento">' + (p && p.descuento < 0
+                ? 'Se le suma al costo real antes de cargárselo a quien corresponda, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.'
+                : 'Se aplica al total, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.')
+          + '</div>'
           + '</div>'
         : (p && p.descuento
-            ? '<div class="campo"><label>Descuento</label>'
-              + '<input type="text" value="' + p.descuento + '% — solo un Admin lo cambia" readonly>'
+            ? '<div class="campo"><label>' + (p.descuento < 0 ? 'Aumento' : 'Descuento') + '</label>'
+              + '<input type="text" value="' + Math.abs(p.descuento) + '% — solo un Admin lo cambia" readonly>'
               + '</div>'
             : ''))
     + '</div>'
@@ -12743,8 +12769,12 @@ function modalPoliza(id, origenLevantamiento){
       /* Si no hay casilla —Analyst— se ARRASTRA el que ya tenía: leerForm solo
          trae los campos del formulario, y sin esto editar una póliza le borraría
          el descuento a quien no lo puede ver. Es la misma trampa que ya nos costó
-         las OC y el historial de servicios. */
-      descuento: $('pDescuento') ? (parseFloat($('pDescuento').value) || 0) : (p ? p.descuento : 0),
+         las OC y el historial de servicios. El campo siempre trae un número
+         positivo; aquí se le pone el signo según a quién se le está cargando
+         AHORA MISMO — cliente resta (descuento), interno suma (aumento). */
+      descuento: $('pDescuento')
+        ? ($('pCargoA').value === 'interno' ? -1 : 1) * (parseFloat($('pDescuento').value) || 0)
+        : (p ? p.descuento : 0),
       fechaCotizacion: $('pCotizacion').value || hoyISO(),
       fechaInicio: $('pInicio').value || hoyISO(),
       /* Las dos fechas de trámite se deducen del estatus en vez de capturarse:
@@ -12761,9 +12791,21 @@ function modalPoliza(id, origenLevantamiento){
   }
 
   /* Muestra el nombre de a quién se le carga solo cuando de verdad hace
-     falta: con "Cliente" seleccionado, ese campo no significa nada. */
+     falta: con "Cliente" seleccionado, ese campo no significa nada. De paso,
+     el mismo número de la casilla de ajuste cambia de sentido: con Cliente es
+     un descuento (resta), con Interno es un aumento (suma) — nunca los dos a
+     la vez, así que basta con relabelear y dejar que refrescarResumen() haga
+     las cuentas con el signo que le toque en leerForm(). */
   function pintarCargoA(){
-    $('zonaCargoAInterno').hidden = $('pCargoA').value !== 'interno';
+    const interno = $('pCargoA').value === 'interno';
+    $('zonaCargoAInterno').hidden = !interno;
+    if($('pEtiquetaDescuento')) $('pEtiquetaDescuento').textContent = interno ? 'Aumento (%)' : 'Descuento (%)';
+    if($('pPistaDescuento')){
+      $('pPistaDescuento').innerHTML = interno
+        ? 'Se le suma al costo real antes de cargárselo a quien corresponda, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.'
+        : 'Se aplica al total, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.';
+    }
+    refrescarResumen();
   }
   pintarCargoA();
   $('pCargoA').addEventListener('change', pintarCargoA);
@@ -12911,13 +12953,14 @@ function modalPoliza(id, origenLevantamiento){
     /* El descuento en vivo mientras se captura: se teclea 5 y el pie ya enseña
        cuánto son y cuánto queda. Sin esto habría que guardar para saberlo. */
     if($('pieBloqueDesc')){
-      const hay = c.descuento > 0;
+      const hay = c.descuento !== 0;
       $('pieBloqueDesc').style.display  = hay ? '' : 'none';
       $('pieBloqueDesc2').style.display = hay ? '' : 'none';
       if(hay){
         $('pieSubtotal').textContent = dineroCent(c.subtotal);
-        $('pieDescEtiqueta').textContent = 'Descuento ' + c.descuento + '%';
-        $('pieDescuento').textContent = '−' + dineroCent(c.montoDescuento);
+        $('pieDescEtiqueta').textContent = (c.esAumento ? 'Aumento ' : 'Descuento ') + c.descuentoAbs + '%';
+        $('pieDescuento').textContent = (c.esAumento ? '+' : '−') + dineroCent(c.montoDescuentoAbs);
+        $('pieDescuento').style.color = c.esAumento ? 'var(--ok)' : 'var(--error)';
       }
     }
     if($('pieMensual')) $('pieMensual').textContent = dineroCent(c.precioMensual);
