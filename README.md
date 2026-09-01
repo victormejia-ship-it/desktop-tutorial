@@ -15,9 +15,9 @@ client/   Interfaz web (React + Vite)
 
 - **Catálogo SMAE**: los 18 grupos del sistema (verduras, frutas, cereales
   con/sin grasa, leguminosas, AOA por nivel de grasa, leche por tipo,
-  aceites y grasas, azúcares, alimentos libres) con ~90 alimentos de
-  ejemplo y sus valores por equivalente (kcal, proteína, HC, lípidos).
-  Búsqueda y filtro por grupo.
+  aceites y grasas, azúcares, alimentos libres) con más de 230 alimentos
+  y sus valores por equivalente (kcal, proteína, HC, lípidos). Búsqueda y
+  filtro por grupo.
 - **Pacientes**: alta y listado con datos básicos (sexo, estatura, peso,
   meta calórica).
 - **Planes de alimentación**: por paciente, se define una prescripción de
@@ -84,4 +84,4 @@ lista en `http://localhost:5173`.
 
 - Exportar el plan a PDF para entregar al paciente.
 - Autenticación si más de un nutriólogo va a usar la misma instancia.
-- Ampliar el catálogo de alimentos con la tabla completa del manual SMAE.
+- Seguir ampliando el catálogo con alimentos y marcas comerciales específicas.

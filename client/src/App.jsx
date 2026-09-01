@@ -8,7 +8,13 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">SMAE · Sistema de Equivalentes</div>
+        <div className="brand">
+          <img src="/brand.svg" alt="Nayla Banda Nutrición" className="brand-mark" />
+          <span className="brand-text">
+            <strong>Nayla Banda</strong>
+            <small>Nutrición · Sistema SMAE</small>
+          </span>
+        </div>
         <nav>
           <NavLink to="/" end>
             Catálogo
