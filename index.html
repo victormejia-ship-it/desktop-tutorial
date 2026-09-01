@@ -689,6 +689,13 @@ button.mes{cursor:pointer;}
 /* Renglón con meses que no siguen el intervalo: se marca para que no se pierda. */
 .tabla-renglones tr.irregular > td{background:#fffdf6;}
 .fila-meses > td{background:var(--bg); padding:10px 12px 13px; border-bottom:1px solid var(--line);}
+.fila-info > td{background:var(--bg); padding:10px 12px 13px; border-bottom:1px solid var(--line);}
+.info-equipo{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px;}
+.info-equipo label{display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--gray); font-weight:600; flex:1 1 180px;}
+.info-equipo label input{font-size:13px; font-weight:400; color:var(--navy);}
+.info-equipo label > button{margin-top:6px; align-self:flex-start;}
+.vista-barras{background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 14px; display:flex; justify-content:center;}
+.codigo-barras{height:56px; max-width:100%;}
 /* Vista previa de la importación. Los avisos van en su PROPIO renglón a todo lo
    ancho, no en una columna: son la razón de ser de esta pantalla, y metidos en
    una columna estrecha se cortaban justo donde empezaba lo importante. */
@@ -5146,7 +5153,16 @@ function normalizarPartida(x){
        distinto del estándar. Es lo que permite comparar costo vs precio vs
        margen por póliza — ver calcularPoliza(). */
     costoUnitario: Math.max(0, Math.round((Number(x.costoUnitario) || 0) * 100) / 100),
-    frecuencia
+    frecuencia,
+    /* Solo para control interno del equipo (no sale en la cotización impresa
+       al cliente): modelo y número de serie del equipo físico, y un código
+       (para barras/QR) que identifica esta unidad en campo. Si cantidad > 1
+       se asume que las unidades son idénticas y comparten un solo folio;
+       para números de serie distintos por unidad hay que "Duplicar" el
+       renglón en filas de cantidad 1. */
+    modelo: (x.modelo || '').trim().slice(0, 60),
+    serie: (x.serie || '').trim().replace(/[^A-Za-z0-9-]/g, '').slice(0, 40),
+    codigo: (x.codigo || '').trim().replace(/[^A-Za-z0-9\-_. ]/g, '').toUpperCase().slice(0, 30)
   };
 }
 
@@ -6488,8 +6504,58 @@ const ICONO = {
   tabla:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="4" rx="1.2"/><rect x="3" y="10" width="18" height="4" rx="1.2"/><rect x="3" y="15.5" width="18" height="4" rx="1.2"/></svg>',
   reporte:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 11v3"/><path d="M12 17h.01"/></svg>',
   camara:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
-  documento:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>'
+  documento:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
+  codigoBarras:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5v14M8 5v14M11 5v14M14 5v14M16 5v14M20 5v14"/></svg>'
 };
+
+/* Code128 (subconjunto B), para el código interno de cada equipo — la app no
+   puede cargar ninguna librería externa (ver el comentario del <head>), así
+   que esto va a mano. Tablas y fórmula de verificación tomadas del estándar
+   Code 128 y cruzadas contra la librería de referencia python-barcode para
+   varios códigos de prueba. Se usa SIEMPRE el subconjunto B, sin los cambios
+   de subconjunto A/B/C de la especificación completa: el alfabeto que se deja
+   capturar en `codigo` (mayúsculas, dígitos, espacio y .-_) cabe entero en B,
+   así que no hace falta reproducir esa lógica adicional para tener un código
+   válido y escaneable (solo renuncia a la compresión opcional de dígitos). */
+const CODE128_B = ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f';
+const CODE128_PATRONES = ['11011001100','11001101100','11001100110','10010011000','10010001100','10001001100','10011001000','10011000100','10001100100','11001001000','11001000100','11000100100','10110011100','10011011100','10011001110','10111001100','10011101100','10011100110','11001110010','11001011100','11001001110','11011100100','11001110100','11101101110','11101001100','11100101100','11100100110','11101100100','11100110100','11100110010','11011011000','11011000110','11000110110','10100011000','10001011000','10001000110','10110001000','10001101000','10001100010','11010001000','11000101000','11000100010','10110111000','10110001110','10001101110','10111011000','10111000110','10001110110','11101110110','11010001110','11000101110','11011101000','11011100010','11011101110','11101011000','11101000110','11100010110','11101101000','11101100010','11100011010','11101111010','11001000010','11110001010','10100110000','10100001100','10010110000','10010000110','10000101100','10000100110','10110010000','10110000100','10011010000','10011000010','10000110100','10000110010','11000010010','11001010000','11110111010','11000010100','10001111010','10100111100','10010111100','10010011110','10111100100','10011110100','10011110010','11110100100','11110010100','11110010010','11011011110','11011110110','11110110110','10101111000','10100011110','10001011110','10111101000','10111100010','11110101000','11110100010','10111011110','10111101110','11101011110','11110101110','11010000100','11010010000','11010011100'];
+const CODE128_STOP = '11000111010';
+const CODE128_START_B = 104;
+
+/* Devuelve la tira de barras/espacios ("1"/"0", ancho de un módulo cada uno)
+   o '' si el texto está vacío o trae algún carácter fuera del subconjunto B
+   (no debería pasar: `codigo` ya se sanea al guardar la partida). */
+function code128Barras(texto){
+  const t = String(texto || '');
+  if(!t) return '';
+  const codigos = [CODE128_START_B];
+  for(const ch of t){
+    const idx = CODE128_B.indexOf(ch);
+    if(idx === -1) return '';
+    codigos.push(idx);
+  }
+  let suma = codigos[0];
+  for(let i = 1; i < codigos.length; i++) suma += i * codigos[i];
+  codigos.push(suma % 103);
+  return codigos.map(n => CODE128_PATRONES[n]).join('') + CODE128_STOP + '11';
+}
+
+/* SVG listo para mostrar o imprimir, con el texto legible debajo (como
+   cualquier etiqueta de código de barras comercial). */
+function svgCodigoBarras(texto, alto){
+  const bits = code128Barras(texto);
+  if(!bits) return '';
+  const h = alto || 44;
+  let x = 0, barras = '';
+  for(const b of bits){
+    if(b === '1') barras += '<rect x="' + x + '" y="0" width="1" height="' + h + '"/>';
+    x++;
+  }
+  return '<svg class="codigo-barras" viewBox="0 0 ' + x + ' ' + (h + 13) + '" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Código de barras ' + esc(texto) + '">'
+       + '<g fill="#111">' + barras + '</g>'
+       + '<text x="' + (x / 2) + '" y="' + (h + 11) + '" text-anchor="middle" font-size="10" font-family="monospace" letter-spacing="1" fill="#333">' + esc(texto) + '</text>'
+       + '</svg>';
+}
 
 /* Botón para volver a la lista de clientes, arriba de cada vista interna. */
 function botonRegresar(){
@@ -12958,6 +13024,8 @@ function modalPoliza(id, origenLevantamiento){
         + '<td class="acc">'
         +   '<button type="button" class="icono-mini' + (x._abierta ? ' on' : '') + '" data-meses-mano="' + i + '" '
         +     'data-tip="Calendario"' + bloq + '>' + ICONO.calendario + '</button>'
+        +   '<button type="button" class="icono-mini' + (x._infoAbierta ? ' on' : '') + '" data-info-mano="' + i + '" '
+        +     'data-tip="Modelo, serie y código"' + bloq + '>' + ICONO.codigoBarras + '</button>'
         +   '<button type="button" class="icono-mini" data-duplicar="' + i + '" '
         +     'data-tip="Duplicar"' + bloq + '>' + ICONO.respaldo + '</button>'
         +   '<button type="button" class="icono-mini" data-quitar="' + i + '" '
@@ -12965,20 +13033,46 @@ function modalPoliza(id, origenLevantamiento){
         + '</td>'
         + '</tr>';
 
+      let extra = '';
+
       /* Los doce meses a mano: modo avanzado, cerrado por omisión. Solo hace falta
          cuando una unidad no sigue el intervalo. */
-      if(!x._abierta) return fila;
-      const casillas = Array.from({length:MESES_POLIZA}, (_,m)=>
-        '<button type="button" class="mes' + (lim.mesesServicio.includes(m) ? ' serv' : '') + '" data-mes="' + m + '" '
-        + 'aria-pressed="' + (lim.mesesServicio.includes(m) ? 'true' : 'false') + '"' + bloq + '>'
-        + esc(etiquetaMesServicio(ini, m)) + '</button>').join('');
-      return fila
-        + '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="9">'
-        +   '<div class="pista" style="margin-bottom:7px">Meses de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
-        +     'Los servicios al año se ajustan solos a los que marques, y el arranque pasa a «a mano».</div>'
-        +   '<div class="meses-modal con-mes" data-meses>' + casillas + '</div>'
-        +   '<div class="aviso-cuadre" data-cuadre hidden></div>'
-        + '</td></tr>';
+      if(x._abierta){
+        const casillas = Array.from({length:MESES_POLIZA}, (_,m)=>
+          '<button type="button" class="mes' + (lim.mesesServicio.includes(m) ? ' serv' : '') + '" data-mes="' + m + '" '
+          + 'aria-pressed="' + (lim.mesesServicio.includes(m) ? 'true' : 'false') + '"' + bloq + '>'
+          + esc(etiquetaMesServicio(ini, m)) + '</button>').join('');
+        extra += '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="9">'
+          +   '<div class="pista" style="margin-bottom:7px">Meses de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
+          +     'Los servicios al año se ajustan solos a los que marques, y el arranque pasa a «a mano».</div>'
+          +   '<div class="meses-modal con-mes" data-meses>' + casillas + '</div>'
+          +   '<div class="aviso-cuadre" data-cuadre hidden></div>'
+          + '</td></tr>';
+      }
+
+      /* Modelo, número de serie y código (barras) del equipo: solo para control
+         interno — no se manda a imprimir en la cotización del cliente. Cerrado
+         por omisión, igual que el calendario a mano. Si cantidad > 1 el código
+         es de TODO el renglón (unidades idénticas); para números de serie
+         distintos por unidad hay que usar "Duplicar" y separar en cantidad 1. */
+      if(x._infoAbierta){
+        const barras = svgCodigoBarras(lim.codigo);
+        extra += '<tr class="fila-info" data-idx="' + i + '"><td></td><td colspan="9">'
+          +   '<div class="pista" style="margin-bottom:7px">Datos internos de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
+          +     'Solo para control de equipo: no aparecen en la cotización que ve el cliente.'
+          +     (x.cantidad > 1 ? ' Este renglón tiene ' + x.cantidad + ' unidades: si necesitas número de serie o código distinto por unidad, usa «Duplicar» y captúralos por separado.' : '')
+          +   '</div>'
+          +   '<div class="info-equipo">'
+          +     '<label>Modelo<input type="text" data-campo="modelo" value="' + esc(x.modelo) + '" placeholder="—"' + soloL + '></label>'
+          +     '<label>Número de serie<input type="text" data-campo="serie" value="' + esc(x.serie) + '" placeholder="—"' + soloL + '></label>'
+          +     '<label>Código (barras / QR)<input type="text" data-campo="codigo" value="' + esc(x.codigo) + '" placeholder="Escanea o captura" maxlength="30"' + soloL + '>'
+          +       (bloq ? '' : '<button type="button" class="btn btn-suave btn-mini" data-generar-codigo="' + i + '">Generar</button>') + '</label>'
+          +   '</div>'
+          +   '<div class="vista-barras" data-barras>' + (barras || '<span class="pista">Captura un código para ver la vista previa.</span>') + '</div>'
+          + '</td></tr>';
+      }
+
+      return fila + extra;
     }).join('');
 
     $('listaPartidas').innerHTML =
@@ -13003,8 +13097,8 @@ function modalPoliza(id, origenLevantamiento){
      índice: recorrer 150 renglones en cada tecla se siente. */
   function refrescar(soloIdx){
     const sel = soloIdx === undefined
-      ? 'tbody tr[data-idx]:not(.fila-meses)'
-      : 'tbody tr[data-idx="' + soloIdx + '"]:not(.fila-meses)';
+      ? 'tbody tr[data-idx]:not(.fila-meses):not(.fila-info)'
+      : 'tbody tr[data-idx="' + soloIdx + '"]:not(.fila-meses):not(.fila-info)';
     const nodos = $('listaPartidas').querySelectorAll(sel);
     nodos.forEach(nodo=>{
       const i = +nodo.dataset.idx, x = partidasTmp[i];
@@ -13132,6 +13226,15 @@ function modalPoliza(id, origenLevantamiento){
     else if(k === 'precioUnitario'){ formatearMiles(campo); x.precioUnitario = aNumero(campo.value); }
     else if(k === 'costoUnitario'){ formatearMiles(campo); x.costoUnitario = aNumero(campo.value); }
     else x[k] = campo.value;
+    if(k === 'codigo'){
+      /* Solo la vista previa del código de barras, sin redibujar la fila: un
+         re-render completo aquí le quitaría el cursor al campo a media captura. */
+      const cont = fila.querySelector('[data-barras]');
+      if(cont){
+        const barras = svgCodigoBarras(normalizarPartida(x).codigo);
+        cont.innerHTML = barras || '<span class="pista">Captura un código para ver la vista previa.</span>';
+      }
+    }
     refrescar(+fila.dataset.idx);
   });
 
@@ -13168,6 +13271,25 @@ function modalPoliza(id, origenLevantamiento){
     if(mano){
       const x = partidasTmp[+mano.dataset.mesesMano];
       x._abierta = !x._abierta;
+      pintarPartidas();
+      return;
+    }
+    const infoMano = ev.target.closest('[data-info-mano]');
+    if(infoMano){
+      const x = partidasTmp[+infoMano.dataset.infoMano];
+      x._infoAbierta = !x._infoAbierta;
+      pintarPartidas();
+      return;
+    }
+    const generar = ev.target.closest('[data-generar-codigo]');
+    if(generar){
+      const i = +generar.dataset.generarCodigo;
+      const x = partidasTmp[i];
+      /* Prefijo del folio de la póliza si ya tiene, si no un genérico: el
+         consecutivo es solo para no repetir dentro de esta misma póliza. */
+      const prefijo = ($('pFolio').value || 'EQ').trim().toUpperCase().replace(/[^A-Z0-9-]/g,'') || 'EQ';
+      x.codigo = prefijo + '-' + String(i+1).padStart(2,'0');
+      x._tocada = true;
       pintarPartidas();
       return;
     }
