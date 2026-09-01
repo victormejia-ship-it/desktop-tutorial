@@ -7011,8 +7011,10 @@ function graficaMargenTendencia(meses){
 }
 
 function calcularResultados(inicio, fin){
-  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
-              numPagosForpass:0, numCobrosPolizas:0, numServiciosPolizas:0, numCotizaciones:0 };
+  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoPolizasCliente:0, ingresoPolizasInterno:0,
+              ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
+              numPagosForpass:0, numCobrosPolizas:0, numPolizasNegociadasNoCobradas:0,
+              numServiciosPolizas:0, numCotizaciones:0 };
 
   /* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
      el mes al que corresponde (fechaInicio + su número de mes), no en el mes
@@ -7026,30 +7028,53 @@ function calcularResultados(inicio, fin){
     });
   });
 
-  /* Pólizas: el INGRESO se cuenta cuando se COBRA (uno solo si es anual,
-     doce si es mensual) — TAMBIÉN si es cargoA='interno' (Plato Express y
-     similares, decisión de Victor 01-sep-2026): ahí el "cobro" ya no es el
-     precio de venta, es costo + el % de aumento administrativo (ver
-     calcularPoliza(): esInterno hace que precioAnual/montos salgan de
-     costoAnual, no del subtotal de venta) — ese aumento SÍ es ingreso real
-     para Forguard, solo que interno en vez de con un cliente externo.
+  /* Pólizas de CLIENTE: el ingreso se cuenta cuando se COBRA de verdad —una
+     casilla marcada en "Capturar cobro"—, uno solo si es anual, doce si es
+     mensual. Es dinero que de verdad entró (o al menos se facturó), así que
+     depende de que alguien la capture.
 
-     El COSTO se cuenta cuando se HACE el servicio, no cuando se cobra: son
-     dos calendarios distintos —facturación vs. mantenimiento real— y
-     mezclarlos dejaba meses sin costo (nada cobrado ese mes) al lado de
-     meses con el costo del año completo (cobro anual de golpe). El costo de
-     cada equipo se reconoce en CADA mes de su calendario que caiga dentro
-     del período, multiplicado por su cantidad — es lo que de verdad se
-     gasta ese mes en mantenerlo. Con esto, una póliza interna deja de verse
-     en $0 de margen: ingreso (costo+aumento) menos costo (el mismo costo)
-     da justo el aumento, que es la utilidad real de cargarlo internamente. */
+     Pólizas de cargo INTERNO (Plato Express y similares, decisión de Victor
+     01-sep-2026): el "cobro" aquí ya no es el precio de venta, es costo + el
+     % de aumento administrativo (ver calcularPoliza(): esInterno hace que
+     precioAnual/montos salgan de costoAnual, no del subtotal de venta). Ese
+     aumento SÍ es ingreso real para Forguard, pero nunca se le va a cobrar
+     a nadie con una OC ni una factura —ya se simplificó "Capturar cobro"
+     para que ni las pida—, así que esperar a que alguien marque la casilla
+     lo dejaría fuera para siempre. En el esquema ideal esto es dinero YA
+     NEGOCIADO desde que la póliza queda 'activa' (precios congelados): se
+     reconoce solo, período a período según su propio calendario de
+     facturación, iguales que se reconoce el costo de abajo — y se lleva
+     APARTE (ingresoPolizasInterno / numPolizasNegociadasNoCobradas) para que
+     el estado de resultados diga con todas sus letras que es "negociado, no
+     cobrado" y no se confunda con un cobro real ya en la calle. Mientras
+     sigue en 'cotizacion'/'enviada' (nada firmado todavía) no cuenta nada.
+
+     El COSTO, para cualquier cargoA, se cuenta cuando se HACE el servicio,
+     no cuando se cobra: son dos calendarios distintos —facturación vs.
+     mantenimiento real— y mezclarlos dejaba meses sin costo (nada cobrado
+     ese mes) al lado de meses con el costo del año completo (cobro anual de
+     golpe). El costo de cada equipo se reconoce en CADA mes de su
+     calendario que caiga dentro del período, multiplicado por su cantidad —
+     es lo que de verdad se gasta ese mes en mantenerlo. Con esto, una
+     póliza interna deja de verse en $0 de margen: ingreso (costo+aumento)
+     menos costo (el mismo costo) da justo el aumento, la utilidad real de
+     cargarlo internamente. */
   datos.polizas.forEach(p=>{
     const c = calcularPoliza(p);
-    p.cobros.forEach((cobrado, i)=>{
-      if(!cobrado) return;
-      const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
-      if(fecha >= inicio && fecha <= fin){ r.ingresoPolizas += c.montos[i]; r.numCobrosPolizas++; }
-    });
+    if(p.cargoA === 'interno'){
+      if(p.estatus === 'activa'){
+        c.montos.forEach((monto, i)=>{
+          const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
+          if(fecha >= inicio && fecha <= fin){ r.ingresoPolizasInterno += monto; r.numPolizasNegociadasNoCobradas++; }
+        });
+      }
+    } else {
+      p.cobros.forEach((cobrado, i)=>{
+        if(!cobrado) return;
+        const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
+        if(fecha >= inicio && fecha <= fin){ r.ingresoPolizasCliente += c.montos[i]; r.numCobrosPolizas++; }
+      });
+    }
     p.partidas.forEach(x=>{
       const costoServicio = (x.costoUnitario || 0) * x.cantidad;
       if(!costoServicio) return;
@@ -7059,6 +7084,10 @@ function calcularResultados(inicio, fin){
       });
     });
   });
+  /* El total de la fuente sigue siendo UNA sola cifra para las gráficas y los
+     KPI —cobrado de cliente + negociado interno—; la diferencia entre los
+     dos vive en las dos líneas separadas del desglose (ver vistaResultados). */
+  r.ingresoPolizas = r.ingresoPolizasCliente + r.ingresoPolizasInterno;
 
   /* Cotizaciones: la fecha de la cotización, no la de sus pagos — el módulo
      no lleva cobranza propia, a diferencia de Forpass y pólizas.
@@ -7178,7 +7207,11 @@ function vistaResultados(){
      +   '<div class="tp-fila"><span>Forpass · mensualidades cobradas (' + numero(r.numPagosForpass) + ')</span>'
      +     '<span class="tp-monto">' + dineroCent(r.ingresoForpass) + '</span></div>'
      +   '<div class="tp-fila"><span>Pólizas · cobros facturados (' + numero(r.numCobrosPolizas) + ')</span>'
-     +     '<span class="tp-monto">' + dineroCent(r.ingresoPolizas) + '</span></div>'
+     +     '<span class="tp-monto">' + dineroCent(r.ingresoPolizasCliente) + '</span></div>'
+     +   (r.numPolizasNegociadasNoCobradas
+        ? '<div class="tp-fila"><span>Pólizas · negociadas no cobradas, cargo interno (' + numero(r.numPolizasNegociadasNoCobradas) + ')</span>'
+          + '<span class="tp-monto">' + dineroCent(r.ingresoPolizasInterno) + '</span></div>'
+        : '')
      +   '<div class="tp-fila"><span>Cotizaciones · aprobadas o ya realizadas (' + numero(r.numCotizaciones) + ')</span>'
      +     '<span class="tp-monto">' + dineroCent(r.ingresoCotizaciones) + '</span></div>'
      +   '<div class="tp-fila tp-total"><span>Total de ingresos</span><span class="tp-monto">' + dineroCent(r.ingresoTotal) + '</span></div>'
@@ -7221,7 +7254,11 @@ function vistaResultados(){
      + 'cualquier otro como material. Una cotización cuenta como ingreso al quedar <b>Aprobada</b>, o —para las que '
      + 'siguen el pipeline de 13 etapas del tablero de servicios— desde que el trabajo ya se <b>Realizó</b> en '
      + 'adelante: no hace falta esperar a que se facture, basta con que ya se haya hecho. Lo cotizado, compartido o '
-     + 'pendiente de liberación todavía puede cancelarse o expirar, así que eso no cuenta como dinero.</p>';
+     + 'pendiente de liberación todavía puede cancelarse o expirar, así que eso no cuenta como dinero. Una póliza de '
+     + '<b>cargo interno</b> (Plato Express y similares) se factura sobre costo + un % de aumento, no sobre precio '
+     + 'de venta; en cuanto queda <b>Activa</b> (negociada, precios ya congelados) ese aumento se reconoce solo, '
+     + 'período a período según su calendario de facturación — no hace falta capturar su cobro, por eso aparece '
+     + 'aparte como "negociadas no cobradas". Mientras sigue en borrador o enviada, no cuenta nada.</p>';
 
   return h;
 }
