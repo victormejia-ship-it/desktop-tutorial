@@ -275,9 +275,17 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .grafica-leyenda button.apagada i{background:var(--gray-claro) !important;}
 .svg-vacio{padding:26px 0; text-align:center; color:var(--gray); font-size:13px;}
 
-/* ---------- Tooltip interactivo de las gráficas de Resultados ---------- */
-.grafica-hit{fill:transparent; cursor:pointer;}
-.grafica-hit:hover{fill:rgba(0,35,105,.05);}
+/* ---------- Tooltip interactivo de las gráficas de Resultados ----------
+   .grafica-hit es solo el marcador que usa el JS para detectar sobre qué
+   blanco de mouse está el cursor (querySelector/closest) — NUNCA lleva su
+   propio fill, porque una propiedad CSS de una clase SIEMPRE gana sobre un
+   fill="" en línea, y algunos blancos de mouse (los segmentos de la barra
+   de composición) SÍ necesitan conservar su color real. El fill transparente
+   y el tinte al pasar el mouse van en clases aparte, una por tipo de blanco. */
+.grafica-hit{cursor:pointer;}
+.grafica-hit-transparente{fill:transparent;}
+.grafica-hit-transparente:hover{fill:rgba(0,35,105,.05);}
+.grafica-hit-color:hover{filter:brightness(.92);}
 .eje-cruce{stroke:var(--gray-claro); stroke-width:1; opacity:0; pointer-events:none;}
 .eje-cruce.activo{opacity:1;}
 .grafica-tt{
@@ -6888,10 +6896,16 @@ function graficaTendenciaResultados(meses){
     const activos = fuentesVisibles.filter(f => (m.r[f.clave]||0) > 0);
     activos.forEach((f,k) => {
       const v = m.r[f.clave] || 0;
-      const yTop = escY(cum+v), yBottom = escY(cum);
+      const yBottom = escY(cum);
       const esUltimo = k === activos.length-1;
-      const alto = (yBottom - yTop) - (esUltimo ? 0 : GAP);
-      if(alto > 0) svg += '<path d="' + pathBarraTope(x0, yTop, anchoBarra, alto, 4) + '" fill="' + f.color + '"/>';
+      let alto = (yBottom - escY(cum+v)) - (esUltimo ? 0 : GAP);
+      /* Un mes real (v > 0) nunca se dibuja invisible: con un eje que llega a
+         millones, un ingreso de unos cuantos miles redondea a menos de un
+         pixel y desaparece — que parece "no hay dato" cuando sí lo hay. Se le
+         garantiza un mínimo de 2px, anclado a SU MISMA base (yBottom), sin
+         tocar la escala real de nadie más. */
+      if(alto > 0 && alto < 2) alto = 2;
+      if(alto > 0) svg += '<path d="' + pathBarraTope(x0, yBottom-alto, anchoBarra, alto, 4) + '" fill="' + f.color + '"/>';
       cum += v;
     });
     const mostrarAnio = i === 0 || m.mesNum === 1;
@@ -6900,7 +6914,7 @@ function graficaTendenciaResultados(meses){
     /* Un blanco de mouse por mes, del ancho de todo su grupo y del alto de
        toda la gráfica: acertarle a una barra angosta o a un punto de 4px es
        frustrante, esto se puede tocar en cualquier parte de la columna. */
-    svgHits += '<rect class="grafica-hit" data-tt-tipo="mes" x="' + (mI+i*anchoGrupo).toFixed(1) + '" y="' + mA + '" width="' + anchoGrupo.toFixed(1) + '" height="' + altoPlot + '" '
+    svgHits += '<rect class="grafica-hit grafica-hit-transparente" data-tt-tipo="mes" x="' + (mI+i*anchoGrupo).toFixed(1) + '" y="' + mA + '" width="' + anchoGrupo.toFixed(1) + '" height="' + altoPlot + '" '
              +   'data-mes="' + m.mesNum + '" data-anio="' + m.anio + '" data-costo="' + Math.round(m.r.costoTotal) + '" '
              +   'data-utilidad="' + Math.round(m.r.utilidadBruta) + '" data-margen="' + m.r.margenPct.toFixed(1) + '" '
              +   'data-cruce-x="' + (mI+i*anchoGrupo+anchoGrupo/2).toFixed(1) + '" '
@@ -6955,7 +6969,7 @@ function graficaComposicionIngreso(r){
       const d = esUltimo
         ? pathBarraDerechaRedonda(x, y, wSeg, altoBarra, 6)
         : 'M'+x+','+y+' L'+(x+wSeg)+','+y+' L'+(x+wSeg)+','+(y+altoBarra)+' L'+x+','+(y+altoBarra)+' Z';
-      svg += '<path class="grafica-hit" d="' + d + '" fill="' + f.color + '" opacity="' + (apagada?0.22:1) + '" '
+      svg += '<path class="grafica-hit grafica-hit-color" d="' + d + '" fill="' + f.color + '" opacity="' + (apagada?0.22:1) + '" '
            +   'data-tt-tipo="segmento" data-etiqueta="' + esc(f.etiqueta) + '" data-valor="' + Math.round(f.valor) + '" data-pct="' + pct.toFixed(1) + '"/>';
       /* Etiqueta adentro solo si de verdad cabe con aire a los lados —
          nunca recortada — y solo si la fuente sigue encendida. */
@@ -7009,7 +7023,7 @@ function graficaMargenTendencia(meses){
     if(i % pasoEtiquetaX === 0 || ultimo){
       svg += '<text x="' + p.x.toFixed(1) + '" y="' + (H-mB+16) + '" text-anchor="middle" font-size="10" fill="var(--gray)">' + MES_CORTO[p.m.mesNum-1] + '</text>';
     }
-    svgHits += '<rect class="grafica-hit" data-tt-tipo="margen" x="' + (p.x-anchoBanda/2).toFixed(1) + '" y="' + mA + '" width="' + anchoBanda.toFixed(1) + '" height="' + altoPlot + '" '
+    svgHits += '<rect class="grafica-hit grafica-hit-transparente" data-tt-tipo="margen" x="' + (p.x-anchoBanda/2).toFixed(1) + '" y="' + mA + '" width="' + anchoBanda.toFixed(1) + '" height="' + altoPlot + '" '
              +   'data-mes="' + p.m.mesNum + '" data-anio="' + p.m.anio + '" data-margen="' + p.m.r.margenPct.toFixed(1) + '" data-cruce-x="' + p.x.toFixed(1) + '"/>';
   });
   svg += '<line class="eje-cruce" y1="' + mA + '" y2="' + (H-mB) + '" x1="0" x2="0"/>' + svgHits;
