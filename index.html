@@ -7918,6 +7918,7 @@ function vistaCliente(){
        +     '<option value="">Cualquiera</option>' + opcEncargados
        +   '</select>'
        +   (filtrando ? '<button type="button" class="btn btn-suave btn-mini" data-accion="limpiar-filtros">Quitar filtros</button>' : '')
+       +   controlAlternaVista('vistaSitiosCliente')
        + '</div>';
   }
 
@@ -7946,8 +7947,42 @@ function vistaCliente(){
     return peso(ca.tono) - peso(cb.tono) || a.nombre.localeCompare(b.nombre, 'es');
   });
 
+  if(estado.vistaSitiosCliente === 'tabla') return h + tablaSitios(ordenados);
+
   h += '<div class="grid grid-sitios' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((s,i)=> tarjetaSitio(s, i)).join('') + '</div>';
   return h;
+}
+
+/* Los sitios de UN cliente, en tabla: mismo alternador tarjetas/tabla que ya
+   usan Forpass (lista de clientes), Pólizas, Cotizaciones, Reportes y
+   Levantamientos — para cuando un cliente trae muchos sitios (Mercado Libre,
+   por ejemplo) y da más trabajo desplazarse entre tarjetas que leer una
+   tabla compacta. */
+function tablaSitios(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:880px"><thead><tr>'
+       +   '<th>Sitio</th><th>Encargado</th><th>Mensualidad</th><th>Siguiente pago</th>'
+       +   '<th>Pagadas</th><th>Vigencia</th><th>Estado</th><th></th>'
+       + '</tr></thead><tbody>'
+       + lista.map(s=>{
+           const c = calcular(s);
+           const iSig = s.pagos.findIndex(p => !p);
+           const prox = c.proximo ? dinero(c.montos[iSig]) + ' · ' + fmtFecha(c.proximo) : 'Cubierto';
+           return '<tr>'
+                +   '<td>' + esc(s.nombre) + (s.zona ? ' <span class="pista" style="display:inline">· ' + esc(s.zona) + '</span>' : '') + '</td>'
+                +   '<td>' + esc(s.encargado.nombre || 'Sin asignar') + '</td>'
+                +   '<td>' + dinero(s.mensualidad) + '</td>'
+                +   '<td>' + esc(prox) + '</td>'
+                +   '<td>' + c.pagados + ' de ' + s.meses + '</td>'
+                +   '<td>' + fmtFecha(c.fin) + '</td>'
+                +   '<td><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estatus) + '</span></td>'
+                +   '<td class="acc">'
+                +     (puedeEditar() ? '<button type="button" class="icono-mini" data-editar-sitio="' + esc(s.id) + '" data-tip="Editar">' + ICONO.lapiz + '</button>' : '')
+                +     (esAdmin() ? '<button type="button" class="icono-mini" data-fusionar-sitio="' + esc(s.id) + '" data-tip="Fusionar">' + ICONO.respaldo + '</button>' : '')
+                +     (esAdmin() ? '<button type="button" class="icono-mini" data-borrar-sitio="' + esc(s.id) + '" data-tip="Eliminar">' + ICONO.basura + '</button>' : '')
+                +   '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
 }
 
 function tarjetaSitio(s, i){
