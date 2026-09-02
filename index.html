@@ -1089,6 +1089,48 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 .seguimiento-item .pista{margin-left:6px;}
 .seguimiento-item > div{margin-top:2px; white-space:pre-wrap;}
 
+/* ---------- Organigrama: árbol jerárquico con solo CSS ---------- */
+/* Método clásico de "org chart" con bordes de <li> en vez de SVG o una
+   librería de diagramas: se acomoda solo sin medir nada en JS, incluso
+   cuando el árbol cambia de ancho al agregar o quitar gente. Cada persona
+   sin jefe capturado es la raíz de SU PROPIO árbol —no se fuerza a varias
+   raíces bajo una sola línea, que dibujaría conectores falsos entre
+   direcciones que en realidad no se reportan entre sí. */
+.organigrama-zona{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:6px 4px 28px;}
+.organigrama-bosque{display:flex; flex-wrap:wrap; gap:36px; justify-content:center; width:max-content; min-width:100%;}
+.organigrama-arbol, .organigrama-arbol ul{
+  display:flex; list-style:none; margin:0; padding-top:0; position:relative;
+}
+.organigrama-arbol ul{ padding-top:28px; }
+.organigrama-arbol li{
+  display:flex; flex-direction:column; align-items:center; position:relative; padding:28px 14px 0;
+}
+.organigrama-arbol > li{ padding-top:0; }
+.organigrama-arbol li::before, .organigrama-arbol li::after{
+  content:''; position:absolute; top:0; right:50%; width:50%; height:28px; border-top:2px solid var(--line);
+}
+.organigrama-arbol li::after{ right:auto; left:50%; border-left:2px solid var(--line); border-top:2px solid var(--line); }
+.organigrama-arbol > li::before, .organigrama-arbol > li::after{ display:none; }
+.organigrama-arbol li:only-child::before, .organigrama-arbol li:only-child::after{ display:none; }
+.organigrama-arbol li:only-child{ padding-top:0; }
+.organigrama-arbol li:first-child::before{ border:none; }
+.organigrama-arbol li:last-child::after{ border:none; }
+.organigrama-arbol li:last-child::before{ border-right:2px solid var(--line); border-radius:0 6px 0 0; }
+.organigrama-arbol li:first-child::after{ border-radius:6px 0 0 0; }
+.organigrama-arbol ul > li > ul::before{
+  content:''; position:absolute; top:0; left:50%; width:0; height:28px; border-left:2px solid var(--line);
+}
+.organigrama-nodo{
+  background:#fff; border:1px solid var(--line); border-radius:13px; padding:9px 14px; min-width:160px;
+  display:flex; align-items:center; gap:9px; cursor:pointer; box-shadow:var(--sombra-suave); text-align:left;
+  transition:transform .15s var(--ease), box-shadow .15s var(--ease), border-color .15s var(--ease);
+}
+.organigrama-nodo:hover{ transform:translateY(-2px); box-shadow:0 10px 24px rgba(0,20,61,.12); border-color:#c9d4ec; }
+.organigrama-nodo.n-baja{ opacity:.5; }
+.organigrama-nodo .n-datos{ min-width:0; }
+.organigrama-nodo .n-nombre{ font-size:12.5px; font-weight:700; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:148px; }
+.organigrama-nodo .n-puesto{ font-size:11px; color:var(--gray); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:148px; }
+
 /* ---------- Pie ---------- */
 .pie{padding:18px 24px; text-align:center; font-size:11.5px; color:var(--gray); border-top:1px solid var(--line); background:#fff;}
 
@@ -1145,6 +1187,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
     <button type="button" class="mod" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
+    <button type="button" class="mod" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
     <button type="button" class="mod" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
   </nav>
   <div class="nube-zona">
@@ -1706,7 +1749,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
 
 function cargar(){
   try{
@@ -1734,7 +1777,8 @@ function cargar(){
         reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
         levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
         proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
-        activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo) };
+        activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
+        personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1823,7 +1867,8 @@ async function restaurarSnapshotIndexedDB(){
       reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
       levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
       proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
-      activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo) };
+      activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
+      personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -2299,7 +2344,7 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
   estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
   sincronizado = false;
@@ -2619,11 +2664,11 @@ async function bajarDeLaNube(){
      solo para no perder nada que ya se hubiera subido antes de la fusión con
      Cotizaciones (28-ago-2026, ver migrarServiciosExtrasACotizaciones) — es
      de solo lectura, ya no se le vuelve a escribir. */
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
     listarNube('levantamientos', 60), listarNube('proyectosImagen', 60),
-    listarNube('serviciosExtras', 60), listarNube('activos', 60)
+    listarNube('serviciosExtras', 60), listarNube('activos', 60), listarNube('personal', 200)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -2640,7 +2685,8 @@ async function bajarDeLaNube(){
             segmentos: sg, parametros: pr,
             cotizaciones: co.map(normalizarCotizacion).concat(migrarServiciosExtrasACotizaciones(se)),
             reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento),
-            proyectosImagen: im.map(normalizarProyectoImagen), activos: ac.map(normalizarActivo) };
+            proyectosImagen: im.map(normalizarProyectoImagen), activos: ac.map(normalizarActivo),
+            personal: pe.map(normalizarPersona) };
   guardarLocal();
   return 'ok';
 }
@@ -3501,6 +3547,91 @@ function guardarActivo(a, accion, detalle){
 function anotarActivo(a, texto, costo, accionGlobal, detalleGlobal){
   a.historial.push(normalizarHistorialActivo({ quien: nombreDe(sesion) || 'Alguien del equipo', texto, costo }));
   guardarActivo(a, accionGlobal, detalleGlobal);
+}
+
+/* ============================= Organigrama ===============================
+   Décimo módulo: el directorio del personal de la empresa, tenga o no
+   cuenta de acceso al tablero (la inmensa mayoría —técnicos en campo,
+   administrativos— nunca la va a tener), pensado para verse como un árbol
+   jerárquico clásico.
+
+   A propósito es un catálogo PROPIO (`datos.personal`) y no un espejo de
+   `usuarios`: mezclar los dos habría forzado a crear una cuenta de acceso
+   solo para que alguien apareciera en el organigrama, o a limitar el
+   organigrama a las 3-4 personas que sí tienen login.
+
+   `jefeId` es el único campo relacional: apunta al `id` de otra persona de
+   esta misma colección, o queda vacío para quien está en la cima (o para
+   quien todavía no tiene jefe capturado). El árbol se arma agrupando por
+   ese campo — ver `personasDeJefe()` y `raicesOrganigrama()`.
+
+   Quién puede qué (ver también config/firestore.rules):
+     · Ver el directorio y el árbol → cualquiera con acceso al tablero,
+       igual que el resto de los catálogos de consulta general.
+     · Dar de alta, editar o borrar a alguien → Analyst para arriba
+       (`puedeEditar()`): es dato de organización interna, no un registro
+       de campo que cualquiera deba poder capturar. */
+const ESTATUS_PERSONAL = ['activo', 'baja'];
+const ETIQUETA_ESTATUS_PERSONAL = { activo:'Activo', baja:'De baja' };
+
+function puedeGestionarPersonal(){ return puedeEditar(); }
+function exigirGestionPersonal(){
+  if(puedeGestionarPersonal()) return true;
+  aviso('Tu cuenta no puede modificar el organigrama.', true);
+  return false;
+}
+
+function normalizarPersona(p){
+  return {
+    id: (p && p.id) || nuevoId(),
+    nombre: (p && p.nombre ? String(p.nombre) : '').trim(),
+    puesto: (p && p.puesto ? String(p.puesto) : '').trim(),
+    area: (p && p.area ? String(p.area) : '').trim(),
+    /* Vacío si no tiene jefe capturado o si apunta a alguien que ya no
+       existe: normalizarPersona() no puede validar contra el resto de la
+       colección (se normaliza una por una), así que ese saneo vive en
+       raicesOrganigrama()/el árbol, no aquí. */
+    jefeId: (p && p.jefeId) ? String(p.jefeId) : '',
+    correo: (p && p.correo ? String(p.correo) : '').trim(),
+    telefono: (p && p.telefono ? String(p.telefono) : '').trim(),
+    foto: (p && p.foto) ? String(p.foto) : '',
+    fechaIngreso: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaIngreso) ? p.fechaIngreso : '',
+    estatus: ESTATUS_PERSONAL.includes(p && p.estatus) ? p.estatus : 'activo',
+    notas: (p && p.notas ? String(p.notas) : '').trim(),
+    fechaCreacion: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaCreacion) ? p.fechaCreacion : hoyISO()
+  };
+}
+
+function personaPorId(id){ return datos.personal.find(p => p.id === id); }
+/* Reportes DIRECTOS de una persona (no toda su cadena hacia abajo). */
+function personasDeJefe(jefeId){ return datos.personal.filter(p => p.jefeId === jefeId); }
+/* Quién está en la cima del árbol: sin jefe capturado, o con un jefeId que
+   ya no existe (la persona de arriba se borró o nunca se guardó bien) —
+   así un dato suelto nunca desaparece del organigrama, aparece como su
+   propia raíz en vez de perderse. */
+function raicesOrganigrama(){
+  return datos.personal.filter(p => !p.jefeId || !personaPorId(p.jefeId));
+}
+/* Todos los IDs de la cadena hacia abajo de una persona (hijos, nietos,
+   etc.), para que el selector de "reporta a" del modal nunca deje elegir
+   a alguien de su propio equipo como jefe — eso crearía un ciclo que el
+   árbol no podría dibujar. */
+function descendientesDe(id){
+  const vistos = new Set();
+  const cola = [id];
+  while(cola.length){
+    const actual = cola.pop();
+    personasDeJefe(actual).forEach(h=>{
+      if(!vistos.has(h.id)){ vistos.add(h.id); cola.push(h.id); }
+    });
+  }
+  return vistos;
+}
+
+function guardarPersona(p, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'personal', id:p.id, obj:p });
+  anotar(accion || 'editó', 'persona', p.nombre || 'sin nombre', detalle);
 }
 
 /* ============================ Levantamientos ============================
@@ -6382,7 +6513,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'imagen'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'imagen'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -6404,8 +6535,8 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
    puedeGestionarLevantamiento() más abajo, que es igual de abierta. El resto
    de los módulos sigue viendo todo, como siempre. */
 function modulosPermitidos(){
-  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos'];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'organigrama'];
   /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
      editar precios (ver el comentario arriba de normalizarProyectoImagen())
      — un Viewer sigue viendo Pólizas de solo lectura, pero este módulo ni
@@ -6421,6 +6552,7 @@ function inicioDelModulo(){
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
        : estado.modulo === 'activos' ? 'activos'
+       : estado.modulo === 'organigrama' ? 'organigrama'
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
@@ -6711,7 +6843,8 @@ const ICONO = {
   camara:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
   documento:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
   codigoBarras:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5v14M8 5v14M11 5v14M14 5v14M16 5v14M20 5v14"/></svg>',
-  activo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>'
+  activo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>',
+  organigrama:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -9704,6 +9837,238 @@ function modalHistorialActivo(id){
   };
 }
 
+/* ============================ Vista: Organigrama ============================ */
+/* Un nodo y todo su árbol de reportes debajo, en `<li>` anidados —el molde
+   que hace funcionar los conectores puramente en CSS (ver la hoja de
+   estilos, ".organigrama-arbol"). `visitados` corta cualquier ciclo que se
+   hubiera colado (dos personas apuntándose la una a la otra como jefe):
+   sin esto una vuelta así dejaría el árbol dibujándose para siempre. */
+function nodoArbolOrganigrama(p, visitados){
+  if(visitados.has(p.id)) return '';
+  visitados.add(p.id);
+  const hijos = personasDeJefe(p.id).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const avatar = p.foto
+    ? '<img src="' + esc(p.foto) + '" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0">'
+    : '<div class="t-avatar" style="width:34px;height:34px;font-size:12px;border-radius:50%">' + esc(iniciales(p.nombre || '?')) + '</div>';
+  return '<li>'
+       +   '<div class="organigrama-nodo' + (p.estatus === 'baja' ? ' n-baja' : '') + '" data-persona="' + esc(p.id) + '" tabindex="0" role="button">'
+       +     avatar
+       +     '<div class="n-datos"><div class="n-nombre">' + esc(p.nombre || 'Sin nombre') + '</div>'
+       +       '<div class="n-puesto">' + esc(p.puesto || p.area || 'Sin puesto') + '</div></div>'
+       +   '</div>'
+       +   (hijos.length ? '<ul>' + hijos.map(h => nodoArbolOrganigrama(h, visitados)).join('') + '</ul>' : '')
+       + '</li>';
+}
+
+function vistaOrganigrama(){
+  const total = datos.personal.length;
+  const areas = new Set(datos.personal.map(p => p.area).filter(Boolean)).size;
+  const bajas = datos.personal.filter(p => p.estatus === 'baja').length;
+  const raices = raicesOrganigrama();
+
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>Organigrama</h2>'
+     +   '<p>' + numero(total) + ' ' + plural(total,'persona','personas') + ' en el directorio</p>'
+     + '</div><div class="acciones">'
+     +   (puedeGestionarPersonal()
+          ? '<button type="button" class="btn btn-primario" data-accion="nueva-persona">' + ICONO.mas + 'Nueva persona</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Personal', numero(total), 'Total en el directorio')
+     + tarjetaKpi('Áreas', numero(areas), 'Departamentos distintos')
+     + tarjetaKpi('En la cima', numero(raices.length), 'Sin jefe capturado')
+     + tarjetaKpi('De baja', numero(bajas), 'Ya no está activo', bajas ? 'k-alerta' : '')
+     + '</div>';
+
+  if(!total){
+    h += vistaVacia('organigrama', 'Todavía no hay nadie capturado',
+          'Da de alta a la primera persona —normalmente quien está en la cima— y ve agregando al resto debajo, eligiendo a quién le reporta cada quien.',
+          puedeGestionarPersonal() ? 'nueva-persona' : '', 'Nueva persona');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaPersona" placeholder="Buscar por nombre, puesto, área o correo…" value="' + esc(estado.busca) + '">'
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  if(q){
+    const encontrados = datos.personal.filter(p =>
+      [p.nombre, p.puesto, p.area, p.correo].some(v => (v||'').toLowerCase().includes(q))
+    ).sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+    if(!encontrados.length){
+      h += '<div class="vacio"><h3>Sin resultados</h3><p>Nadie coincide con la búsqueda.</p></div>';
+      return h;
+    }
+
+    h += '<div class="grid">' + encontrados.map((p,i)=>{
+      const jefe = p.jefeId ? personaPorId(p.jefeId) : null;
+      return '<div class="tarjeta tarjeta-clic" data-persona="' + esc(p.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+           +   '<div class="t-cabeza">'
+           +     (p.foto ? '<img src="' + esc(p.foto) + '" alt="" style="width:40px;height:40px;border-radius:11px;object-fit:cover">'
+                          : '<div class="t-avatar">' + esc(iniciales(p.nombre || '?')) + '</div>')
+           +     '<div style="flex:1; min-width:0">'
+           +       '<div class="t-nombre">' + esc(p.nombre || 'Sin nombre') + '</div>'
+           +       '<div class="t-sub">' + esc(p.puesto || 'Sin puesto') + (p.area ? ' · ' + esc(p.area) : '') + '</div>'
+           +     '</div>'
+           +   '</div>'
+           +   '<div class="t-datos">'
+           +     '<div class="t-dato"><div class="d-label">Reporta a</div><div class="d-valor chico">' + esc(jefe ? jefe.nombre : 'Nadie capturado') + '</div></div>'
+           +     '<div class="t-dato"><div class="d-label">Estatus</div><div class="d-valor chico">' + esc(ETIQUETA_ESTATUS_PERSONAL[p.estatus]) + '</div></div>'
+           +   '</div>'
+           + '</div>';
+    }).join('') + '</div>';
+    return h;
+  }
+
+  h += '<div class="organigrama-zona"><div class="organigrama-bosque">'
+     + raices.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es')).map(p =>
+         '<ul class="organigrama-arbol">' + nodoArbolOrganigrama(p, new Set()) + '</ul>'
+       ).join('')
+     + '</div></div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: persona (organigrama) ---------------------------- */
+function modalPersona(id){
+  const p = id ? personaPorId(id) : null;
+  let fotoTmp = p ? p.foto : '';
+  /* Nunca se puede elegir como jefe a uno mismo ni a nadie de la propia
+     cadena hacia abajo —eso crearía un ciclo que el árbol no podría
+     dibujar (ver descendientesDe()). */
+  const excluidos = p ? descendientesDe(p.id).add(p.id) : new Set();
+  const candidatos = datos.personal.filter(x => !excluidos.has(x.id)).sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  const cuerpo =
+      '<div class="campo"><label>Foto institucional (opcional)</label>'
+    +   '<div class="logo-zona">'
+    +     '<div id="fotoPersonaCaja"></div>'
+    +     '<div class="logo-lado">'
+    +       '<div class="logo-botones">'
+    +         '<button type="button" class="btn btn-suave btn-mini" id="btnSubirFotoPersona">Subir foto…</button>'
+    +         '<button type="button" class="btn btn-peligro btn-mini" id="btnQuitarFotoPersona">Quitar</button>'
+    +       '</div>'
+    +       '<div class="pista">JPG, PNG o WEBP. Se recorta al centro y se reduce sola.</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<input type="file" id="archivoFotoPersona" accept="image/*" style="display:none">'
+    + '</div>'
+    + '<div class="campo"><label>Nombre *</label>'
+    +   '<input type="text" id="pnNombre" placeholder="Ej. Ana Torres" value="' + esc(p ? p.nombre : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Puesto</label>'
+    +     '<input type="text" id="pnPuesto" placeholder="Ej. Gerente de Operaciones" value="' + esc(p ? p.puesto : '') + '"></div>'
+    +   '<div class="campo"><label>Área / Departamento</label>'
+    +     '<input type="text" id="pnArea" placeholder="Ej. Operaciones" value="' + esc(p ? p.area : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Reporta a</label><select id="pnJefe">'
+    +   '<option value="">— Nadie capturado / está en la cima —</option>'
+    +   candidatos.map(c => '<option value="' + esc(c.id) + '"' + (p && p.jefeId === c.id ? ' selected' : '') + '>' + esc(c.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Correo</label>'
+    +     '<input type="email" id="pnCorreo" placeholder="nombre@platoexpress.com" value="' + esc(p ? p.correo : '') + '"></div>'
+    +   '<div class="campo"><label>Teléfono</label>'
+    +     '<input type="text" id="pnTelefono" inputmode="tel" placeholder="811 60 71 051" value="' + esc(p ? p.telefono : '') + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fecha de ingreso</label>'
+    +     '<input type="date" id="pnIngreso" value="' + esc(p ? p.fechaIngreso : '') + '"></div>'
+    +   '<div class="campo"><label>Estatus</label><select id="pnEstatus">'
+    +     ESTATUS_PERSONAL.map(e => '<option value="' + e + '"' + ((p ? p.estatus : 'activo') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_PERSONAL[e]) + '</option>').join('')
+    +   '</select></div>'
+    + '</div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="pnNotas" placeholder="Cualquier detalle que ayude a administrar el organigrama…">' + esc(p ? p.notas : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + (p && esAdmin() ? '<button type="button" class="btn btn-peligro izq" id="btnEliminarPersona">' + ICONO.basura + 'Eliminar</button>' : '')
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Agregar persona') + '</button>';
+
+  abrirModal(p ? 'Editar persona' : 'Nueva persona', cuerpo, pie);
+
+  function pintarFotoPersona(){
+    $('fotoPersonaCaja').innerHTML = fotoTmp
+      ? '<img src="' + esc(fotoTmp) + '" alt="" style="width:96px;height:96px;border-radius:50%;object-fit:cover">'
+      : '<div class="t-avatar" style="width:96px;height:96px;font-size:28px;border-radius:50%">' + esc(iniciales($('pnNombre').value || '?')) + '</div>';
+  }
+  pintarFotoPersona();
+  $('pnNombre').addEventListener('input', ()=>{ if(!fotoTmp) pintarFotoPersona(); });
+  $('btnSubirFotoPersona').addEventListener('click', ()=> $('archivoFotoPersona').click());
+  $('btnQuitarFotoPersona').addEventListener('click', ()=>{ fotoTmp = ''; pintarFotoPersona(); });
+  $('archivoFotoPersona').addEventListener('change', async ev=>{
+    const archivo = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if(!archivo) return;
+    try{
+      const img = await leerLogo(archivo);
+      const lienzo = document.createElement('canvas');
+      lienzo.width = lienzo.height = FOTO_USUARIO_LADO;
+      const ctx = lienzo.getContext('2d');
+      const lado = Math.min(img.width, img.height);
+      ctx.drawImage(img, (img.width-lado)/2, (img.height-lado)/2, lado, lado, 0, 0, FOTO_USUARIO_LADO, FOTO_USUARIO_LADO);
+      fotoTmp = comprimirLienzo(lienzo);
+      pintarFotoPersona();
+    }catch(e){ aviso(e.message, true); }
+  });
+
+  if(p && esAdmin()){
+    $('btnEliminarPersona').addEventListener('click', ()=>{
+      confirmar('Eliminar persona',
+        'Se va a eliminar a <b>' + esc(p.nombre || 'esta persona') + '</b> del organigrama. '
+        + (personasDeJefe(p.id).length
+            ? 'Quien le reportaba directamente va a subir un nivel, hacia ' + (p.jefeId && personaPorId(p.jefeId) ? '<b>' + esc(personaPorId(p.jefeId).nombre) + '</b>' : 'la cima') + '. '
+            : '')
+        + 'Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          /* Sus reportes directos no se quedan huérfanos apuntando a un id
+             que ya no existe: suben un nivel, al jefe que tenía la persona
+             que se borra (o a la cima, si tampoco tenía). */
+          personasDeJefe(p.id).forEach(hijo=>{
+            hijo.jefeId = p.jefeId;
+            guardarPersona(hijo, 'movió', 'de «' + p.nombre + '» a ' + (p.jefeId ? '«' + (personaPorId(p.jefeId) ? personaPorId(p.jefeId).nombre : '') + '»' : 'la cima'));
+          });
+          datos.personal = datos.personal.filter(x => x.id !== p.id);
+          borrarRegistro('personal', p.id);
+          anotar('eliminó', 'persona', p.nombre || 'sin nombre');
+          cerrarModal();
+          render();
+          aviso('Persona eliminada.');
+        });
+    });
+  }
+
+  cerrarModalActual = ()=>{
+    const nombre = $('pnNombre').value.trim();
+    if(!nombre){ $('pnNombre').setAttribute('aria-invalid','true'); $('pnNombre').focus(); aviso('Ponle un nombre a esta persona.', true); return; }
+
+    const datosComunes = {
+      nombre, puesto: $('pnPuesto').value.trim(), area: $('pnArea').value.trim(),
+      jefeId: $('pnJefe').value, correo: $('pnCorreo').value.trim(), telefono: $('pnTelefono').value.trim(),
+      foto: fotoTmp, fechaIngreso: $('pnIngreso').value, estatus: $('pnEstatus').value,
+      notas: $('pnNotas').value.trim()
+    };
+
+    let reg;
+    if(p){
+      Object.assign(p, datosComunes);
+      reg = normalizarPersona(p);
+      Object.assign(p, reg);
+    }else{
+      reg = normalizarPersona(datosComunes);
+      datos.personal.push(reg);
+    }
+    guardarPersona(reg, p ? 'editó' : 'creó');
+    cerrarModal();
+    render();
+    aviso(p ? 'Persona actualizada.' : nombre + ' agregado(a) al organigrama.');
+  };
+}
+
 /* ---------------------------- Modal: reporte ---------------------------- */
 function modalReporte(id){
   const rp = id ? reportePorId(id) : null;
@@ -12236,6 +12601,7 @@ function render(){
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
     : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo() : vistaActivos())
+    : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
@@ -12278,6 +12644,8 @@ function render(){
     fpA.value = estado.filtro;
     fpA.addEventListener('change', ()=>{ estado.filtro = fpA.value; render(); });
   }
+  const bpP = $('buscaPersona');
+  if(bpP) bpP.addEventListener('input', ()=>{ estado.busca = bpP.value; renderConservandoFoco(bpP, 'buscaPersona'); });
   const bpI = $('buscaProyectoImagen');
   if(bpI){
     bpI.addEventListener('input', ()=>{ estado.busca = bpI.value; renderConservandoFoco(bpI, 'buscaProyectoImagen'); });
@@ -12409,7 +12777,7 @@ function pintarCabecera(){
   const inicio = $('btnInicio');
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
-                 : estado.modulo === 'activos' ? 'Activos'
+                 : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'organigrama' ? 'Organigrama'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
                  : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
@@ -16690,6 +17058,7 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso('Activo eliminado.');
         });
     }
+    else if(a === 'nueva-persona'){ if(exigirGestionPersonal()) modalPersona(null); }
     else if(a === 'ir-levantamientos') irALevantamientos();
     else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
     else if(a === 'editar-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(estado.levantamientoId); }
@@ -17035,6 +17404,14 @@ $('vista').addEventListener('click', ev=>{
   const tarAc = t.closest('[data-activo]');
   if(tarAc){ entrarActivo(tarAc.dataset.activo); return; }
 
+  /* El organigrama no tiene una vista de detalle aparte: la tarjeta/nodo
+     abre directo el modal de edición, igual que "editar" en cualquier otro
+     módulo — por eso pasa por exigirGestionPersonal() en vez de un simple
+     entrarX(). Quien solo consulta ya ve nombre y puesto en el propio
+     nodo/tarjeta; no hay una vista de "solo lectura" que abrir aparte. */
+  const tarPer = t.closest('[data-persona]');
+  if(tarPer){ if(exigirGestionPersonal()) modalPersona(tarPer.dataset.persona); return; }
+
   const tarL = t.closest('[data-levantamiento]');
   if(tarL){ entrarLevantamiento(tarL.dataset.levantamiento); return; }
 
@@ -17138,6 +17515,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarR){ ev.preventDefault(); entrarReporte(tarR.dataset.reporte); return; }
   const tarAc = ev.target.closest('[data-activo]');
   if(tarAc){ ev.preventDefault(); entrarActivo(tarAc.dataset.activo); return; }
+  const tarPer = ev.target.closest('[data-persona]');
+  if(tarPer){ ev.preventDefault(); if(exigirGestionPersonal()) modalPersona(tarPer.dataset.persona); return; }
   const tarL = ev.target.closest('[data-levantamiento]');
   if(tarL){ ev.preventDefault(); entrarLevantamiento(tarL.dataset.levantamiento); return; }
   const tarPI = ev.target.closest('[data-proyecto-imagen]');
@@ -17212,7 +17591,8 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   reportes: (Array.isArray(d.reportes) ? d.reportes : datos.reportes).map(normalizarReporte),
                   levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : datos.levantamientos).map(normalizarLevantamiento),
                   proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : datos.proyectosImagen).map(normalizarProyectoImagen),
-                  activos: (Array.isArray(d.activos) ? d.activos : datos.activos).map(normalizarActivo) };
+                  activos: (Array.isArray(d.activos) ? d.activos : datos.activos).map(normalizarActivo),
+                  personal: (Array.isArray(d.personal) ? d.personal : datos.personal).map(normalizarPersona) };
         estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
         guardarLocal();
         if(HAY_NUBE){
@@ -17901,7 +18281,7 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
     sincronizado = false;

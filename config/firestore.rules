@@ -248,6 +248,21 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Organigrama (directorio de personal) ---
+       Décimo módulo: el directorio del personal de la empresa, tenga o no
+       cuenta de acceso al tablero. A diferencia de /activos, aquí no hay
+       excepción para `tecnico`: es dato de organización interna (puestos,
+       a quién le reporta cada quien), no un registro de campo — mismo
+       candado que /clientes y /cotizaciones. Cualquiera con acceso lo lee
+       (es un directorio de consulta general); Analyst para arriba lo
+       captura y corrige; borrar, solo Admin. */
+    match /personal/{id} {
+      allow read:   if conAcceso();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+
     /* --- Lista de precios de equipos ---
        Un solo documento, catalogo/lista, con el arreglo de equipos adentro. Va
        en un documento y no en uno por equipo para que sean 48 equipos por UNA
