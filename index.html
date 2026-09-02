@@ -13531,10 +13531,23 @@ function modalPoliza(id, origenLevantamiento){
     +       '<div class="pista">Es lo que sale impreso. Se guarda como texto para que sobreviva aunque el sitio no exista en Forpass.</div></div>'
     +   '</div>'
     +   '<div class="campo"><label>Ligar a un kiosco de Forpass (opcional)</label>'
-    +     '<select id="pSitioId"></select>'
-    +     '<div class="pista">Si esta cafetería también tiene kiosco, ligarlos pone un botón para brincar '
-    +       'entre su póliza y su kiosco. El importador los liga solo cuando el nombre coincide; '
-    +       'aquí se corrige el caso en que no coincidió. Hay pólizas en sitios sin Forpass.</div></div>'
+    +     '<div class="cliente-zona">'
+    +       '<select id="pSitioId"></select>'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoP" '
+    +         'title="Dar de alta un kiosco de este cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +     '</div>'
+    +     '<div class="pista">Si esta cafetería también tiene kiosco, elígelo aquí (o créalo si no está en la lista) y el '
+    +       'nombre del sitio de arriba se llena solo. Ligarlos pone un botón para brincar entre su póliza y su kiosco. '
+    +       'El importador los liga solo cuando el nombre coincide; aquí se corrige el caso en que no coincidió. '
+    +       'Hay pólizas en sitios sin Forpass, así que es opcional.</div></div>'
+    +   '<div id="zonaSitioNuevoP" class="cliente-nuevo" hidden>'
+    +     '<div class="campo"><label>Nombre del kiosco nuevo *</label>'
+    +       '<input type="text" id="pnsNombre" placeholder="Ej. MXNL02" autocomplete="off"></div>'
+    +     '<div class="cliente-nuevo-botones">'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="pnsCancelar">Cancelar</button>'
+    +       '<button type="button" class="btn btn-primario btn-mini" id="pnsCrear">Crear y seleccionar</button>'
+    +     '</div>'
+    +   '</div>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Folio (opcional)</label>'
     +       '<input type="text" id="pFolio" placeholder="Ej. COT-2026-0041" value="' + esc(p ? p.folio : generarFolioPoliza()) + '"></div>'
@@ -13700,11 +13713,56 @@ function modalPoliza(id, origenLevantamiento){
   /* Los sitios de Forpass del cliente elegido. Se repinta solo este select. */
   function pintarSitios(){
     const cli = $('pCliente').value;
-    const suyos = sitiosDe(cli);
+    const suyos = sitiosDe(cli).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
     const actual = p ? p.sitioId : (origenLevantamiento ? origenLevantamiento.sitioId : '');
     $('pSitioId').innerHTML = '<option value="">— Sin kiosco Forpass —</option>'
       + suyos.map(s => '<option value="' + esc(s.id) + '"' + (s.id === actual ? ' selected' : '') + '>' + esc(s.nombre) + '</option>').join('');
   }
+
+  /* Elegir un kiosco ya dado de alta llena solo el nombre de arriba: son el
+     mismo lugar, no hace falta escribirlo dos veces. Si vuelve a "Sin kiosco
+     Forpass" no se borra lo que ya haya escrito —puede ser un nombre a mano,
+     a propósito, para un sitio que nunca va a tener Forpass. */
+  $('pSitioId').addEventListener('change', ()=>{
+    const id = $('pSitioId').value;
+    if(!id) return;
+    const sitio = sitioPorId(id);
+    if(sitio) $('pSitioNombre').value = sitio.nombre;
+  });
+
+  /* Mismo criterio que el cliente: dar de alta el kiosco de Forpass sin salir
+     de aquí. Antes había que ir a Forpass, crearlo allá, y volver a esta
+     póliza a ligarlo — con este atajo queda en un solo lugar. */
+  $('btnSitioNuevoP').addEventListener('click', ()=>{
+    if(!$('pCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
+    $('zonaSitioNuevoP').hidden = false;
+    $('pnsNombre').value = $('pSitioNombre').value.trim();
+    $('pnsNombre').focus();
+  });
+  $('pnsCancelar').addEventListener('click', ()=>{ $('zonaSitioNuevoP').hidden = true; $('pnsNombre').value = ''; });
+  $('pnsCrear').addEventListener('click', ()=>{
+    const clienteId = $('pCliente').value;
+    const nombreSitio = $('pnsNombre').value.trim();
+    if(!clienteId){ aviso('Primero elige o crea el cliente.', true); return; }
+    if(!nombreSitio){ aviso('Ponle un nombre al kiosco nuevo.', true); return; }
+    const yaExiste = datos.sitios.find(s => s.clienteId === clienteId && s.nombre.toLowerCase() === nombreSitio.toLowerCase());
+    let sitio;
+    if(yaExiste){
+      sitio = yaExiste;
+      aviso('Ese kiosco ya existía para este cliente; lo seleccioné.');
+    }else{
+      sitio = normalizarSitio({ id:nuevoId(), clienteId, nombre:nombreSitio,
+        modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+      datos.sitios.push(sitio);
+      guardarSitio(sitio, 'creó');
+      aviso(nombreSitio + ' dado de alta y seleccionado.');
+    }
+    pintarSitios();
+    $('pSitioId').value = sitio.id;
+    $('pSitioNombre').value = sitio.nombre;
+    $('zonaSitioNuevoP').hidden = true;
+    $('pnsNombre').value = '';
+  });
 
   /* Pinta la tabla completa. Solo se llama al agregar, quitar, duplicar o mover
      la fecha de inicio: al teclear NO se redibuja, o se perdería el cursor. */
@@ -14203,7 +14261,7 @@ function modalPoliza(id, origenLevantamiento){
       + ' Su logo se sube desde el detalle de la póliza.');
   });
 
-  $('pCliente').addEventListener('change', ()=>{ pintarSitios(); refrescarResumen(); });
+  $('pCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoP').hidden = true; pintarSitios(); refrescarResumen(); });
   /* Mover el inicio mueve el calendario entero: hay que reescribir las etiquetas
      de los meses, así que este sí redibuja la tabla. */
   $('pInicio').addEventListener('change', pintarPartidas);
