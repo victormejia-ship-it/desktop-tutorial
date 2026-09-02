@@ -8106,7 +8106,7 @@ function tituloPoliza(p){
 function tablaPolizas(lista){
   return '<div class="rodillo"><table class="tabla" style="min-width:900px"><thead><tr>'
        +   '<th>Sitio</th><th>Cliente</th><th>Folio</th><th>Estado</th><th>Cargo a</th>'
-       +   '<th>Precio anual</th><th>Servicios</th>'
+       +   '<th>Precio anual</th><th>Costo anual</th><th>Margen</th><th>Servicios</th>'
        + '</tr></thead><tbody>'
        + lista.map(p=>{
            const c = calcularPoliza(p);
@@ -8120,6 +8120,9 @@ function tablaPolizas(lista){
                        ? '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span>'
                        : '<span class="pista">Cliente</span>') + '</td>'
                 +   '<td>' + dineroCent(c.precioAnual) + '</td>'
+                +   '<td>' + dineroCent(c.costoAnual) + '</td>'
+                +   '<td style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+                +     dineroCent(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</td>'
                 +   '<td>' + c.hechos + ' de ' + c.programados + '</td>'
                 + '</tr>';
          }).join('')
@@ -8256,6 +8259,9 @@ function vistaPolizas(){
          /* Al centavo, como el detalle: la tarjeta decía $737,135 y adentro
             $737,134.80 — dos números para la misma póliza. */
          +     '<div class="t-dato"><div class="d-label">Precio anual</div><div class="d-valor">' + dineroCent(c.precioAnual) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Costo anual</div><div class="d-valor">' + dineroCent(c.costoAnual) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Margen</div><div class="d-valor" style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+         +       dineroCent(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
          +     '<div class="t-dato"><div class="d-label">Servicios</div><div class="d-valor">' + c.hechos + ' de ' + c.programados + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie">'
