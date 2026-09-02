@@ -231,6 +231,23 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Activos (control de activos, cliente + interno) ---
+       Noveno módulo: junta en un solo catálogo el equipo instalado en casa
+       del cliente y el activo propio de Forguard (herramienta, vehículo,
+       laptop). Es dato patrimonial —qué se compró, en cuánto, quién lo
+       tiene— así que no queda tan abierto como /reportes o
+       /levantamientos (cualquiera con acceso). Pero sí lo puede tocar el
+       rol `tecnico`, igual que un reporte o que "registrar servicio" de
+       una póliza: es quien de verdad está frente al activo dándole
+       mantenimiento o registrando que se movió de sitio. Borrar, solo
+       Admin, como todo lo demás. */
+    match /activos/{id} {
+      allow read:   if conAcceso();
+      allow create: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
+      allow update: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
+      allow delete: if esAdmin();
+    }
+
     /* --- Lista de precios de equipos ---
        Un solo documento, catalogo/lista, con el arreglo de equipos adentro. Va
        en un documento y no en uno por equipo para que sean 48 equipos por UNA

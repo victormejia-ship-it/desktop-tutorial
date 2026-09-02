@@ -1144,6 +1144,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
     <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
+    <button type="button" class="mod" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
     <button type="button" class="mod" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
   </nav>
   <div class="nube-zona">
@@ -1705,7 +1706,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[] };
 
 function cargar(){
   try{
@@ -1732,7 +1733,8 @@ function cargar(){
           .concat(migrarServiciosExtrasACotizaciones(d.serviciosExtras)),
         reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
         levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
-        proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen) };
+        proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
+        activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -1820,7 +1822,8 @@ async function restaurarSnapshotIndexedDB(){
         .concat(migrarServiciosExtrasACotizaciones(d.serviciosExtras)),
       reportes: (Array.isArray(d.reportes) ? d.reportes : []).map(normalizarReporte),
       levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
-      proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen) };
+      proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
+      activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -1949,6 +1952,10 @@ const EVIDENCIA_MAX_POR_REPORTE = 6;
    reporte porque aquí es solo "prueba de que se hizo", no una investigación
    completa. Mismo pipeline de compresión y mismo molde (normalizarEvidencia). */
 const EVIDENCIA_MAX_POR_SERVICIO = 4;
+/* Fotos de UN activo: placa de serie, estado físico, alguna evidencia de
+   daño — mismo cupo que un reporte, porque un activo también acumula
+   evidencia a lo largo de su vida (no solo al darlo de alta). */
+const EVIDENCIA_MAX_POR_ACTIVO = 6;
 
 /* ---- Respaldo de costo de una cotización (cotización de un proveedor
    externo que sustenta el costo interno mostrado) ----
@@ -2286,9 +2293,9 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[] };
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -2606,11 +2613,11 @@ async function bajarDeLaNube(){
      solo para no perder nada que ya se hubiera subido antes de la fusión con
      Cotizaciones (28-ago-2026, ver migrarServiciosExtrasACotizaciones) — es
      de solo lectura, ya no se le vuelve a escribir. */
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
     listarNube('levantamientos', 60), listarNube('proyectosImagen', 60),
-    listarNube('serviciosExtras', 60)
+    listarNube('serviciosExtras', 60), listarNube('activos', 60)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -2627,7 +2634,7 @@ async function bajarDeLaNube(){
             segmentos: sg, parametros: pr,
             cotizaciones: co.map(normalizarCotizacion).concat(migrarServiciosExtrasACotizaciones(se)),
             reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento),
-            proyectosImagen: im.map(normalizarProyectoImagen) };
+            proyectosImagen: im.map(normalizarProyectoImagen), activos: ac.map(normalizarActivo) };
   guardarLocal();
   return 'ok';
 }
@@ -3369,6 +3376,125 @@ function guardarReporte(r, accion, detalle){
 function anotarReporte(r, texto, accionGlobal, detalleGlobal){
   r.seguimiento.push(normalizarSeguimientoReporte({ quien: nombreDe(sesion) || 'Alguien del equipo', texto }));
   guardarReporte(r, accionGlobal, detalleGlobal);
+}
+
+/* =============================== Activos ================================
+   Módulo de control de activos: junta en un solo catálogo el equipo
+   instalado en casa del cliente (freidoras, refrigeradores — lo que antes
+   solo aparecía suelto en una póliza o un reporte) Y el activo propio de
+   Forguard (herramienta, vehículo, laptop). Un solo folio, un solo
+   historial, sin importar de quién es el activo — `tipo` es el único
+   punto donde se bifurca: 'cliente' pide clienteId+sitioId (como un
+   reporte), 'interno' pide ubicación y a quién está asignado.
+
+   Folio: AC-DDMMAA-NNNN, mismo molde que reportes/cotizaciones.
+
+   Quién puede qué (ver también config/firestore.rules):
+     · Ver el catálogo completo → cualquiera con acceso al tablero.
+     · Dar de alta, editar, subir evidencia o anotar mantenimiento →
+       Analyst para arriba, o el rol `tecnico` — igual que en Reportes y
+       en "registrar servicio" de Pólizas: es quien de verdad está
+       frente al activo.
+     · Borrar un activo → solo Admin, igual que todo lo demás. */
+const TIPO_ACTIVO = ['cliente', 'interno'];
+const ETIQUETA_TIPO_ACTIVO = { cliente:'Equipo en cliente', interno:'Activo interno (Forguard)' };
+const ESTATUS_ACTIVO = ['activo', 'mantenimiento', 'resguardo', 'baja', 'perdido'];
+const ETIQUETA_ESTATUS_ACTIVO = {
+  activo:'En operación', mantenimiento:'En mantenimiento', resguardo:'En resguardo/bodega',
+  baja:'De baja', perdido:'Perdido o robado'
+};
+const TONO_ESTATUS_ACTIVO = {
+  activo:'ok', mantenimiento:'alerta', resguardo:'neutro', baja:'neutro', perdido:'error'
+};
+const CONDICION_ACTIVO = ['excelente', 'buena', 'regular', 'mala'];
+const ETIQUETA_CONDICION_ACTIVO = { excelente:'Excelente', buena:'Buena', regular:'Regular', mala:'Mala' };
+
+function puedeGestionarActivos(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function exigirGestionActivos(){
+  if(puedeGestionarActivos()) return true;
+  aviso('Tu cuenta no puede dar de alta ni modificar activos. Puedes consultar el catálogo.', true);
+  return false;
+}
+
+/* Una entrada del historial del activo: sirve tanto para bitácora libre
+   ("se movió de sitio", "se le hizo limpieza general") como para un
+   mantenimiento con costo — un solo arreglo en vez de dos, para no
+   duplicar el orden cronológico ni la pantalla que lo pinta. `costo` es
+   opcional: 0 cuando la entrada es solo una nota. */
+function normalizarHistorialActivo(h){
+  return {
+    id: (h && h.id) || nuevoId(),
+    cuando: (h && h.cuando) || new Date().toISOString(),
+    quien: (h && h.quien ? String(h.quien) : '').trim(),
+    texto: (h && h.texto ? String(h.texto) : '').trim(),
+    costo: Math.max(0, Math.round((Number(h && h.costo) || 0) * 100) / 100)
+  };
+}
+
+function normalizarActivo(a){
+  const tipo = TIPO_ACTIVO.includes(a && a.tipo) ? a.tipo : 'cliente';
+  return {
+    id: (a && a.id) || nuevoId(),
+    folio: (a && a.folio ? String(a.folio) : '').trim(),
+    tipo,
+    /* Texto libre y no un catálogo cerrado: la variedad va de "Freidora" a
+       "Vehículo" a "Laptop", y un selector fijo obligaría a inventar una
+       categoría "Otros" que con el tiempo se vuelve la más usada. */
+    categoria: (a && a.categoria ? String(a.categoria) : '').trim(),
+    nombre: (a && a.nombre ? String(a.nombre) : '').trim(),
+    marca: (a && a.marca ? String(a.marca) : '').trim(),
+    modelo: (a && a.modelo ? String(a.modelo) : '').trim(),
+    serie: (a && a.serie ? String(a.serie) : '').trim(),
+    codigo: (a && a.codigo ? String(a.codigo) : '').trim(),
+    tipoCodigo: (a && a.tipoCodigo === 'qr') ? 'qr' : (a && a.tipoCodigo === 'barras') ? 'barras' : '',
+    clienteId: tipo === 'cliente' ? ((a && a.clienteId) || '') : '',
+    sitioId: tipo === 'cliente' ? ((a && a.sitioId) || '') : '',
+    /* Igual que sitioNombre en pólizas/reportes: se copia el texto para que
+       el activo siga diciendo dónde está aunque el sitio se borre después. */
+    sitioNombre: tipo === 'cliente' ? (a && a.sitioNombre ? String(a.sitioNombre) : '').trim() : '',
+    ubicacion: tipo === 'interno' ? (a && a.ubicacion ? String(a.ubicacion) : '').trim() : '',
+    asignadoA: tipo === 'interno' ? (a && a.asignadoA ? String(a.asignadoA) : '').trim() : '',
+    estatus: ESTATUS_ACTIVO.includes(a && a.estatus) ? a.estatus : 'activo',
+    condicion: CONDICION_ACTIVO.includes(a && a.condicion) ? a.condicion : 'buena',
+    proveedor: (a && a.proveedor ? String(a.proveedor) : '').trim(),
+    fechaCompra: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fechaCompra) ? a.fechaCompra : '',
+    costoCompra: Math.max(0, Math.round((Number(a && a.costoCompra) || 0) * 100) / 100),
+    garantiaHasta: /^\d{4}-\d{2}-\d{2}$/.test(a && a.garantiaHasta) ? a.garantiaHasta : '',
+    notas: (a && a.notas ? String(a.notas) : '').trim(),
+    evidencias: (Array.isArray(a && a.evidencias) ? a.evidencias : []).map(normalizarEvidencia).filter(e => e.dataUrl),
+    historial: (Array.isArray(a && a.historial) ? a.historial : []).map(normalizarHistorialActivo),
+    registradoPor: {
+      uid: (a && a.registradoPor && a.registradoPor.uid) || '',
+      nombre: (a && a.registradoPor && a.registradoPor.nombre) || ''
+    },
+    fechaCreacion: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fechaCreacion) ? a.fechaCreacion : hoyISO()
+  };
+}
+
+function activoPorId(id){ return datos.activos.find(a => a.id === id); }
+function activosDeSitio(sitioId){ return datos.activos.filter(a => a.sitioId === sitioId); }
+function activosDeCliente(clienteId){ return datos.activos.filter(a => a.clienteId === clienteId); }
+
+/* AC-ddmmaa-NNNN: mismo molde que reportes/cotizaciones. Sugerencia, no
+   candado: sigue siendo texto libre por si hace falta corregirlo a mano. */
+function generarFolioActivo(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  return 'AC-' + ddmmaa + '-' + String(datos.activos.length + 1).padStart(4,'0');
+}
+
+function guardarActivo(a, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'activos', id:a.id, obj:a });
+  anotar(accion || 'editó', 'activo', a.folio || a.nombre || 'sin folio', detalle);
+}
+
+/* Agrega una línea al historial PROPIO del activo y guarda. Se usa en cada
+   acción que cambia algo importante (mantenimiento, cambio de estatus,
+   reasignación) para que abrir el activo cuente su historia completa. */
+function anotarActivo(a, texto, costo, accionGlobal, detalleGlobal){
+  a.historial.push(normalizarHistorialActivo({ quien: nombreDe(sesion) || 'Alguien del equipo', texto, costo }));
+  guardarActivo(a, accionGlobal, detalleGlobal);
 }
 
 /* ============================ Levantamientos ============================
@@ -6218,7 +6344,7 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
-                 levantamientoId:null, proyectoImagenId:null,
+                 levantamientoId:null, proyectoImagenId:null, activoId:null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  /* Qué fuentes de ingreso están "apagadas" en las gráficas de
@@ -6232,7 +6358,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
-                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas',
+                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -6241,7 +6367,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'imagen'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'imagen'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -6264,7 +6390,7 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
    de los módulos sigue viendo todo, como siempre. */
 function modulosPermitidos(){
   if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos'];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos'];
   /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
      editar precios (ver el comentario arriba de normalizarProyectoImagen())
      — un Viewer sigue viendo Pólizas de solo lectura, pero este módulo ni
@@ -6279,6 +6405,7 @@ function inicioDelModulo(){
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
+       : estado.modulo === 'activos' ? 'activos'
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
@@ -6330,7 +6457,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -6414,6 +6541,35 @@ function entrarReporte(id){
   if(estado.modulo !== 'reportes'){ estado.modulo = 'reportes'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'reporte'; estado.reporteId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function irAActivos(){
+  if(estado.modulo !== 'activos'){ estado.modulo = 'activos'; guardarModulo(); }
+  estado.vista = 'activos';
+  estado.activoId = null;
+  estado.filtro = 'todos';
+  estado.busca = '';
+  animarTarjetas = true;
+  render();
+}
+/* Mismo puente que verReportesDe(), para consultar los activos de un
+   cliente o sitio desde su ficha de Forpass. */
+function verActivosDe(texto){
+  if(estado.modulo !== 'activos'){ estado.modulo = 'activos'; guardarModulo(); }
+  estado.vista = 'activos';
+  estado.activoId = null;
+  estado.filtro = 'todos';
+  estado.busca = texto || '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarActivo(id){
+  if(estado.modulo !== 'activos'){ estado.modulo = 'activos'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'activo'; estado.activoId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -6539,7 +6695,8 @@ const ICONO = {
   reporte:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 11v3"/><path d="M12 17h.01"/></svg>',
   camara:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
   documento:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
-  codigoBarras:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5v14M8 5v14M11 5v14M14 5v14M16 5v14M20 5v14"/></svg>'
+  codigoBarras:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5v14M8 5v14M11 5v14M14 5v14M16 5v14M20 5v14"/></svg>',
+  activo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -6936,7 +7093,8 @@ function resumenGeneralCliente(c){
   const pol = polizasDe(c.id);
   const cot = datos.cotizaciones.filter(q => q.clienteId === c.id);
   const rep = reportesDeCliente(c.id);
-  return { sitios, pol, cot, rep, rSitios:resumir(sitios), rPol:resumirPolizas(pol), rCot:resumirCotizaciones(cot), rRep:resumirReportes(rep) };
+  const act = activosDeCliente(c.id);
+  return { sitios, pol, cot, rep, act, rSitios:resumir(sitios), rPol:resumirPolizas(pol), rCot:resumirCotizaciones(cot), rRep:resumirReportes(rep) };
 }
 
 function vistaResumenClientes(){
@@ -6993,7 +7151,7 @@ function vistaResumenClientes(){
 function vistaResumenCliente(){
   const c = clientePorId(estado.clienteId);
   if(!c){ estado.vista = 'resumen'; return vistaResumenClientes(); }
-  const { sitios, pol, cot, rep, rSitios, rPol, rCot, rRep } = resumenGeneralCliente(c);
+  const { sitios, pol, cot, rep, act, rSitios, rPol, rCot, rRep } = resumenGeneralCliente(c);
 
   let h = '<div style="margin-bottom:14px">'
         + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-resumen-clientes">' + ICONO.atras + 'Regresar a clientes</button>'
@@ -7107,6 +7265,24 @@ function vistaResumenCliente(){
         : '<p class="pista" style="margin:0">Sin reportes todavía.</p>')
      +   (rep.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (rep.length - MAX_FILAS) + ' más…</div>' : '')
      +   (rep.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ver-reportes-cliente">Ver todos los reportes</button></div>' : '')
+     + '</div>';
+
+  /* -------- Activos -------- */
+  h += '<div class="bloque-resumen">'
+     +   '<h3>' + ICONO.activo + 'Activos</h3>'
+     +   '<div class="b-pie">' + numero(act.length) + ' ' + plural(act.length,'activo','activos') + '</div>'
+     +   (act.length
+        ? act.slice(0, MAX_FILAS).map(ac=>{
+            const tono = TONO_ESTATUS_ACTIVO[ac.estatus] || 'neutro';
+            return '<div class="fila-resumen tarjeta-clic" data-activo="' + esc(ac.id) + '" tabindex="0" role="button">'
+                 +   '<div><div class="fr-titulo">' + esc(ac.nombre || 'Activo') + '</div>'
+                 +   '<div class="fr-sub">' + esc(ac.folio || 'Sin folio') + ' · ' + esc(ac.sitioNombre || 'Sin sitio') + '</div></div>'
+                 +   '<span class="insignia i-' + tono + '">' + esc(ETIQUETA_ESTATUS_ACTIVO[ac.estatus]) + '</span>'
+                 + '</div>';
+          }).join('')
+        : '<p class="pista" style="margin:0">Sin activos registrados todavía.</p>')
+     +   (act.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (act.length - MAX_FILAS) + ' más…</div>' : '')
+     +   (act.length ? '<div style="margin-top:12px"><button type="button" class="btn btn-suave btn-mini" data-accion="ver-activos-cliente">Ver todos los activos</button></div>' : '')
      + '</div>';
 
   return h;
@@ -8069,6 +8245,14 @@ function tarjetaSitio(s, i){
                       + 'aria-label="Reportes de ' + esc(s.nombre) + '">'
                       + ICONO.reporte + '</button>'
                     : '')
+       /* Mismo puente, hacia sus activos: el equipo instalado en este sitio
+          queda a un clic, sin salir de la ficha del cliente. */
+       +           (datos.activos.some(ac => ac.sitioId === s.id)
+                    ? '<button type="button" class="icono-btn" data-accion="ver-activos-sitio" data-sitio-nombre="' + esc(s.nombre) + '" '
+                      + 'title="Ver sus activos (' + datos.activos.filter(ac => ac.sitioId === s.id).length + ')" '
+                      + 'aria-label="Activos de ' + esc(s.nombre) + '">'
+                      + ICONO.activo + '</button>'
+                    : '')
        +         '</span>'
        +       '</div>'
        +       '<div class="t-sub">'
@@ -8985,6 +9169,524 @@ function vistaReporte(){
   h += '</div>';
 
   return h;
+}
+
+/* ============================ Vistas: Activos ============================ */
+function botonRegresarActivos(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-activos">'
+       + ICONO.atras + 'Regresar a activos</button></div>';
+}
+
+function resumirActivos(lista){
+  const r = { total:lista.length, operacion:0, mantenimiento:0, bajaOPerdido:0, valor:0 };
+  lista.forEach(a=>{
+    if(a.estatus === 'activo') r.operacion++;
+    if(a.estatus === 'mantenimiento') r.mantenimiento++;
+    if(a.estatus === 'baja' || a.estatus === 'perdido') r.bajaOPerdido++;
+    r.valor += a.costoCompra;
+  });
+  return r;
+}
+
+function vistaActivos(){
+  const r = resumirActivos(datos.activos);
+  let h = '';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Activos</h2>'
+     +   '<p>' + numero(r.total) + ' ' + plural(r.total,'activo','activos') + ' registrados</p>'
+     + '</div><div class="acciones">'
+     +   (puedeGestionarActivos()
+          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-activo">' + ICONO.mas + 'Nuevo activo</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Total', numero(r.total), 'Equipo de cliente + interno')
+     + tarjetaKpi('En operación', numero(r.operacion), 'Estatus activo', r.operacion ? 'k-ok' : '')
+     + tarjetaKpi('En mantenimiento', numero(r.mantenimiento), 'Fuera de servicio temporal', r.mantenimiento ? 'k-alerta' : '')
+     + tarjetaKpi('De baja / perdidos', numero(r.bajaOPerdido), 'Ya no operan', r.bajaOPerdido ? 'k-error' : '')
+     + '</div>';
+
+  if(!datos.activos.length){
+    h += vistaVacia('activo', 'Todavía no hay activos registrados',
+          'Da de alta el equipo instalado en un cliente o una herramienta, vehículo o laptop propio de Forguard — todo en el mismo catálogo.',
+          puedeGestionarActivos() ? 'nuevo-activo' : '', 'Nuevo activo');
+    return h;
+  }
+
+  const vistaTabla = estado.vistaActivos === 'tabla';
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaActivo" placeholder="Buscar por folio, nombre, marca, serie, sitio o cliente…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroActivo">'
+     +     '<option value="todos">Todos</option>'
+     +     '<option value="cliente">Equipo en cliente</option>'
+     +     '<option value="interno">Activo interno</option>'
+     +     ESTATUS_ACTIVO.map(e=>'<option value="' + e + '">' + esc(ETIQUETA_ESTATUS_ACTIVO[e]) + '</option>').join('')
+     +   '</select>'
+     +   controlAlternaVista('vistaActivos')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.activos.filter(a=>{
+    if(q){
+      const cli = clientePorId(a.clienteId);
+      const campos = [a.folio, a.nombre, a.marca, a.modelo, a.serie, a.codigo, a.categoria, a.sitioNombre, a.ubicacion, a.asignadoA, cli ? cli.nombre : ''];
+      if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
+    }
+    if(estado.filtro === 'cliente' || estado.filtro === 'interno') return a.tipo === estado.filtro;
+    if(ESTATUS_ACTIVO.includes(estado.filtro)) return a.estatus === estado.filtro;
+    return true;
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún activo coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenados = lista.slice().sort((a,b)=> b.fechaCreacion.localeCompare(a.fechaCreacion) || (b.folio||'').localeCompare(a.folio||''));
+
+  if(vistaTabla) return h + tablaActivos(ordenados);
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((a,i)=>{
+    const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+    const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
+    let chips = '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span>'
+              + '<span class="insignia i-info">' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</span>';
+
+    return '<div class="tarjeta tarjeta-clic t-' + tono + '" data-activo="' + esc(a.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     (cli ? avatarCliente(cli) : '<div class="t-avatar">' + esc(iniciales(a.nombre || a.folio || 'AC')) + '</div>')
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(a.nombre || 'Sin nombre') + '</div>'
+         +       '<div class="t-sub">' + esc(a.categoria || 'Sin categoría') + (a.folio ? ' · ' + esc(a.folio) : '') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="t-chips">' + chips + '</div>'
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'cliente' ? 'Sitio' : 'Ubicación') + '</div><div class="d-valor chico">' + esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') : (a.ubicacion || 'Sin ubicación')) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Condición</div><div class="d-valor">' + esc(ETIQUETA_CONDICION_ACTIVO[a.condicion]) + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">' + fmtFecha(a.fechaCreacion) + '</span></div>'
+         + '</div>';
+  }).join('') + '</div>';
+
+  return h;
+}
+
+/* Misma lista, en tabla. */
+function tablaActivos(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:900px"><thead><tr>'
+       +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Condición</th><th>Estatus</th><th>Fecha</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(a=>{
+           const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+           const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
+           return '<tr class="fila-clic" data-activo="' + esc(a.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(a.folio || '—') + '</td>'
+                +   '<td>' + esc(a.nombre || '—') + '</td>'
+                +   '<td>' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</td>'
+                +   '<td>' + esc(a.tipo === 'cliente' ? ((cli ? cli.nombre + ' · ' : '') + (a.sitioNombre || 'Sin sitio')) : (a.ubicacion || '—')) + '</td>'
+                +   '<td>' + esc(ETIQUETA_CONDICION_ACTIVO[a.condicion]) + '</td>'
+                +   '<td><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span></td>'
+                +   '<td>' + fmtFecha(a.fechaCreacion) + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
+/* Detalle de un activo. */
+function vistaActivo(){
+  const a = activoPorId(estado.activoId);
+  if(!a){ estado.vista = 'activos'; return vistaActivos(); }
+  const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+  const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
+  const garantiaVencida = !!(a.garantiaHasta && a.garantiaHasta < hoyISO());
+
+  let h = botonRegresarActivos();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(a.nombre || 'Activo') + '</h2>'
+     +   '<p>' + esc(a.folio || 'Sin folio') + (a.categoria ? ' · ' + esc(a.categoria) : '') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span>'
+     +   '<span class="insignia i-info">' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</span>'
+     +   '<span class="insignia i-neutro">Condición ' + esc(ETIQUETA_CONDICION_ACTIVO[a.condicion]).toLowerCase() + '</span>'
+     +   (garantiaVencida ? '<span class="insignia i-alerta">Garantía vencida</span>' : '')
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi(a.tipo === 'cliente' ? 'Sitio' : 'Ubicación',
+         esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') : (a.ubicacion || 'Sin ubicación')),
+         a.tipo === 'cliente' ? (cli ? esc(cli.nombre) : '') : (a.asignadoA ? 'Asignado a ' + esc(a.asignadoA) : 'Sin asignar'))
+     + tarjetaKpi('Marca / Modelo', esc([a.marca, a.modelo].filter(Boolean).join(' / ') || 'Sin especificar'), a.serie ? 'Serie ' + esc(a.serie) : '')
+     + tarjetaKpi('Costo de compra', dinero(a.costoCompra), a.fechaCompra ? fmtFecha(a.fechaCompra) : 'Sin fecha registrada')
+     + tarjetaKpi('Garantía', a.garantiaHasta ? fmtFecha(a.garantiaHasta) : 'Sin garantía', a.garantiaHasta ? (garantiaVencida ? 'Vencida' : 'Vigente') : '')
+     + '</div>';
+
+  if(a.codigo){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Código</h3><p>Para control interno: no aparece en documentos de cliente.</p></div></div>'
+       +   '<div class="vista-barras' + (a.tipoCodigo === 'qr' ? ' vista-qr' : '') + '">' + (a.tipoCodigo === 'qr' ? svgCodigoQr(a.codigo) : svgCodigoBarras(a.codigo)) + '</div>'
+       +   '<p class="pista" style="margin:6px 0 0">' + esc(a.codigo) + '</p>'
+       + '</div>';
+  }
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Detalles de compra</h3></div></div>'
+     +   '<div class="t-datos">'
+     +     '<div class="t-dato"><div class="d-label">Proveedor</div><div class="d-valor chico">' + esc(a.proveedor || 'Sin especificar') + '</div></div>'
+     +     '<div class="t-dato"><div class="d-label">Fecha de compra</div><div class="d-valor chico">' + (a.fechaCompra ? fmtFecha(a.fechaCompra) : 'Sin especificar') + '</div></div>'
+     +   '</div>'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Notas</h3></div></div>'
+     +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(a.notas || 'Sin notas.') + '</p>'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Evidencia</h3><p>Fotos de la placa, el estado físico o algún daño.</p></div>'
+     +   (puedeGestionarActivos()
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="subir-evidencia-activo">' + ICONO.camara + 'Agregar foto</button></div>'
+          : '')
+     + '</div>'
+     +   (a.evidencias.length
+          ? '<div class="galeria-evidencia">' + a.evidencias.map(e=>
+              '<div class="evidencia-foto">'
+              +   '<img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy">'
+              +   (puedeGestionarActivos()
+                   ? '<button type="button" class="evidencia-quitar" data-accion="quitar-evidencia-activo" data-evidencia="' + esc(e.id) + '" title="Quitar esta foto">' + ICONO.basura + '</button>'
+                   : '')
+              + '</div>'
+            ).join('') + '</div>'
+          : '<p class="pista" style="margin:0">Todavía no hay fotos.</p>')
+     +   '<input type="file" id="archivoEvidenciaActivo" accept="image/*" capture="environment" multiple style="display:none">'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Historial</h3><p>Mantenimiento, movimientos y notas de este activo.</p></div>'
+     +   (puedeGestionarActivos()
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="agregar-historial-activo">' + ICONO.mas + 'Agregar</button></div>'
+          : '')
+     + '</div>'
+     +   (a.historial.length
+          ? '<div class="lista-seguimiento">' + a.historial.slice().reverse().map(hi=>
+              '<div class="seguimiento-item"><b>' + esc(hi.quien || 'Alguien del equipo') + '</b> '
+              + '<span class="pista">' + esc(fechaHora(hi.cuando)) + '</span>'
+              + (hi.costo ? ' <span class="pista">· ' + dinero(hi.costo) + '</span>' : '')
+              + '<div>' + esc(hi.texto) + '</div></div>'
+            ).join('') + '</div>'
+          : '<p class="pista" style="margin:0">Sin movimientos registrados todavía.</p>')
+     + '</div>';
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  if(puedeGestionarActivos()){
+    h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-activo">' + ICONO.lapiz + 'Editar</button>';
+    if(a.estatus !== 'mantenimiento') h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-activo" data-estatus="mantenimiento">Enviar a mantenimiento</button>';
+    if(a.estatus !== 'activo') h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-activo" data-estatus="activo">Regresar a operación</button>';
+    if(a.estatus !== 'baja') h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-activo" data-estatus="baja">Dar de baja</button>';
+    if(a.estatus !== 'perdido') h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-activo" data-estatus="perdido">Marcar perdido/robado</button>';
+  }
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-activo">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: activo ---------------------------- */
+function modalActivo(id){
+  const a = id ? activoPorId(id) : null;
+
+  let evidenciasTmp = a ? a.evidencias.slice() : [];
+  let codigoTmp = a ? a.tipoCodigo : 'barras';
+  const clientesOrd = datos.clientes.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+
+  const opc = (lista, sel, texto, valor) => lista.map(o =>
+    '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
+
+  const tipo = a ? a.tipo : 'cliente';
+  const cuerpo =
+      '<div class="campo"><label>Tipo de activo *</label><select id="actTipo">'
+    +   '<option value="cliente"' + (tipo === 'cliente' ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_ACTIVO.cliente) + '</option>'
+    +   '<option value="interno"' + (tipo === 'interno' ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_ACTIVO.interno) + '</option>'
+    + '</select></div>'
+    + '<div id="actZonaCliente">'
+    +   '<div class="campo"><label>Cliente *</label>'
+    +     '<div class="cliente-zona">'
+    +       '<select id="actCliente">' + opc(clientesOrd, a ? a.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoAct" '
+    +         'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div id="zonaClienteNuevoAct" class="cliente-nuevo" hidden>'
+    +     '<div class="campo"><label>Nombre del cliente nuevo *</label>'
+    +       '<input type="text" id="ancNombre" placeholder="Ej. Mercado Libre" autocomplete="off"></div>'
+    +     '<div class="cliente-nuevo-botones">'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="ancCancelar">Cancelar</button>'
+    +       '<button type="button" class="btn btn-primario btn-mini" id="ancCrear">Crear y seleccionar</button>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="campo"><label>Sitio *</label>'
+    +     '<div class="cliente-zona">'
+    +       '<select id="actSitio"></select>'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoAct" '
+    +         'title="Dar de alta un sitio de este cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +     '</div>'
+    +     '<div class="pista" id="pistaSitioAct"></div></div>'
+    +   '<div id="zonaSitioNuevoAct" class="cliente-nuevo" hidden>'
+    +     '<div class="campo"><label>Nombre del sitio nuevo *</label>'
+    +       '<input type="text" id="ansNombre" placeholder="Ej. BANREGIO Cumbres" autocomplete="off"></div>'
+    +     '<div class="cliente-nuevo-botones">'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="ansCancelar">Cancelar</button>'
+    +       '<button type="button" class="btn btn-primario btn-mini" id="ansCrear">Crear y seleccionar</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="actZonaInterno">'
+    +   '<div class="campo"><label>Ubicación</label>'
+    +     '<input type="text" id="actUbicacion" placeholder="Ej. Bodega Monterrey, Camioneta 3…" value="' + esc(a ? a.ubicacion : '') + '"></div>'
+    +   '<div class="campo"><label>Asignado a</label>'
+    +     '<input type="text" id="actAsignadoA" placeholder="Ej. Juan Pérez" value="' + esc(a ? a.asignadoA : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Categoría</label>'
+    +   '<input type="text" id="actCategoria" placeholder="Ej. Freidora, Herramienta, Vehículo, Laptop…" value="' + esc(a ? a.categoria : '') + '"></div>'
+    + '<div class="campo"><label>Nombre *</label>'
+    +   '<input type="text" id="actNombre" placeholder="Ej. Freidora de doble canasta" value="' + esc(a ? a.nombre : '') + '"></div>'
+    + '<div class="campo"><label>Marca</label>'
+    +   '<input type="text" id="actMarca" value="' + esc(a ? a.marca : '') + '"></div>'
+    + '<div class="campo"><label>Modelo</label>'
+    +   '<input type="text" id="actModelo" value="' + esc(a ? a.modelo : '') + '"></div>'
+    + '<div class="campo"><label>Número de serie</label>'
+    +   '<input type="text" id="actSerie" value="' + esc(a ? a.serie : '') + '"></div>'
+    + '<div class="campo"><label>Estatus</label><select id="actEstatus">'
+    +   ESTATUS_ACTIVO.map(e => '<option value="' + e + '"' + ((a ? a.estatus : 'activo') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_ACTIVO[e]) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Condición física</label><select id="actCondicion">'
+    +   CONDICION_ACTIVO.map(c => '<option value="' + c + '"' + ((a ? a.condicion : 'buena') === c ? ' selected' : '') + '>' + esc(ETIQUETA_CONDICION_ACTIVO[c]) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Proveedor</label>'
+    +   '<input type="text" id="actProveedor" value="' + esc(a ? a.proveedor : '') + '"></div>'
+    + '<div class="campo"><label>Fecha de compra</label>'
+    +   '<input type="date" id="actFechaCompra" value="' + esc(a ? a.fechaCompra : '') + '"></div>'
+    + '<div class="campo"><label>Costo de compra</label>'
+    +   '<input type="number" id="actCostoCompra" min="0" step="0.01" value="' + (a && a.costoCompra ? a.costoCompra : '') + '"></div>'
+    + '<div class="campo"><label>Garantía hasta</label>'
+    +   '<input type="date" id="actGarantiaHasta" value="' + esc(a ? a.garantiaHasta : '') + '"></div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="actNotas" placeholder="Cualquier detalle que ayude a administrarlo…">' + esc(a ? a.notas : '') + '</textarea></div>'
+    + '<div class="campo"><label>Código (barras / QR)</label>'
+    +   '<div class="info-equipo">'
+    +     '<label>Código<input type="text" id="actCodigo" value="' + esc(a ? a.codigo : '') + '" placeholder="Escanea o captura" maxlength="30">'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="btnGenerarCodigoAct">Generar</button></label>'
+    +     '<div class="tipo-codigo" role="group" aria-label="Tipo de código">'
+    +       '<button type="button" id="btnCodigoBarrasAct" class="' + (codigoTmp !== 'qr' ? 'on' : '') + '">Código de barras</button>'
+    +       '<button type="button" id="btnCodigoQrAct" class="' + (codigoTmp === 'qr' ? 'on' : '') + '">QR</button>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="vista-barras' + (codigoTmp === 'qr' ? ' vista-qr' : '') + '" id="vistaBarrasAct"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Fotos</label>'
+    +   '<div class="galeria-evidencia" id="galeriaEvidenciaTmpAct"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarFotoAct">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +   '<input type="file" id="archivoEvidenciaAct" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<div class="pista" id="pistaEvidenciaAct">Hasta ' + EVIDENCIA_MAX_POR_ACTIVO + ' fotos. Se reducen solas para no pesar.</div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (a ? 'Guardar cambios' : 'Registrar activo') + '</button>';
+
+  abrirModal(a ? 'Editar activo' : 'Nuevo activo', cuerpo, pie);
+
+  function pintarSitios(){
+    const clienteId = $('actCliente').value;
+    const sitios = sitiosDe(clienteId).slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+    $('actSitio').innerHTML = opc(sitios, a ? a.sitioId : '', s=>s.nombre, s=>s.id);
+    $('pistaSitioAct').textContent = sitios.length
+      ? ''
+      : 'Este cliente no tiene sitios todavía — dale a "Nuevo" para agregar uno sin salir de aquí.';
+  }
+
+  function pintarTipo(){
+    const esCliente = $('actTipo').value === 'cliente';
+    $('actZonaCliente').hidden = !esCliente;
+    $('actZonaInterno').hidden = esCliente;
+  }
+  pintarTipo();
+  pintarSitios();
+  $('actTipo').addEventListener('change', pintarTipo);
+  $('actCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoAct').hidden = true; pintarSitios(); });
+
+  $('btnSitioNuevoAct').addEventListener('click', ()=>{
+    if(!$('actCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
+    $('zonaSitioNuevoAct').hidden = false;
+    $('ansNombre').focus();
+  });
+  $('ansCancelar').addEventListener('click', ()=>{ $('zonaSitioNuevoAct').hidden = true; $('ansNombre').value = ''; });
+  $('ansCrear').addEventListener('click', ()=>{
+    const clienteId = $('actCliente').value;
+    const nombreSitio = $('ansNombre').value.trim();
+    if(!clienteId){ aviso('Primero elige o crea el cliente.', true); return; }
+    if(!nombreSitio){ aviso('Ponle un nombre al sitio nuevo.', true); return; }
+    const yaExiste = datos.sitios.find(s => s.clienteId === clienteId && s.nombre.toLowerCase() === nombreSitio.toLowerCase());
+    let sitio;
+    if(yaExiste){
+      sitio = yaExiste;
+      aviso('Ese sitio ya existía para este cliente; lo seleccioné.');
+    }else{
+      sitio = normalizarSitio({ id:nuevoId(), clienteId, nombre:nombreSitio,
+        modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+      datos.sitios.push(sitio);
+      guardarSitio(sitio, 'creó');
+      aviso(nombreSitio + ' dado de alta y seleccionado.');
+    }
+    pintarSitios();
+    $('actSitio').value = sitio.id;
+    $('zonaSitioNuevoAct').hidden = true;
+    $('ansNombre').value = '';
+  });
+
+  $('btnClienteNuevoAct').addEventListener('click', ()=>{
+    $('zonaClienteNuevoAct').hidden = false;
+    $('ancNombre').focus();
+  });
+  $('ancCancelar').addEventListener('click', ()=>{ $('zonaClienteNuevoAct').hidden = true; $('ancNombre').value = ''; });
+  $('ancCrear').addEventListener('click', ()=>{
+    const nombre = $('ancNombre').value.trim();
+    if(!nombre){ aviso('Ponle un nombre al cliente nuevo.', true); return; }
+    const nuevo = normalizarCliente({ id:nuevoId(), nombre, usaForpass:'si' });
+    datos.clientes.push(nuevo);
+    guardarCliente(nuevo, 'creó');
+    $('actCliente').insertAdjacentHTML('beforeend', '<option value="' + esc(nuevo.id) + '" selected>' + esc(nuevo.nombre) + '</option>');
+    $('actCliente').value = nuevo.id;
+    $('zonaClienteNuevoAct').hidden = true;
+    pintarSitios();
+    aviso('Cliente agregado. Ahora agrégale un sitio en Forpass si hace falta.');
+  });
+
+  function pintarCodigo(){
+    const codigo = $('actCodigo').value.trim();
+    const esQr = codigoTmp === 'qr';
+    $('btnCodigoBarrasAct').classList.toggle('on', !esQr);
+    $('btnCodigoQrAct').classList.toggle('on', esQr);
+    $('vistaBarrasAct').classList.toggle('vista-qr', esQr);
+    $('vistaBarrasAct').innerHTML = codigo
+      ? (esQr ? svgCodigoQr(codigo) : svgCodigoBarras(codigo))
+      : '<span class="pista">Captura un código para ver la vista previa.</span>';
+  }
+  pintarCodigo();
+  $('actCodigo').addEventListener('input', pintarCodigo);
+  $('btnCodigoBarrasAct').addEventListener('click', ()=>{ codigoTmp = 'barras'; pintarCodigo(); });
+  $('btnCodigoQrAct').addEventListener('click', ()=>{ codigoTmp = 'qr'; pintarCodigo(); });
+  $('btnGenerarCodigoAct').addEventListener('click', ()=>{
+    $('actCodigo').value = (a && a.folio) || generarFolioActivo(hoyISO());
+    pintarCodigo();
+  });
+
+  function pintarGaleriaTmp(){
+    $('galeriaEvidenciaTmpAct').innerHTML = evidenciasTmp.map(e =>
+      '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
+      + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
+    ).join('');
+    $('galeriaEvidenciaTmpAct').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
+        pintarGaleriaTmp();
+      });
+    });
+    $('btnAgregarFotoAct').disabled = evidenciasTmp.length >= EVIDENCIA_MAX_POR_ACTIVO;
+  }
+  pintarGaleriaTmp();
+
+  $('btnAgregarFotoAct').addEventListener('click', ()=> $('archivoEvidenciaAct').click());
+  $('archivoEvidenciaAct').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length) return;
+    const cupo = EVIDENCIA_MAX_POR_ACTIVO - evidenciasTmp.length;
+    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_ACTIVO + ' fotos. Quita alguna para agregar otra.', true); return; }
+    $('pistaEvidenciaAct').textContent = 'Procesando fotos…';
+    for(const archivo of archivos.slice(0, cupo)){
+      try{
+        const img = await leerEvidencia(archivo);
+        const dataUrl = comprimirEvidencia(img);
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+      }catch(e){ aviso(e.message, true); }
+    }
+    $('pistaEvidenciaAct').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_ACTIVO + ' fotos. Se reducen solas para no pesar.';
+    pintarGaleriaTmp();
+  });
+
+  cerrarModalActual = ()=>{
+    const tipoSel = $('actTipo').value;
+    const nombre = $('actNombre').value.trim();
+    if(!nombre){ $('actNombre').setAttribute('aria-invalid','true'); $('actNombre').focus(); aviso('El activo necesita un nombre.', true); return; }
+
+    let clienteId = '', sitioId = '', sitioNombre = '', ubicacion = '', asignadoA = '';
+    if(tipoSel === 'cliente'){
+      sitioId = $('actSitio').value;
+      if(!sitioId){ aviso('Elige un sitio: el activo necesita saber dónde está instalado.', true); return; }
+      clienteId = $('actCliente').value;
+      const sitio = sitioPorId(sitioId);
+      sitioNombre = sitio ? sitio.nombre : '';
+    }else{
+      ubicacion = $('actUbicacion').value.trim();
+      asignadoA = $('actAsignadoA').value.trim();
+    }
+
+    const datosComunes = {
+      tipo: tipoSel, clienteId, sitioId, sitioNombre, ubicacion, asignadoA,
+      categoria: $('actCategoria').value.trim(), nombre,
+      marca: $('actMarca').value.trim(), modelo: $('actModelo').value.trim(), serie: $('actSerie').value.trim(),
+      codigo: $('actCodigo').value.trim(), tipoCodigo: codigoTmp,
+      estatus: $('actEstatus').value, condicion: $('actCondicion').value,
+      proveedor: $('actProveedor').value.trim(), fechaCompra: $('actFechaCompra').value,
+      costoCompra: $('actCostoCompra').value, garantiaHasta: $('actGarantiaHasta').value,
+      notas: $('actNotas').value.trim(), evidencias: evidenciasTmp
+    };
+
+    let reg;
+    if(a){
+      Object.assign(a, datosComunes);
+      reg = normalizarActivo(a);
+      Object.assign(a, reg);
+    }else{
+      reg = normalizarActivo(Object.assign({ id:nuevoId(), folio: generarFolioActivo(hoyISO()),
+        registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' } }, datosComunes));
+      datos.activos.push(reg);
+    }
+    guardarActivo(reg, a ? 'editó' : 'creó');
+    cerrarModal();
+    entrarActivo(reg.id);
+    aviso(a ? 'Activo actualizado.' : 'Activo registrado: ' + (reg.folio || reg.nombre) + '.');
+  };
+}
+
+/* ------------------------- Modal: historial de activo ------------------------- */
+function modalHistorialActivo(id){
+  const a = activoPorId(id);
+  if(!a) return;
+  if(!exigirGestionActivos()) return;
+
+  const cuerpo =
+      '<div class="campo"><label>Qué se hizo *</label>'
+    +   '<textarea id="ahTexto" placeholder="Ej. Se le dio mantenimiento preventivo, se cambió de sitio, se limpió a fondo…"></textarea></div>'
+    + '<div class="campo"><label>Costo (opcional)</label>'
+    +   '<input type="number" id="ahCosto" min="0" step="0.01" placeholder="0"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Agregar</button>';
+
+  abrirModal('Agregar al historial de ' + (a.nombre || 'este activo'), cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const texto = $('ahTexto').value.trim();
+    if(!texto){ $('ahTexto').setAttribute('aria-invalid','true'); $('ahTexto').focus(); aviso('Describe qué se hizo.', true); return; }
+    const costo = $('ahCosto').value;
+    anotarActivo(a, texto, costo, 'editó', a.folio || a.nombre);
+    cerrarModal();
+    render();
+    aviso('Historial actualizado.');
+  };
 }
 
 /* ---------------------------- Modal: reporte ---------------------------- */
@@ -11502,7 +12204,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -11518,6 +12220,7 @@ function render(){
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
+    : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo() : vistaActivos())
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
@@ -11552,6 +12255,13 @@ function render(){
     const fpL = $('filtroLevantamiento');
     fpL.value = estado.filtro;
     fpL.addEventListener('change', ()=>{ estado.filtro = fpL.value; render(); });
+  }
+  const bpA = $('buscaActivo');
+  if(bpA){
+    bpA.addEventListener('input', ()=>{ estado.busca = bpA.value; renderConservandoFoco(bpA, 'buscaActivo'); });
+    const fpA = $('filtroActivo');
+    fpA.value = estado.filtro;
+    fpA.addEventListener('change', ()=>{ estado.filtro = fpA.value; render(); });
   }
   const bpI = $('buscaProyectoImagen');
   if(bpI){
@@ -11684,6 +12394,7 @@ function pintarCabecera(){
   const inicio = $('btnInicio');
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
+                 : estado.modulo === 'activos' ? 'Activos'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
                  : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
@@ -12297,7 +13008,7 @@ function datosClienteParaFusion(id){
     sitios: sitiosDe(id), pol: polizasDe(id),
     cot: datos.cotizaciones.filter(q => q.clienteId === id),
     rep: reportesDeCliente(id), lev: levantamientosDeCliente(id),
-    proy: proyectosImagenDeCliente(id)
+    proy: proyectosImagenDeCliente(id), act: activosDeCliente(id)
   };
 }
 
@@ -12326,7 +13037,7 @@ function modalFusionCliente(id){
 
   function resumenPara(c){
     const d = datosClienteParaFusion(c.id);
-    const total = d.sitios.length + d.pol.length + d.cot.length + d.rep.length + d.lev.length + d.proy.length;
+    const total = d.sitios.length + d.pol.length + d.cot.length + d.rep.length + d.lev.length + d.proy.length + d.act.length;
     return { c, d, total };
   }
 
@@ -12398,7 +13109,8 @@ function modalFusionCliente(id){
       +       plural(r.d.cot.length,'cotización','cotizaciones') + ' · ' + numero(r.d.rep.length) + ' '
       +       plural(r.d.rep.length,'reporte','reportes') + ' · ' + numero(r.d.lev.length) + ' '
       +       plural(r.d.lev.length,'levantamiento','levantamientos') + ' · ' + numero(r.d.proy.length) + ' '
-      +       plural(r.d.proy.length,'proyecto de imagen','proyectos de imagen') + '</div></div>'
+      +       plural(r.d.proy.length,'proyecto de imagen','proyectos de imagen') + ' · ' + numero(r.d.act.length) + ' '
+      +       plural(r.d.act.length,'activo','activos') + '</div></div>'
       + '</label>';
     cont.innerHTML =
         '<div class="campo"><label>¿Cuál cliente se conserva?</label>'
@@ -12448,7 +13160,8 @@ function datosSitioParaFusion(sitioId){
     cot: datos.cotizaciones.filter(q => q.sitioId === sitioId),
     rep: datos.reportes.filter(r => r.sitioId === sitioId),
     lev: datos.levantamientos.filter(l => l.sitioId === sitioId),
-    proy: datos.proyectosImagen.filter(p => p.sitioId === sitioId)
+    proy: datos.proyectosImagen.filter(p => p.sitioId === sitioId),
+    act: activosDeSitio(sitioId)
   };
 }
 
@@ -12472,6 +13185,7 @@ function fusionarSitios(idConservar, idDescartar){
   d.rep.forEach(r => { r.sitioId = idConservar; r.sitioNombre = conservar.nombre; guardarReporte(r, 'movió', detalle); });
   d.lev.forEach(l => { l.sitioId = idConservar; l.sitioNombre = conservar.nombre; guardarLevantamiento(l, 'movió', detalle); });
   d.proy.forEach(p => { p.sitioId = idConservar; p.sitioNombre = conservar.nombre; guardarProyectoImagen(p, 'movió', detalle); });
+  d.act.forEach(ac => { ac.sitioId = idConservar; ac.sitioNombre = conservar.nombre; guardarActivo(ac, 'movió', detalle); });
 
   datos.sitios = datos.sitios.filter(s => s.id !== idDescartar);
   borrarRegistro('sitios', idDescartar);
@@ -12524,7 +13238,8 @@ function modalFusionSitio(sitioId){
       + numero(d.cot.length) + ' ' + plural(d.cot.length,'cotización','cotizaciones') + ' · '
       + numero(d.rep.length) + ' ' + plural(d.rep.length,'reporte','reportes') + ' · '
       + numero(d.lev.length) + ' ' + plural(d.lev.length,'levantamiento','levantamientos') + ' · '
-      + numero(d.proy.length) + ' ' + plural(d.proy.length,'proyecto de imagen','proyectos de imagen') + '.</div>';
+      + numero(d.proy.length) + ' ' + plural(d.proy.length,'proyecto de imagen','proyectos de imagen') + ' · '
+      + numero(d.act.length) + ' ' + plural(d.act.length,'activo','activos') + '.</div>';
   }
 
   function actualizarSitios(){
@@ -12602,8 +13317,9 @@ function fusionarClientes(idConservar, idDescartar, asignacionSitios){
      prospecto sin cliente formal): si no se actualiza aquí, el proyecto
      seguiría mostrando el nombre del cliente ya borrado. */
   d.proy.forEach(p => { p.clienteId = idConservar; p.clienteNombre = conservar.nombre; guardarProyectoImagen(p, 'movió', detalle); });
+  d.act.forEach(ac => { ac.clienteId = idConservar; guardarActivo(ac, 'movió', detalle); });
 
-  const totalMovido = d.sitios.length + d.pol.length + d.cot.length + d.rep.length + d.lev.length + d.proy.length;
+  const totalMovido = d.sitios.length + d.pol.length + d.cot.length + d.rep.length + d.lev.length + d.proy.length + d.act.length;
 
   datos.clientes = datos.clientes.filter(c => c.id !== idDescartar);
   borrarRegistro('clientes', idDescartar);
@@ -15774,6 +16490,46 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso('Reporte eliminado.');
         });
     }
+    else if(a === 'ir-activos') irAActivos();
+    else if(a === 'nuevo-activo'){ if(exigirGestionActivos()) modalActivo(null); }
+    else if(a === 'editar-activo'){ if(exigirGestionActivos()) modalActivo(estado.activoId); }
+    else if(a === 'ver-activos-cliente'){ const c = clientePorId(estado.clienteId); if(c) verActivosDe(c.nombre); }
+    else if(a === 'ver-activos-sitio') verActivosDe(acc.dataset.sitioNombre || '');
+    else if(a === 'subir-evidencia-activo'){ if(exigirGestionActivos()) $('archivoEvidenciaActivo').click(); }
+    else if(a === 'quitar-evidencia-activo'){
+      if(!exigirGestionActivos()) return;
+      const ac = activoPorId(estado.activoId);
+      if(!ac) return;
+      ac.evidencias = ac.evidencias.filter(e => e.id !== acc.dataset.evidencia);
+      anotarActivo(ac, 'Quitó una foto de evidencia.', 0, 'quitó evidencia de', ac.folio || ac.nombre);
+      render(); aviso('Foto eliminada.');
+    }
+    else if(a === 'agregar-historial-activo'){ if(exigirGestionActivos()) modalHistorialActivo(estado.activoId); }
+    else if(a === 'cambiar-estatus-activo'){
+      if(!exigirGestionActivos()) return;
+      const ac = activoPorId(estado.activoId);
+      if(!ac) return;
+      const nuevo = acc.dataset.estatus;
+      const antes = ETIQUETA_ESTATUS_ACTIVO[ac.estatus];
+      ac.estatus = nuevo;
+      anotarActivo(ac, 'Cambió el estatus: ' + antes + ' → ' + ETIQUETA_ESTATUS_ACTIVO[nuevo] + '.', 0,
+                    'cambió el estatus de', (ac.folio || ac.nombre) + ': ' + antes + ' → ' + ETIQUETA_ESTATUS_ACTIVO[nuevo]);
+      render(); aviso('Activo marcado como "' + ETIQUETA_ESTATUS_ACTIVO[nuevo] + '".');
+    }
+    else if(a === 'borrar-activo'){
+      if(!exigirAdmin('eliminar un activo')) return;
+      const ac = activoPorId(estado.activoId);
+      if(!ac) return;
+      confirmar('Eliminar activo',
+        'Se va a eliminar <b>' + esc(ac.nombre || 'este activo') + '</b> (' + esc(ac.folio || 'sin folio') + ') y todo su historial. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.activos = datos.activos.filter(x => x.id !== ac.id);
+          borrarRegistro('activos', ac.id);
+          anotar('eliminó', 'activo', ac.folio || ac.nombre || 'sin folio');
+          estado.vista = 'activos'; estado.activoId = null;
+          render(); aviso('Activo eliminado.');
+        });
+    }
     else if(a === 'ir-levantamientos') irALevantamientos();
     else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
     else if(a === 'editar-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(estado.levantamientoId); }
@@ -16116,6 +16872,9 @@ $('vista').addEventListener('click', ev=>{
   const tarR = t.closest('[data-reporte]');
   if(tarR){ entrarReporte(tarR.dataset.reporte); return; }
 
+  const tarAc = t.closest('[data-activo]');
+  if(tarAc){ entrarActivo(tarAc.dataset.activo); return; }
+
   const tarL = t.closest('[data-levantamiento]');
   if(tarL){ entrarLevantamiento(tarL.dataset.levantamiento); return; }
 
@@ -16217,6 +16976,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarQ){ ev.preventDefault(); entrarCotizacion(tarQ.dataset.cotizacion); return; }
   const tarR = ev.target.closest('[data-reporte]');
   if(tarR){ ev.preventDefault(); entrarReporte(tarR.dataset.reporte); return; }
+  const tarAc = ev.target.closest('[data-activo]');
+  if(tarAc){ ev.preventDefault(); entrarActivo(tarAc.dataset.activo); return; }
   const tarL = ev.target.closest('[data-levantamiento]');
   if(tarL){ ev.preventDefault(); entrarLevantamiento(tarL.dataset.levantamiento); return; }
   const tarPI = ev.target.closest('[data-proyecto-imagen]');
@@ -16289,8 +17050,10 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   parametros: d.parametros !== undefined ? normalizarListaParametros(d.parametros) : datos.parametros,
                   cotizaciones: (Array.isArray(d.cotizaciones) ? d.cotizaciones : datos.cotizaciones).map(normalizarCotizacion),
                   reportes: (Array.isArray(d.reportes) ? d.reportes : datos.reportes).map(normalizarReporte),
-                  levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : datos.levantamientos).map(normalizarLevantamiento) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+                  levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : datos.levantamientos).map(normalizarLevantamiento),
+                  proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : datos.proyectosImagen).map(normalizarProyectoImagen),
+                  activos: (Array.isArray(d.activos) ? d.activos : datos.activos).map(normalizarActivo) };
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
@@ -16978,9 +17741,9 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
     sincronizado = false;
   }
 }
