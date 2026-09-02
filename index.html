@@ -721,6 +721,10 @@ button.mes{cursor:pointer;}
 .fc-opcion input{margin-top:3px;}
 .fc-opcion .fc-nombre{font-weight:700; color:var(--navy); font-size:13.5px;}
 .fc-opcion .fc-datos{font-size:11.5px; color:var(--gray); margin-top:2px; line-height:1.5;}
+.fc-sitios{display:flex; flex-direction:column; gap:6px;}
+.fc-sitio-fila{display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid var(--line); border-radius:8px; padding:7px 10px;}
+.fc-sitio-fila span{font-size:12.5px; color:var(--navy); font-weight:600;}
+.fc-sitio-fila select{font-size:12px; padding:5px 8px; border:1px solid #d4d9e6; border-radius:7px; font-family:inherit; max-width:220px;}
 /* Vista previa de la importación. Los avisos van en su PROPIO renglón a todo lo
    ancho, no en una columna: son la razón de ser de esta pantalla, y metidos en
    una columna estrecha se cortaban justo donde empezaba lo importante. */
@@ -12262,13 +12266,15 @@ function modalFusionCliente(id){
 
   const cuerpo =
       '<div class="pista" style="margin-bottom:14px">Elige el registro duplicado de <b>' + esc(actual.nombre) + '</b>. '
-    +   'Todo lo suyo —sitios de Forpass, pólizas, cotizaciones, reportes, levantamientos y proyectos de imagen— '
-    +   'se pasa al cliente que se conserve, y el otro registro se elimina. Esta acción no se puede deshacer.</div>'
+    +   'Todo lo suyo —pólizas, cotizaciones, reportes, levantamientos y proyectos de imagen— '
+    +   'se pasa al cliente que se conserve, y el otro registro se elimina. Los sitios de Forpass se pueden repartir '
+    +   'uno por uno más abajo, por si alguno en realidad es de otro cliente. Esta acción no se puede deshacer.</div>'
     + '<div class="campo"><label>Cliente duplicado</label>'
     +   '<select id="fcOtro"><option value="">— Elige un cliente —</option>'
     +     otros.map(o => '<option value="' + esc(o.id) + '">' + esc(o.nombre) + '</option>').join('')
     +   '</select></div>'
-    + '<div id="fcPreview"></div>';
+    + '<div id="fcPreview"></div>'
+    + '<div id="fcSitios"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-peligro" data-modal="guardar" id="fcBtnFusionar" disabled>Fusionar clientes</button>';
@@ -12287,10 +12293,36 @@ function modalFusionCliente(id){
     });
   }
 
+  /* Los sitios de Forpass del cliente que se va a DESCARTAR, uno por uno: por
+     omisión todos se van al que se conserva, pero no tienen por qué —un
+     cliente "duplicado" a veces trae sitios que en realidad son de un
+     tercero, y aquí se corrige de una vez, sin ir a Forpass a editarlos. Se
+     vuelve a pintar cada vez que cambia quién se descarta (el radio) o el
+     cliente elegido como duplicado. */
+  function pintarSitios(idDescartar, idConservarDefault){
+    const cont = $('fcSitios');
+    const sitios = sitiosDe(idDescartar);
+    if(!sitios.length){ cont.innerHTML = ''; return; }
+    const descartado = clientePorId(idDescartar);
+    const opciones = sel => datos.clientes.filter(x => x.id !== idDescartar)
+      .sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'))
+      .map(x => '<option value="' + esc(x.id) + '"' + (x.id === sel ? ' selected' : '') + '>' + esc(x.nombre) + '</option>').join('');
+    cont.innerHTML =
+        '<div class="campo"><label>Sitios de Forpass de «' + esc(descartado.nombre) + '»: a cuál cliente van</label>'
+      +   '<div class="fc-sitios">'
+      +     sitios.map(s =>
+              '<div class="fc-sitio-fila"><span>' + esc(s.nombre) + '</span>'
+            +   '<select data-fc-sitio="' + esc(s.id) + '">' + opciones(idConservarDefault) + '</select></div>'
+            ).join('')
+      +   '</div>'
+      +   '<div class="pista">Por si alguno en realidad es de otro cliente: no tienen que ir todos al mismo lugar.</div>'
+      + '</div>';
+  }
+
   function pintarPreview(){
     const otroId = $('fcOtro').value;
     const cont = $('fcPreview');
-    if(!otroId){ cont.innerHTML = ''; $('fcBtnFusionar').disabled = true; return; }
+    if(!otroId){ cont.innerHTML = ''; $('fcSitios').innerHTML = ''; $('fcBtnFusionar').disabled = true; return; }
     const otro = clientePorId(otroId);
     const rActual = resumenPara(actual), rOtro = resumenPara(otro);
     /* Sugerencia de cuál conservar: el que tenga más historial detrás —no es
@@ -12311,7 +12343,14 @@ function modalFusionCliente(id){
         '<div class="campo"><label>¿Cuál cliente se conserva?</label>'
       +   '<div class="fc-opciones">' + fila(rActual) + fila(rOtro) + '</div>'
       + '</div>';
-    $('modalCuerpo').querySelectorAll('input[name="fcConservar"]').forEach(r => r.addEventListener('change', marcarSeleccion));
+    const idDescartadoDeInicio = sugerido === actual.id ? otro.id : actual.id;
+    pintarSitios(idDescartadoDeInicio, sugerido);
+    $('modalCuerpo').querySelectorAll('input[name="fcConservar"]').forEach(r => r.addEventListener('change', ev=>{
+      marcarSeleccion();
+      const idConservar = ev.target.value;
+      const idDescartar = idConservar === actual.id ? otro.id : actual.id;
+      pintarSitios(idDescartar, idConservar);
+    }));
     $('fcBtnFusionar').disabled = false;
   }
 
@@ -12324,7 +12363,13 @@ function modalFusionCliente(id){
     if(!marcado){ aviso('Elige cuál de los dos clientes se conserva.', true); return; }
     const idConservar = marcado.value;
     const idDescartar = idConservar === actual.id ? otroId : actual.id;
-    fusionarClientes(idConservar, idDescartar);
+    /* Destino elegido a mano para cada sitio; el que no se haya tocado sigue
+       con el <select> en su opción por omisión (el cliente que se conserva). */
+    const asignacionSitios = {};
+    $('modalCuerpo').querySelectorAll('[data-fc-sitio]').forEach(sel=>{
+      asignacionSitios[sel.dataset.fcSitio] = sel.value;
+    });
+    fusionarClientes(idConservar, idDescartar, asignacionSitios);
   };
 }
 
@@ -12332,8 +12377,14 @@ function modalFusionCliente(id){
    registro duplicado. Cada colección se reasigna y se guarda con su función
    normal (guardarSitio, guardarPoliza, etc.): así cada cambio se encola y
    sincroniza exactamente igual que si alguien lo hubiera editado a mano en su
-   propio módulo — no hay un camino especial de sincronización para esto. */
-function fusionarClientes(idConservar, idDescartar){
+   propio módulo — no hay un camino especial de sincronización para esto.
+
+   `asignacionSitios` (opcional) es un {sitioId: clienteDestinoId} para
+   mandar sitios de Forpass a un cliente DISTINTO del que se conserva —el
+   modal lo ofrece porque un cliente "duplicado" a veces trae sitios que en
+   realidad son de un tercero. Un sitio que no aparezca ahí va al que se
+   conserva, como el resto de las colecciones. */
+function fusionarClientes(idConservar, idDescartar, asignacionSitios){
   if(!exigirAdmin('fusionar clientes')) return;
   if(idConservar === idDescartar) return;
   const conservar = clientePorId(idConservar), descartar = clientePorId(idDescartar);
@@ -12341,7 +12392,12 @@ function fusionarClientes(idConservar, idDescartar){
 
   const detalle = 'de «' + descartar.nombre + '» a «' + conservar.nombre + '»';
   const d = datosClienteParaFusion(idDescartar);
-  d.sitios.forEach(s => { s.clienteId = idConservar; guardarSitio(s, 'movió', detalle); });
+  d.sitios.forEach(s => {
+    const destinoId = (asignacionSitios && asignacionSitios[s.id]) || idConservar;
+    const destino = clientePorId(destinoId) || conservar;
+    s.clienteId = destino.id;
+    guardarSitio(s, 'movió', destino.id === idConservar ? detalle : 'de «' + descartar.nombre + '» a «' + destino.nombre + '»');
+  });
   d.pol.forEach(p => { p.clienteId = idConservar; guardarPoliza(p, 'movió', detalle); });
   d.cot.forEach(q => { q.clienteId = idConservar; guardarCotizacion(q, 'movió', detalle); });
   d.rep.forEach(r => { r.clienteId = idConservar; guardarReporte(r, 'movió', detalle); });
