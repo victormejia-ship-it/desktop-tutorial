@@ -1892,6 +1892,12 @@ function normalizarCliente(c){
    ------------------------------------------------------------------------- */
 const LOGO_LADO = 256;
 const LOGO_MAX_ENTRADA = 10 * 1024 * 1024;   /* 10 MB de archivo original */
+/* Foto institucional de una cuenta: mismo pipeline que el logo de cliente
+   (cargarImagen + comprimirLienzo), pero sin el editor de zoom/arrastre —
+   se recorta sola al cuadro central. Es una foto de perfil administrada por
+   Admin/Owner al dar de alta o corregir una cuenta, no algo que la persona
+   ajuste a diario. */
+const FOTO_USUARIO_LADO = 200;
 const LOGO_MAX_GUARDADO = 120 * 1024;        /* ~120 KB ya reducido */
 
 function cargarImagen(archivo){
@@ -5331,6 +5337,15 @@ function normalizarPartida(x){
 function hoyISO(){
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+/* Día 1 del mes siguiente al de `iso`. Es el arranque por omisión de la
+   vigencia de una póliza nueva: se cotiza hoy, pero el servicio casi nunca
+   arranca a mitad de un mes ya facturado — arranca con el mes que sigue. */
+function primerDiaMesSiguiente(iso){
+  const p = partes(iso);
+  const mesSiguiente = p.m === 12 ? 1 : p.m + 1;
+  const anioSiguiente = p.m === 12 ? p.a + 1 : p.a;
+  return anioSiguiente + '-' + String(mesSiguiente).padStart(2,'0') + '-01';
 }
 function partes(iso){ const [a,m,d] = iso.split('-').map(Number); return {a,m,d}; }
 function aUTC(iso){ const p = partes(iso); return Date.UTC(p.a, p.m-1, p.d); }
@@ -12528,7 +12543,7 @@ function pintarUsuarios(){
   if(!us.length){ cont.innerHTML = '<div class="vacio-chico">Todavía no hay cuentas registradas.</div>'; return; }
 
   cont.innerHTML = '<table class="tabla"><thead><tr>'
-    + '<th>Cuenta</th><th>Permiso</th><th>Estado</th><th>Creada</th><th>Último acceso</th><th></th>'
+    + '<th></th><th>Cuenta</th><th>Contacto</th><th>Permiso</th><th>Estado</th><th>Creada</th><th>Último acceso</th><th></th>'
     + '</tr></thead><tbody>'
     + us.map(u=>{
         const yo = u.id === sesion.uid;
@@ -12538,6 +12553,10 @@ function pintarUsuarios(){
         /* El Owner borra a cualquiera; un Admin a todos menos a un Owner.
            Nadie se borra a sí mismo: sería quedarse fuera sin vuelta. */
         const puedeBorrar = !yo && (esOwner() || (esAdmin() && !esDueno));
+        /* Mismo candado que el borrado, para nombre/teléfono/foto: la regla
+           del servidor solo deja a un Admin tocar la ficha completa de
+           alguien que NO sea Owner (ver config/firestore.rules, /usuarios). */
+        const puedeEditarFicha = esOwner() || (esAdmin() && !esDueno);
         const rolesQuePuedeDar = Object.keys(ROLES).filter(r => r !== 'owner' || esOwner());
         const opciones = rolesQuePuedeDar.map(r =>
           '<option value="' + r + '"' + (u.rol === r ? ' selected' : '') + '>' + esc(ROLES[r].nombre) + '</option>').join('');
@@ -12545,8 +12564,12 @@ function pintarUsuarios(){
                          : 'Solo un Owner puede cambiar el permiso de un Owner';
 
         return '<tr>'
+          + '<td>' + (u.foto
+                ? '<img src="' + esc(u.foto) + '" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;display:block">'
+                : '<div class="t-avatar" style="width:34px;height:34px;font-size:12px">' + esc(iniciales(nombreDe(u) || u.correo || '?')) + '</div>') + '</td>'
           + '<td><b>' + esc(nombreDe(u) || '—') + '</b>' + (yo ? ' <span class="yo">(tú)</span>' : '')
           +   '<div style="font-size:11.5px; color:var(--gray)">' + esc(u.correo || '') + '</div></td>'
+          + '<td>' + esc(u.telefono || '—') + '</td>'
           + '<td>' + (protegido
                 ? '<span class="rol c-' + u.rol + '" title="' + esc(razon) + '">' + esc(ROLES[u.rol].nombre) + '</span>'
                 : '<select class="sel-rol c-' + u.rol + '" data-rol="' + esc(u.id) + '">' + opciones + '</select>') + '</td>'
@@ -12556,6 +12579,8 @@ function pintarUsuarios(){
           + '<td>' + esc(fechaHora(u.creado, true)) + '</td>'
           + '<td>' + esc(fechaHora(u.ultimoAcceso, true)) + '</td>'
           + '<td class="acciones">'
+          +   (puedeEditarFicha ? '<button type="button" class="btn btn-suave btn-mini" data-editar-usuario="' + esc(u.id) + '" '
+                 + 'title="Editar nombre, teléfono y foto">' + ICONO.lapiz + '</button>' : '')
           +   (protegido ? '' : '<button type="button" class="btn ' + (u.activo === false ? 'btn-verde' : 'btn-suave')
                  + ' btn-mini" data-bloquear="' + esc(u.id) + '">' + (u.activo === false ? 'Reactivar' : 'Bloquear') + '</button>')
           +   (puedeBorrar ? '<button type="button" class="btn btn-peligro btn-mini" data-borrar-usuario="' + esc(u.id) + '" '
@@ -12621,16 +12646,33 @@ function claveSugerida(){
 /* ------------------------- Modal: crear cuenta ------------------------- */
 function modalCuenta(){
   const sugerida = claveSugerida();
+  let fotoTmp = '';
   /* Solo un Owner puede crear otro Owner. */
   const opciones = Object.keys(ROLES).filter(r => r !== 'owner' || esOwner()).map(r =>
     '<option value="' + r + '"' + (r === 'analyst' ? ' selected' : '') + '>' + esc(ROLES[r].nombre) + ' — ' + esc(ROLES[r].desc) + '</option>').join('');
 
   abrirModal('Crear cuenta',
-      '<div class="campo"><label>Correo de la persona *</label>'
+      '<div class="campo"><label>Foto institucional (opcional)</label>'
+    +   '<div class="logo-zona">'
+    +     '<div id="fotoUsuarioCaja"></div>'
+    +     '<div class="logo-lado">'
+    +       '<div class="logo-botones">'
+    +         '<button type="button" class="btn btn-suave btn-mini" id="btnSubirFotoUsuario">Subir foto…</button>'
+    +         '<button type="button" class="btn btn-peligro btn-mini" id="btnQuitarFotoUsuario">Quitar</button>'
+    +       '</div>'
+    +       '<div class="pista">JPG, PNG o WEBP. Se recorta al centro y se reduce sola.</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<input type="file" id="archivoFotoUsuario" accept="image/*" style="display:none">'
+    + '</div>'
+    + '<div class="campo"><label>Correo de la persona *</label>'
     +   '<input type="email" id="uCorreo" placeholder="nombre@empresa.com" autocomplete="off"></div>'
     + '<div class="campo"><label>Nombre (opcional)</label>'
     +   '<input type="text" id="uNombre" placeholder="Ej. Ana Torres">'
     +   '<div class="pista">Si lo dejas vacío, se toma del correo: <b>ana.torres@…</b> se muestra como <b>Ana Torres</b>.</div></div>'
+    + '<div class="campo"><label>Teléfono de contacto (opcional)</label>'
+    +   '<input type="text" id="uTelefono" inputmode="tel" placeholder="811 60 71 051">'
+    +   '<div class="pista">Sale impreso en sus cotizaciones y pólizas, junto a su nombre.</div></div>'
     + '<div class="campo"><label>Permiso *</label><select id="uRol">' + opciones + '</select></div>'
     + '<div class="campo"><label>Contraseña temporal *</label>'
     +   '<input type="text" id="uClave" value="' + esc(sugerida) + '">'
@@ -12639,11 +12681,38 @@ function modalCuenta(){
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">Crear cuenta</button>');
 
+  function pintarFotoUsuario(){
+    $('fotoUsuarioCaja').innerHTML = fotoTmp
+      ? '<img src="' + esc(fotoTmp) + '" alt="" style="width:96px;height:96px;border-radius:50%;object-fit:cover">'
+      : '<div class="t-avatar" style="width:96px;height:96px;font-size:28px">' + esc(iniciales($('uNombre').value || $('uCorreo').value || '?')) + '</div>';
+  }
+  pintarFotoUsuario();
+  $('uNombre').addEventListener('input', ()=>{ if(!fotoTmp) pintarFotoUsuario(); });
+  $('uCorreo').addEventListener('input', ()=>{ if(!fotoTmp) pintarFotoUsuario(); });
+  $('btnSubirFotoUsuario').addEventListener('click', ()=> $('archivoFotoUsuario').click());
+  $('btnQuitarFotoUsuario').addEventListener('click', ()=>{ fotoTmp = ''; pintarFotoUsuario(); });
+  $('archivoFotoUsuario').addEventListener('change', async ev=>{
+    const archivo = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if(!archivo) return;
+    try{
+      const img = await leerLogo(archivo);
+      const lienzo = document.createElement('canvas');
+      lienzo.width = lienzo.height = FOTO_USUARIO_LADO;
+      const ctx = lienzo.getContext('2d');
+      const lado = Math.min(img.width, img.height);
+      ctx.drawImage(img, (img.width-lado)/2, (img.height-lado)/2, lado, lado, 0, 0, FOTO_USUARIO_LADO, FOTO_USUARIO_LADO);
+      fotoTmp = comprimirLienzo(lienzo);
+      pintarFotoUsuario();
+    }catch(e){ aviso(e.message, true); }
+  });
+
   cerrarModalActual = async ()=>{
     const correo = $('uCorreo').value.trim();
     const clave  = $('uClave').value;
     const rol    = $('uRol').value;
     const nombre = $('uNombre').value.trim();
+    const telefono = $('uTelefono').value.trim();
     if(!correo){ $('uCorreo').setAttribute('aria-invalid','true'); $('uCorreo').focus(); aviso('Falta el correo.', true); return; }
     if(clave.length < 6){ $('uClave').setAttribute('aria-invalid','true'); aviso('La contraseña necesita al menos 6 caracteres.', true); return; }
 
@@ -12654,7 +12723,7 @@ function modalCuenta(){
          tu sesión de administrador no se toca. */
       const d = await pedirAuth('signUp', { email:correo, password:clave, returnSecureToken:false });
       const perfil = {
-        correo, nombre, rol, activo:true,
+        correo, nombre, rol, activo:true, telefono, foto: fotoTmp,
         creado: new Date().toISOString(),
         creadoPor: sesion.correo || '',
         ultimoAcceso: ''
@@ -12688,6 +12757,94 @@ function modalCuenta(){
     }catch(e){
       btn.disabled = false; btn.textContent = 'Crear cuenta';
       aviso(e.message, true);
+    }
+  };
+}
+
+/* ------------------ Modal: editar nombre/teléfono/foto ------------------
+   Distinto de cambiar el permiso (eso es un <select> directo en la fila) y
+   distinto de «Mi cuenta» (esa es autoservicio, solo para uno mismo y solo
+   teléfono+contraseña): esto es lo que Admin/Owner usan para dar de alta o
+   corregir el nombre, el teléfono y la foto institucional de OTRA cuenta —
+   por ejemplo cuando una persona nueva no ha entrado todavía y aun así ya
+   hace falta su celular impreso en una póliza. Mismo candado que borrar:
+   un Admin no puede tocar la ficha de un Owner (ver puedeEditarFicha en
+   pintarUsuarios y la regla /usuarios en config/firestore.rules). */
+function modalEditarUsuario(id){
+  const u = (admin.usuarios || []).find(x => x.id === id);
+  if(!u) return;
+  let fotoTmp = u.foto || '';
+
+  const cuerpo =
+      '<div class="campo"><label>Foto institucional (opcional)</label>'
+    +   '<div class="logo-zona">'
+    +     '<div id="fotoUsuarioCaja"></div>'
+    +     '<div class="logo-lado">'
+    +       '<div class="logo-botones">'
+    +         '<button type="button" class="btn btn-suave btn-mini" id="btnSubirFotoUsuario">Subir foto…</button>'
+    +         '<button type="button" class="btn btn-peligro btn-mini" id="btnQuitarFotoUsuario">Quitar</button>'
+    +       '</div>'
+    +       '<div class="pista">JPG, PNG o WEBP. Se recorta al centro y se reduce sola.</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<input type="file" id="archivoFotoUsuario" accept="image/*" style="display:none">'
+    + '</div>'
+    + '<div class="campo"><label>Nombre</label>'
+    +   '<input type="text" id="euNombre" placeholder="Ej. Ana Torres" value="' + esc(u.nombre || '') + '"></div>'
+    + '<div class="campo"><label>Teléfono de contacto</label>'
+    +   '<input type="text" id="euTelefono" inputmode="tel" placeholder="811 60 71 051" value="' + esc(u.telefono || '') + '">'
+    +   '<div class="pista">Sale impreso en sus cotizaciones y pólizas, junto a su nombre.</div></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Guardar cambios</button>';
+
+  abrirModal('Editar ' + (nombreDe(u) || u.correo || 'cuenta'), cuerpo, pie);
+
+  function pintarFotoUsuario(){
+    $('fotoUsuarioCaja').innerHTML = fotoTmp
+      ? '<img src="' + esc(fotoTmp) + '" alt="" style="width:96px;height:96px;border-radius:50%;object-fit:cover">'
+      : '<div class="t-avatar" style="width:96px;height:96px;font-size:28px">' + esc(iniciales($('euNombre').value || u.correo || '?')) + '</div>';
+  }
+  pintarFotoUsuario();
+  $('euNombre').addEventListener('input', ()=>{ if(!fotoTmp) pintarFotoUsuario(); });
+  $('btnSubirFotoUsuario').addEventListener('click', ()=> $('archivoFotoUsuario').click());
+  $('btnQuitarFotoUsuario').addEventListener('click', ()=>{ fotoTmp = ''; pintarFotoUsuario(); });
+  $('archivoFotoUsuario').addEventListener('change', async ev=>{
+    const archivo = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if(!archivo) return;
+    try{
+      const img = await leerLogo(archivo);
+      const lienzo = document.createElement('canvas');
+      lienzo.width = lienzo.height = FOTO_USUARIO_LADO;
+      const ctx = lienzo.getContext('2d');
+      const lado = Math.min(img.width, img.height);
+      ctx.drawImage(img, (img.width-lado)/2, (img.height-lado)/2, lado, lado, 0, 0, FOTO_USUARIO_LADO, FOTO_USUARIO_LADO);
+      fotoTmp = comprimirLienzo(lienzo);
+      pintarFotoUsuario();
+    }catch(e){ aviso(e.message, true); }
+  });
+
+  cerrarModalActual = async ()=>{
+    const nombre = $('euNombre').value.trim();
+    const telefono = $('euTelefono').value.trim();
+    const btn = $('modalPie').querySelector('[data-modal="guardar"]');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try{
+      const actualizado = Object.assign({}, u, { nombre, telefono, foto: fotoTmp, id: undefined });
+      await escribirNube('usuarios', u.id, actualizado);
+      Object.assign(u, { nombre, telefono, foto: fotoTmp });
+      /* Si el Admin/Owner se está editando a sí mismo, la sesión abierta
+         también debe reflejarlo de inmediato (nombre en el encabezado,
+         teléfono en su próxima cotización). */
+      if(u.id === sesion.uid){ sesion.nombre = nombre; sesion.telefono = telefono; guardarSesion(); pintarEstadoNube(); }
+      anotar('editó', 'cuenta', u.correo, 'datos de contacto');
+      cerrarModal();
+      pintarUsuarios();
+      aviso('Cuenta actualizada.');
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'Guardar cambios';
+      aviso('No se pudo guardar: ' + e.message, true);
     }
   };
 }
@@ -12746,6 +12903,9 @@ $('vista').addEventListener('click', async ev=>{
       });
     return;
   }
+
+  const edUsr = ev.target.closest('[data-editar-usuario]');
+  if(edUsr){ modalEditarUsuario(edUsr.dataset.editarUsuario); return; }
 
   const blo = ev.target.closest('[data-bloquear]');
   if(blo){
@@ -14288,7 +14448,7 @@ function modalPoliza(id, origenLevantamiento){
     +     '<div class="campo"><label>Fecha de la cotización</label>'
     +       '<input type="date" id="pCotizacion" value="' + esc(p ? p.fechaCotizacion : ((origenLevantamiento && origenLevantamiento.fechaCotizacion) || hoyISO())) + '"></div>'
     +     '<div class="campo"><label>Inicio de la vigencia</label>'
-    +       '<input type="date" id="pInicio" value="' + esc(p ? p.fechaInicio : ((origenLevantamiento && origenLevantamiento.fechaInicio) || hoyISO())) + '"' + soloL + '>'
+    +       '<input type="date" id="pInicio" value="' + esc(p ? p.fechaInicio : ((origenLevantamiento && origenLevantamiento.fechaInicio) || primerDiaMesSiguiente(hoyISO()))) + '"' + soloL + '>'
     +       '<div class="pista">Manda el calendario: los meses de servicio se cuentan desde aquí.</div></div>'
     +   '</div>'
     +   '<div class="campo"><label>Facturación</label><select id="pFacturacion"' + bloq + '>'
