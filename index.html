@@ -722,9 +722,9 @@ button.mes{cursor:pointer;}
 .fc-opcion .fc-nombre{font-weight:700; color:var(--navy); font-size:13.5px;}
 .fc-opcion .fc-datos{font-size:11.5px; color:var(--gray); margin-top:2px; line-height:1.5;}
 .fc-sitios{display:flex; flex-direction:column; gap:6px;}
-.fc-sitio-fila{display:flex; align-items:center; justify-content:space-between; gap:10px; border:1px solid var(--line); border-radius:8px; padding:7px 10px;}
-.fc-sitio-fila span{font-size:12.5px; color:var(--navy); font-weight:600;}
-.fc-sitio-fila select{font-size:12px; padding:5px 8px; border:1px solid #d4d9e6; border-radius:7px; font-family:inherit; max-width:220px;}
+.fc-sitio-fila{display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:8px; padding:7px 10px; flex-wrap:wrap;}
+.fc-sitio-fila span{font-size:12.5px; color:var(--navy); font-weight:600; flex:1 1 140px; min-width:0;}
+.fc-sitio-fila select{font-size:12px; padding:5px 8px; border:1px solid #d4d9e6; border-radius:7px; font-family:inherit; flex:1 1 170px; min-width:0; max-width:220px;}
 /* Vista previa de la importación. Los avisos van en su PROPIO renglón a todo lo
    ancho, no en una columna: son la razón de ser de esta pantalla, y metidos en
    una columna estrecha se cortaban justo donde empezaba lo importante. */
@@ -8070,6 +8070,14 @@ function tarjetaSitio(s, i){
        +     (puedeEditar()
               ? '<button type="button" class="btn btn-suave btn-mini" data-editar-sitio="' + esc(s.id) + '">' + ICONO.lapiz + 'Editar</button>'
               : '')
+       /* Mismo criterio que fusionar clientes: toca de golpe todo lo que
+          cuelgue del sitio (pólizas, cotizaciones, reportes, levantamientos,
+          proyectos de imagen) y borra un registro completo — solo Admin. Para
+          el caso de un sitio capturado dos veces (p.ej. "Componentes" y
+          "JD Componentes"), sin tener que ir a editar cada colección a mano. */
+       +     (esAdmin()
+              ? '<button type="button" class="btn btn-suave btn-mini" data-fusionar-sitio="' + esc(s.id) + '" title="Unir con un sitio duplicado">' + ICONO.respaldo + 'Fusionar</button>'
+              : '')
        /* Mismo criterio que el cliente: borrar un sitio se lleva su historial de
           pagos y sus OC, y eso no se deshace. */
        +     (esAdmin()
@@ -12293,30 +12301,48 @@ function modalFusionCliente(id){
     });
   }
 
-  /* Los sitios de Forpass del cliente que se va a DESCARTAR, uno por uno: por
-     omisión todos se van al que se conserva, pero no tienen por qué —un
-     cliente "duplicado" a veces trae sitios que en realidad son de un
-     tercero, y aquí se corrige de una vez, sin ir a Forpass a editarlos. Se
+  /* Los sitios de Forpass del cliente que se va a DESCARTAR, uno por uno. Por
+     cada uno se elige: (1) a qué cliente se mueve (por omisión, el que se
+     conserva; un cliente "duplicado" a veces trae sitios que en realidad son
+     de un tercero) y (2) si ya existe ESE MISMO sitio capturado allá —
+     "JD Componentes" ya existe y "Componentes" es el mismo lugar duplicado—,
+     con qué sitio fusionarlo en vez de dejarlo como uno nuevo y aparte. Se
      vuelve a pintar cada vez que cambia quién se descarta (el radio) o el
-     cliente elegido como duplicado. */
+     cliente elegido como duplicado; la lista de "fusionar con" de cada fila
+     se recalcula sola si cambian el cliente de ESA fila, porque un sitio solo
+     se puede fusionar con otro del MISMO cliente. */
   function pintarSitios(idDescartar, idConservarDefault){
     const cont = $('fcSitios');
     const sitios = sitiosDe(idDescartar);
     if(!sitios.length){ cont.innerHTML = ''; return; }
     const descartado = clientePorId(idDescartar);
-    const opciones = sel => datos.clientes.filter(x => x.id !== idDescartar)
+    const opcionesClientes = sel => datos.clientes.filter(x => x.id !== idDescartar)
       .sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'))
       .map(x => '<option value="' + esc(x.id) + '"' + (x.id === sel ? ' selected' : '') + '>' + esc(x.nombre) + '</option>').join('');
+    const opcionesSitiosDe = clienteId => sitiosDe(clienteId)
+      .sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'))
+      .map(s => '<option value="' + esc(s.id) + '">' + esc(s.nombre) + '</option>').join('');
     cont.innerHTML =
-        '<div class="campo"><label>Sitios de Forpass de «' + esc(descartado.nombre) + '»: a cuál cliente van</label>'
+        '<div class="campo"><label>Sitios de Forpass de «' + esc(descartado.nombre) + '»</label>'
       +   '<div class="fc-sitios">'
       +     sitios.map(s =>
-              '<div class="fc-sitio-fila"><span>' + esc(s.nombre) + '</span>'
-            +   '<select data-fc-sitio="' + esc(s.id) + '">' + opciones(idConservarDefault) + '</select></div>'
+              '<div class="fc-sitio-fila">'
+            +   '<span>' + esc(s.nombre) + '</span>'
+            +   '<select data-fc-sitio="' + esc(s.id) + '" title="A cuál cliente se mueve">' + opcionesClientes(idConservarDefault) + '</select>'
+            +   '<select data-fc-sitio-fusion="' + esc(s.id) + '" title="Fusionar con un sitio que ya existe ahí">'
+            +     '<option value="">— Como sitio nuevo —</option>' + opcionesSitiosDe(idConservarDefault)
+            +   '</select>'
+            + '</div>'
             ).join('')
       +   '</div>'
-      +   '<div class="pista">Por si alguno en realidad es de otro cliente: no tienen que ir todos al mismo lugar.</div>'
+      +   '<div class="pista">Si ese mismo sitio ya está capturado en el cliente al que se mueve, fusiónalo con él en vez de dejarlo duplicado.</div>'
       + '</div>';
+    $('modalCuerpo').querySelectorAll('[data-fc-sitio]').forEach(sel=>{
+      sel.addEventListener('change', ()=>{
+        const fusionSel = $('modalCuerpo').querySelector('[data-fc-sitio-fusion="' + sel.dataset.fcSitio + '"]');
+        fusionSel.innerHTML = '<option value="">— Como sitio nuevo —</option>' + opcionesSitiosDe(sel.value);
+      });
+    });
   }
 
   function pintarPreview(){
@@ -12363,13 +12389,136 @@ function modalFusionCliente(id){
     if(!marcado){ aviso('Elige cuál de los dos clientes se conserva.', true); return; }
     const idConservar = marcado.value;
     const idDescartar = idConservar === actual.id ? otroId : actual.id;
-    /* Destino elegido a mano para cada sitio; el que no se haya tocado sigue
-       con el <select> en su opción por omisión (el cliente que se conserva). */
+    /* Destino elegido a mano para cada sitio (a qué cliente, y con cuál sitio
+       ya existente fusionarlo si aplica); el que no se haya tocado sigue con
+       los <select> en su opción por omisión (el cliente que se conserva,
+       como sitio nuevo). */
     const asignacionSitios = {};
     $('modalCuerpo').querySelectorAll('[data-fc-sitio]').forEach(sel=>{
-      asignacionSitios[sel.dataset.fcSitio] = sel.value;
+      const fusionSel = $('modalCuerpo').querySelector('[data-fc-sitio-fusion="' + sel.dataset.fcSitio + '"]');
+      asignacionSitios[sel.dataset.fcSitio] = { clienteId: sel.value, fusionarCon: (fusionSel && fusionSel.value) || null };
     });
     fusionarClientes(idConservar, idDescartar, asignacionSitios);
+  };
+}
+
+/* Todo lo que cuelga de un SITIO (no de un cliente): igual que
+   datosClienteParaFusion, pero llaveado por sitioId — para cuando dos sitios
+   son el mismo lugar capturado dos veces (p.ej. "Componentes" y
+   "JD Componentes") y hay que fusionarlos entre sí, no solo mover sus
+   clientes. */
+function datosSitioParaFusion(sitioId){
+  return {
+    pol: datos.polizas.filter(p => p.sitioId === sitioId),
+    cot: datos.cotizaciones.filter(q => q.sitioId === sitioId),
+    rep: datos.reportes.filter(r => r.sitioId === sitioId),
+    lev: datos.levantamientos.filter(l => l.sitioId === sitioId),
+    proy: datos.proyectosImagen.filter(p => p.sitioId === sitioId)
+  };
+}
+
+/* Fusiona dos SITIOS: todo lo que cuelga de `idDescartar` (pólizas,
+   cotizaciones, reportes, levantamientos, proyectos de imagen) se reasigna a
+   `idConservar`, y el sitio duplicado se borra — el mismo criterio que
+   fusionarClientes(), pero a nivel sitio. Las mensualidades/pagos y demás
+   datos propios del sitio que se conserva NO se tocan: se asume que ese es
+   el registro bueno, y el duplicado solo aportaba historial mal repartido en
+   otras colecciones. */
+function fusionarSitios(idConservar, idDescartar){
+  if(!exigirAdmin('fusionar sitios')) return;
+  if(idConservar === idDescartar) return;
+  const conservar = sitioPorId(idConservar), descartar = sitioPorId(idDescartar);
+  if(!conservar || !descartar) return;
+
+  const detalle = 'de «' + descartar.nombre + '» a «' + conservar.nombre + '»';
+  const d = datosSitioParaFusion(idDescartar);
+  d.pol.forEach(p => { p.sitioId = idConservar; p.sitioNombre = conservar.nombre; guardarPoliza(p, 'movió', detalle); });
+  d.cot.forEach(q => { q.sitioId = idConservar; guardarCotizacion(q, 'movió', detalle); });
+  d.rep.forEach(r => { r.sitioId = idConservar; r.sitioNombre = conservar.nombre; guardarReporte(r, 'movió', detalle); });
+  d.lev.forEach(l => { l.sitioId = idConservar; l.sitioNombre = conservar.nombre; guardarLevantamiento(l, 'movió', detalle); });
+  d.proy.forEach(p => { p.sitioId = idConservar; p.sitioNombre = conservar.nombre; guardarProyectoImagen(p, 'movió', detalle); });
+
+  datos.sitios = datos.sitios.filter(s => s.id !== idDescartar);
+  borrarRegistro('sitios', idDescartar);
+  anotar('fusionó', 'sitio', descartar.nombre, 'con «' + conservar.nombre + '»');
+}
+
+/* Botón "Fusionar" de cada tarjeta de Forpass: para el caso de un sitio
+   capturado dos veces SIN que su cliente esté duplicado —"Componentes" y
+   "JD Componentes" son el mismo lugar, del mismo cliente, nada más que a
+   "Componentes" nunca le corrigieron el nombre ni lo borraron—. Deja elegir
+   a la vez el cliente correcto y, si ya existe ahí ese mismo sitio, con cuál
+   fusionarlo — así no se necesita pasar primero por "fusionar clientes"
+   cuando el cliente ya está bien y el problema es solo el sitio. */
+function modalFusionSitio(sitioId){
+  const origen = sitioPorId(sitioId);
+  if(!origen) return;
+
+  const cuerpo =
+      '<div class="pista" style="margin-bottom:14px">Elige a qué cliente pertenece en realidad <b>' + esc(origen.nombre) + '</b> '
+    +   'y, si ese mismo sitio ya está capturado ahí, con cuál fusionarlo —así no queda duplicado. Al fusionar, todo lo suyo '
+    +   '(pólizas, cotizaciones, reportes, levantamientos, proyectos de imagen) se pasa al que se conserve, y «' + esc(origen.nombre) + '» se elimina.</div>'
+    + '<div class="campo"><label>Cliente</label>'
+    +   '<select id="fsCliente">' + datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'))
+          .map(c => '<option value="' + esc(c.id) + '"' + (c.id === origen.clienteId ? ' selected' : '') + '>' + esc(c.nombre) + '</option>').join('')
+        + '</select></div>'
+    + '<div class="campo"><label>Fusionar con un sitio ya existente de ese cliente (opcional)</label>'
+    +   '<select id="fsSitio"></select></div>'
+    + '<div id="fsPreview"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-peligro" data-modal="guardar">Aplicar</button>';
+
+  abrirModal('Fusionar sitio de Forpass', cuerpo, pie);
+
+  function opcionesSitiosDe(clienteId){
+    return sitiosDe(clienteId).filter(s => s.id !== origen.id)
+      .sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'))
+      .map(s => '<option value="' + esc(s.id) + '">' + esc(s.nombre) + '</option>').join('');
+  }
+
+  function pintarPreview(){
+    const destId = $('fsSitio').value;
+    const cont = $('fsPreview');
+    if(!destId){ cont.innerHTML = ''; return; }
+    const destino = sitioPorId(destId);
+    const d = datosSitioParaFusion(origen.id);
+    cont.innerHTML =
+        '<div class="pista">Se elimina <b>' + esc(origen.nombre) + '</b> y se conserva <b>' + esc(destino.nombre) + '</b>, '
+      + 'que recibe ' + numero(d.pol.length) + ' ' + plural(d.pol.length,'póliza','pólizas') + ' · '
+      + numero(d.cot.length) + ' ' + plural(d.cot.length,'cotización','cotizaciones') + ' · '
+      + numero(d.rep.length) + ' ' + plural(d.rep.length,'reporte','reportes') + ' · '
+      + numero(d.lev.length) + ' ' + plural(d.lev.length,'levantamiento','levantamientos') + ' · '
+      + numero(d.proy.length) + ' ' + plural(d.proy.length,'proyecto de imagen','proyectos de imagen') + '.</div>';
+  }
+
+  function actualizarSitios(){
+    $('fsSitio').innerHTML = '<option value="">— Sin fusionar, solo mover al cliente —</option>' + opcionesSitiosDe($('fsCliente').value);
+    pintarPreview();
+  }
+  actualizarSitios();
+
+  $('fsCliente').addEventListener('change', actualizarSitios);
+  $('fsSitio').addEventListener('change', pintarPreview);
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('fsCliente').value;
+    const destId = $('fsSitio').value;
+    if(destId){
+      const destino = sitioPorId(destId);
+      fusionarSitios(destId, origen.id);
+      cerrarModal(); render();
+      aviso('«' + origen.nombre + '» se fusionó con «' + destino.nombre + '».');
+      return;
+    }
+    const cambioCliente = clienteId !== origen.clienteId;
+    if(cambioCliente){
+      const cliente = clientePorId(clienteId);
+      origen.clienteId = clienteId;
+      guardarSitio(origen, 'movió', 'a «' + cliente.nombre + '»');
+    }
+    cerrarModal(); render();
+    aviso(cambioCliente ? '«' + origen.nombre + '» se movió a otro cliente.' : 'Sin cambios que aplicar.');
   };
 }
 
@@ -12379,11 +12528,15 @@ function modalFusionCliente(id){
    sincroniza exactamente igual que si alguien lo hubiera editado a mano en su
    propio módulo — no hay un camino especial de sincronización para esto.
 
-   `asignacionSitios` (opcional) es un {sitioId: clienteDestinoId} para
-   mandar sitios de Forpass a un cliente DISTINTO del que se conserva —el
+   `asignacionSitios` (opcional) es un {sitioId: {clienteId, fusionarCon}}:
+   `clienteId` manda ese sitio a un cliente DISTINTO del que se conserva —el
    modal lo ofrece porque un cliente "duplicado" a veces trae sitios que en
-   realidad son de un tercero. Un sitio que no aparezca ahí va al que se
-   conserva, como el resto de las colecciones. */
+   realidad son de un tercero—, y `fusionarCon` (opcional) es el id de un
+   sitio YA EXISTENTE de ese cliente con el que fusionarlo, para el caso de
+   "Componentes" y "JD Componentes": el mismo lugar capturado dos veces, no
+   dos sitios de verdad. Un sitio que no aparezca en `asignacionSitios`, o sin
+   `fusionarCon`, se mueve como sitio nuevo al cliente que se conserva —igual
+   que el resto de las colecciones. */
 function fusionarClientes(idConservar, idDescartar, asignacionSitios){
   if(!exigirAdmin('fusionar clientes')) return;
   if(idConservar === idDescartar) return;
@@ -12393,8 +12546,16 @@ function fusionarClientes(idConservar, idDescartar, asignacionSitios){
   const detalle = 'de «' + descartar.nombre + '» a «' + conservar.nombre + '»';
   const d = datosClienteParaFusion(idDescartar);
   d.sitios.forEach(s => {
-    const destinoId = (asignacionSitios && asignacionSitios[s.id]) || idConservar;
+    const asignacion = (asignacionSitios && asignacionSitios[s.id]) || {};
+    const destinoId = asignacion.clienteId || idConservar;
     const destino = clientePorId(destinoId) || conservar;
+    if(asignacion.fusionarCon && sitioPorId(asignacion.fusionarCon)){
+      /* No se mueve como sitio nuevo: SE FUSIONA con uno que ya existe ahí
+         (mismo lugar, capturado dos veces) — fusionarSitios() reasigna lo
+         que cuelgue de este sitio y lo borra, sin dejarlo duplicado. */
+      fusionarSitios(asignacion.fusionarCon, s.id);
+      return;
+    }
     s.clienteId = destino.id;
     guardarSitio(s, 'movió', destino.id === idConservar ? detalle : 'de «' + descartar.nombre + '» a «' + destino.nombre + '»');
   });
@@ -15734,6 +15895,9 @@ $('vista').addEventListener('click', ev=>{
 
   const edS = t.closest('[data-editar-sitio]');
   if(edS){ if(exigirPermiso()) modalSitio(null, edS.dataset.editarSitio); return; }
+
+  const fuS = t.closest('[data-fusionar-sitio]');
+  if(fuS){ if(exigirAdmin('fusionar sitios')) modalFusionSitio(fuS.dataset.fusionarSitio); return; }
 
   const boS = t.closest('[data-borrar-sitio]');
   if(boS){
