@@ -714,6 +714,13 @@ button.mes{cursor:pointer;}
 .tipo-codigo button{border:none; background:#fff; padding:0 12px; font-size:12px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit;}
 .tipo-codigo button + button{border-left:1px solid #d4d9e6;}
 .tipo-codigo button.on{background:var(--accent); color:#fff;}
+/* Fusionar clientes: tarjetas de radio para elegir cuál de los dos se conserva. */
+.fc-opciones{display:flex; flex-direction:column; gap:8px;}
+.fc-opcion{display:flex; align-items:flex-start; gap:10px; border:1.5px solid #d4d9e6; border-radius:10px; padding:10px 12px; cursor:pointer;}
+.fc-opcion.on{border-color:var(--accent); background:#f6f9ff;}
+.fc-opcion input{margin-top:3px;}
+.fc-opcion .fc-nombre{font-weight:700; color:var(--navy); font-size:13.5px;}
+.fc-opcion .fc-datos{font-size:11.5px; color:var(--gray); margin-top:2px; line-height:1.5;}
 /* Vista previa de la importación. Los avisos van en su PROPIO renglón a todo lo
    ancho, no en una columna: son la razón de ser de esta pantalla, y metidos en
    una columna estrecha se cortaban justo donde empezaba lo importante. */
@@ -6998,7 +7005,17 @@ function vistaResumenCliente(){
      +     '</div>'
      +   '</div>'
      +   (puedeEditar()
-        ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-editar-cliente="' + esc(c.id) + '">' + ICONO.lapiz + 'Editar cliente</button></div>'
+        ? '<div class="acciones">'
+          +   '<button type="button" class="btn btn-suave btn-mini" data-editar-cliente="' + esc(c.id) + '">' + ICONO.lapiz + 'Editar cliente</button>'
+          /* Fusionar toca de golpe sitios+pólizas+cotizaciones+reportes+
+             levantamientos+proyectos de imagen y borra un cliente completo:
+             el mismo criterio de "toca toda la base" que ya exige Admin en
+             borrar cliente (ver exigirAdmin). Por eso el botón solo se le
+             pinta a un Admin, aunque un Analyst sí pueda editar el cliente. */
+          +   (esAdmin()
+              ? '<button type="button" class="btn btn-suave btn-mini" data-fusionar-cliente="' + esc(c.id) + '" title="Unir este cliente con un duplicado">' + ICONO.respaldo + 'Fusionar con otro cliente</button>'
+              : '')
+          + '</div>'
         : '')
      + '</div>';
 
@@ -12218,6 +12235,134 @@ function modalCliente(id){
   };
 }
 
+/* ------------------------- Fusionar clientes duplicados -------------------------
+   Pedido explícito: cuando dos registros de cliente resultan ser la misma
+   empresa (capturado dos veces desde Forpass y desde Pólizas, por ejemplo),
+   antes había que ir cliente por cliente, sitio por sitio, póliza por póliza
+   y cotización por cotización, cambiándoles el cliente a mano en CADA módulo.
+   Esto lo hace de un golpe desde Clientes: mueve todo lo que cuelga del
+   cliente que se descarta (sitios, pólizas, cotizaciones, reportes,
+   levantamientos, proyectos de imagen) hacia el que se conserva, y borra el
+   registro duplicado. Mismo criterio que borrar cliente: toca la base
+   completa de golpe, así que es solo de Admin (ver exigirAdmin). */
+function datosClienteParaFusion(id){
+  return {
+    sitios: sitiosDe(id), pol: polizasDe(id),
+    cot: datos.cotizaciones.filter(q => q.clienteId === id),
+    rep: reportesDeCliente(id), lev: levantamientosDeCliente(id),
+    proy: proyectosImagenDeCliente(id)
+  };
+}
+
+function modalFusionCliente(id){
+  const actual = clientePorId(id);
+  if(!actual) return;
+  const otros = datos.clientes.filter(x => x.id !== id).sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  if(!otros.length){ aviso('No hay otro cliente con quién fusionarlo.', true); return; }
+
+  const cuerpo =
+      '<div class="pista" style="margin-bottom:14px">Elige el registro duplicado de <b>' + esc(actual.nombre) + '</b>. '
+    +   'Todo lo suyo —sitios de Forpass, pólizas, cotizaciones, reportes, levantamientos y proyectos de imagen— '
+    +   'se pasa al cliente que se conserve, y el otro registro se elimina. Esta acción no se puede deshacer.</div>'
+    + '<div class="campo"><label>Cliente duplicado</label>'
+    +   '<select id="fcOtro"><option value="">— Elige un cliente —</option>'
+    +     otros.map(o => '<option value="' + esc(o.id) + '">' + esc(o.nombre) + '</option>').join('')
+    +   '</select></div>'
+    + '<div id="fcPreview"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-peligro" data-modal="guardar" id="fcBtnFusionar" disabled>Fusionar clientes</button>';
+
+  abrirModal('Fusionar clientes duplicados', cuerpo, pie);
+
+  function resumenPara(c){
+    const d = datosClienteParaFusion(c.id);
+    const total = d.sitios.length + d.pol.length + d.cot.length + d.rep.length + d.lev.length + d.proy.length;
+    return { c, d, total };
+  }
+
+  function marcarSeleccion(){
+    $('modalCuerpo').querySelectorAll('.fc-opcion').forEach(el=>{
+      el.classList.toggle('on', el.querySelector('input').checked);
+    });
+  }
+
+  function pintarPreview(){
+    const otroId = $('fcOtro').value;
+    const cont = $('fcPreview');
+    if(!otroId){ cont.innerHTML = ''; $('fcBtnFusionar').disabled = true; return; }
+    const otro = clientePorId(otroId);
+    const rActual = resumenPara(actual), rOtro = resumenPara(otro);
+    /* Sugerencia de cuál conservar: el que tenga más historial detrás —no es
+       una regla dura, el Admin puede escoger el otro con solo un clic. */
+    const sugerido = rOtro.total > rActual.total ? otro.id : actual.id;
+    const fila = r =>
+        '<label class="fc-opcion' + (r.c.id === sugerido ? ' on' : '') + '">'
+      +   '<input type="radio" name="fcConservar" value="' + esc(r.c.id) + '"' + (r.c.id === sugerido ? ' checked' : '') + '>'
+      +   '<div><div class="fc-nombre">' + esc(r.c.nombre) + '</div>'
+      +     '<div class="fc-datos">' + numero(r.d.sitios.length) + ' Forpass · ' + numero(r.d.pol.length) + ' '
+      +       plural(r.d.pol.length,'póliza','pólizas') + ' · ' + numero(r.d.cot.length) + ' '
+      +       plural(r.d.cot.length,'cotización','cotizaciones') + ' · ' + numero(r.d.rep.length) + ' '
+      +       plural(r.d.rep.length,'reporte','reportes') + ' · ' + numero(r.d.lev.length) + ' '
+      +       plural(r.d.lev.length,'levantamiento','levantamientos') + ' · ' + numero(r.d.proy.length) + ' '
+      +       plural(r.d.proy.length,'proyecto de imagen','proyectos de imagen') + '</div></div>'
+      + '</label>';
+    cont.innerHTML =
+        '<div class="campo"><label>¿Cuál cliente se conserva?</label>'
+      +   '<div class="fc-opciones">' + fila(rActual) + fila(rOtro) + '</div>'
+      + '</div>';
+    $('modalCuerpo').querySelectorAll('input[name="fcConservar"]').forEach(r => r.addEventListener('change', marcarSeleccion));
+    $('fcBtnFusionar').disabled = false;
+  }
+
+  $('fcOtro').addEventListener('change', pintarPreview);
+
+  cerrarModalActual = ()=>{
+    const otroId = $('fcOtro').value;
+    if(!otroId){ aviso('Elige el cliente duplicado.', true); return; }
+    const marcado = $('modalCuerpo').querySelector('input[name="fcConservar"]:checked');
+    if(!marcado){ aviso('Elige cuál de los dos clientes se conserva.', true); return; }
+    const idConservar = marcado.value;
+    const idDescartar = idConservar === actual.id ? otroId : actual.id;
+    fusionarClientes(idConservar, idDescartar);
+  };
+}
+
+/* Mueve TODO lo que cuelga de `idDescartar` hacia `idConservar` y borra el
+   registro duplicado. Cada colección se reasigna y se guarda con su función
+   normal (guardarSitio, guardarPoliza, etc.): así cada cambio se encola y
+   sincroniza exactamente igual que si alguien lo hubiera editado a mano en su
+   propio módulo — no hay un camino especial de sincronización para esto. */
+function fusionarClientes(idConservar, idDescartar){
+  if(!exigirAdmin('fusionar clientes')) return;
+  if(idConservar === idDescartar) return;
+  const conservar = clientePorId(idConservar), descartar = clientePorId(idDescartar);
+  if(!conservar || !descartar) return;
+
+  const detalle = 'de «' + descartar.nombre + '» a «' + conservar.nombre + '»';
+  const d = datosClienteParaFusion(idDescartar);
+  d.sitios.forEach(s => { s.clienteId = idConservar; guardarSitio(s, 'movió', detalle); });
+  d.pol.forEach(p => { p.clienteId = idConservar; guardarPoliza(p, 'movió', detalle); });
+  d.cot.forEach(q => { q.clienteId = idConservar; guardarCotizacion(q, 'movió', detalle); });
+  d.rep.forEach(r => { r.clienteId = idConservar; guardarReporte(r, 'movió', detalle); });
+  d.lev.forEach(l => { l.clienteId = idConservar; guardarLevantamiento(l, 'movió', detalle); });
+  /* proyectosImagen también arrastra el NOMBRE copiado (puede ser un
+     prospecto sin cliente formal): si no se actualiza aquí, el proyecto
+     seguiría mostrando el nombre del cliente ya borrado. */
+  d.proy.forEach(p => { p.clienteId = idConservar; p.clienteNombre = conservar.nombre; guardarProyectoImagen(p, 'movió', detalle); });
+
+  const totalMovido = d.sitios.length + d.pol.length + d.cot.length + d.rep.length + d.lev.length + d.proy.length;
+
+  datos.clientes = datos.clientes.filter(c => c.id !== idDescartar);
+  borrarRegistro('clientes', idDescartar);
+  anotar('fusionó', 'cliente', descartar.nombre,
+    'con «' + conservar.nombre + '»' + (totalMovido ? ' (' + totalMovido + ' ' + plural(totalMovido,'registro movido','registros movidos') + ')' : ''));
+
+  cerrarModal();
+  entrarResumenCliente(idConservar);
+  aviso('«' + descartar.nombre + '» se fusionó con «' + conservar.nombre + '».' + (totalMovido ? ' Se movieron ' + totalMovido + ' ' + plural(totalMovido,'registro','registros') + '.' : ''));
+}
+
 /* ---------------------------- Modal: sitio ---------------------------- */
 function modalSitio(clienteId, sitioId){
   const s = sitioId ? sitioPorId(sitioId) : null;
@@ -15506,6 +15651,9 @@ $('vista').addEventListener('click', ev=>{
 
   const edC = t.closest('[data-editar-cliente]');
   if(edC){ if(exigirPermiso()) modalCliente(edC.dataset.editarCliente); return; }
+
+  const fuC = t.closest('[data-fusionar-cliente]');
+  if(fuC){ if(exigirAdmin('fusionar clientes')) modalFusionCliente(fuC.dataset.fusionarCliente); return; }
 
   const boC = t.closest('[data-borrar-cliente]');
   if(boC){
