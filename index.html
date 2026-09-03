@@ -3462,6 +3462,21 @@ const TONO_ESTATUS_ACTIVO = {
 const CONDICION_ACTIVO = ['excelente', 'buena', 'regular', 'mala'];
 const ETIQUETA_CONDICION_ACTIVO = { excelente:'Excelente', buena:'Buena', regular:'Regular', mala:'Mala' };
 
+/* El catálogo de Activos ya no es solo equipo de cocina: hay vehículos,
+   edificios, cómputo, etc. La categoría sigue siendo texto libre (para no
+   forzar un catálogo cerrado que no alcance), pero se le da un punto de
+   partida con estas sugerencias + las que ya se usaron, igual que "zona"
+   en Sitios usa segmentos() como sugerencia sobre un input libre. */
+const CATEGORIAS_SUGERIDAS_ACTIVO = [
+  'Cocina', 'Automotriz / Vehículos', 'Inmuebles / Edificios',
+  'Cómputo y tecnología', 'Mobiliario', 'Herramientas'
+];
+function categoriasActivo(){
+  const usadas = new Set(datos.activos.map(a => (a.categoria || '').trim()).filter(Boolean));
+  CATEGORIAS_SUGERIDAS_ACTIVO.forEach(c => usadas.add(c));
+  return Array.from(usadas).sort((a,b) => a.localeCompare(b, 'es'));
+}
+
 function puedeGestionarActivos(){ return puedeEditar() || sesion.rol === 'tecnico'; }
 function exigirGestionActivos(){
   if(puedeGestionarActivos()) return true;
@@ -6821,7 +6836,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     Resultados (clic en su leyenda) — es una preferencia de
                     pantalla, no dato, así que no se sube a la nube. */
                  fuentesOcultasResultados:[],
-                 busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'',
+                 busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'', categoriaFiltroActivo:'',
                  /* Cómo se ve cada lista: en tarjetas (el default de siempre) o en
                     tabla, más compacta para revisar muchas de un vistazo. Es
                     preferencia de pantalla, no dato — por eso vive aquí y no en
@@ -6930,7 +6945,7 @@ function irAModulo(m){
   estado.vista = inicioDelModulo();
   estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
   estado.busca = ''; estado.filtro = 'todos';
-  estado.sitioFiltro = ''; estado.encargadoFiltro = '';
+  estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -7022,6 +7037,7 @@ function irAActivos(){
   estado.activoId = null;
   estado.filtro = 'todos';
   estado.busca = '';
+  estado.categoriaFiltroActivo = '';
   animarTarjetas = true;
   render();
 }
@@ -7033,6 +7049,7 @@ function verActivosDe(texto){
   estado.activoId = null;
   estado.filtro = 'todos';
   estado.busca = texto || '';
+  estado.categoriaFiltroActivo = '';
   animarTarjetas = true;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -9697,6 +9714,7 @@ function vistaActivos(){
   }
 
   const vistaTabla = estado.vistaActivos === 'tabla';
+  const categoriasEnUso = Array.from(new Set(datos.activos.map(a => (a.categoria || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
   h += '<div class="barra-busca">'
      +   '<input type="search" id="buscaActivo" placeholder="Buscar por folio, nombre, marca, serie, sitio o cliente…" value="' + esc(estado.busca) + '">'
      +   '<select id="filtroActivo">'
@@ -9707,6 +9725,12 @@ function vistaActivos(){
      +     '<option value="mantenimiento_pendiente">Mantenimiento pendiente</option>'
      +     '<option value="garantia_por_vencer">Garantía por vencer</option>'
      +   '</select>'
+     +   (categoriasEnUso.length
+          ? '<select id="categoriaFiltroActivo">'
+            +   '<option value="">Todas las categorías</option>'
+            +   categoriasEnUso.map(c => '<option value="' + esc(c) + '"' + (estado.categoriaFiltroActivo === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('')
+            + '</select>'
+          : '')
      +   controlAlternaVista('vistaActivos')
      + '</div>';
 
@@ -9717,6 +9741,7 @@ function vistaActivos(){
       const campos = [a.folio, a.nombre, a.marca, a.modelo, a.serie, a.codigo, a.categoria, a.sitioNombre, a.ubicacion, a.asignadoA, cli ? cli.nombre : ''];
       if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
     }
+    if(estado.categoriaFiltroActivo && a.categoria !== estado.categoriaFiltroActivo) return false;
     if(estado.filtro === 'cliente' || estado.filtro === 'interno') return a.tipo === estado.filtro;
     if(ESTATUS_ACTIVO.includes(estado.filtro)) return a.estatus === estado.filtro;
     if(estado.filtro === 'mantenimiento_pendiente'){
@@ -10018,7 +10043,9 @@ function modalActivo(id){
           +   '<input type="text" id="actAsignadoATexto" placeholder="Ej. Juan Pérez"></div>')
     + '</div>'
     + '<div class="campo"><label>Categoría</label>'
-    +   '<input type="text" id="actCategoria" placeholder="Ej. Freidora, Herramienta, Vehículo, Laptop…" value="' + esc(a ? a.categoria : '') + '"></div>'
+    +   '<input type="text" id="actCategoria" list="listaCategoriasActivo" placeholder="Ej. Freidora, Herramienta, Vehículo, Laptop…" value="' + esc(a ? a.categoria : '') + '">'
+    +   '<datalist id="listaCategoriasActivo">' + categoriasActivo().map(c => '<option value="' + esc(c) + '">').join('') + '</datalist>'
+    + '</div>'
     + '<div class="campo"><label>Nombre *</label>'
     +   '<input type="text" id="actNombre" placeholder="Ej. Freidora de doble canasta" value="' + esc(a ? a.nombre : '') + '"></div>'
     + '<div class="campo"><label>Marca</label>'
@@ -13184,6 +13211,8 @@ function render(){
     const fpA = $('filtroActivo');
     fpA.value = estado.filtro;
     fpA.addEventListener('change', ()=>{ estado.filtro = fpA.value; render(); });
+    const cfA = $('categoriaFiltroActivo');
+    if(cfA) cfA.addEventListener('change', ()=>{ estado.categoriaFiltroActivo = cfA.value; render(); });
   }
   /* Subir evidencia directo desde el detalle del activo, sin abrir el modal
      completo de edición — mismo criterio que aeR (Reportes) arriba. */
