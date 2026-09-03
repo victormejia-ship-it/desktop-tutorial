@@ -894,9 +894,19 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
   background:var(--navy); color:#fff; font-size:13px; font-weight:500; padding:13px 20px;
   border-radius:12px; box-shadow:0 14px 40px rgba(10,27,77,.35); z-index:200; opacity:0;
   transition:transform .28s cubic-bezier(.22,1,.36,1), opacity .28s; pointer-events:none; max-width:calc(100% - 32px); text-align:center;
+  /* Tope de alto + su propio scroll: un mensaje largo (los avisos de "ya no
+     cupo la copia sin conexión" son los más verbosos) no debe crecer hasta
+     tapar media pantalla en un celular — mejor que se recorra el texto
+     dentro del propio aviso. */
+  max-height:min(220px, 40vh); overflow-y:auto;
 }
 .toast.visible{transform:translate(-50%,0); opacity:1;}
 .toast.err{background:var(--error);}
+/* En pantallas angostas, letra y relleno más chicos: el mismo texto ocupa
+   menos líneas y el aviso no se come tanto espacio vertical. */
+@media (max-width:480px){
+  .toast{font-size:12px; padding:11px 16px; bottom:16px; max-width:calc(100% - 24px);}
+}
 
 /* ---------- Indicador de nube y sesión en el encabezado ---------- */
 .nube-zona{display:flex; align-items:center; gap:9px; margin-left:auto;}
@@ -1917,6 +1927,14 @@ async function restaurarSnapshotIndexedDB(){
    NO impide que el cambio se intente sincronizar aparte; por eso los avisos
    de abajo aclaran que es solo el respaldo sin conexión de este aparato, no
    que se haya perdido el cambio. */
+/* guardarLocal() se llama en CADA guardado de la app — si el aparato se
+   queda sin espacio, sin este límite el mismo aviso reaparecería (tapando
+   la pantalla) en cada clic mientras dure. Se avisa una vez y se deja
+   descansar un rato; el intento de guardar sigue pasando cada vez, solo se
+   calla el aviso repetido. */
+let avisoEspacioLocalUltimo = 0;
+let avisoEspacioGrandeUltimo = 0;
+const PAUSA_AVISO_ESPACIO_MS = 5 * 60 * 1000;
 function guardarLocal(){
   try{
     localStorage.setItem(LLAVE, JSON.stringify(datos));
@@ -1934,11 +1952,17 @@ function guardarLocal(){
   try{
     localStorage.setItem(LLAVE, JSON.stringify(quitarDataUrlsPesados(datos)));
   }catch(e2){
-    aviso('No se pudo guardar ni una copia sin conexión en este navegador (sin espacio ni para eso). Tu cambio se sigue intentando sincronizar con la nube; descarga un respaldo JSON si te preocupa perder algo.', true);
+    if(Date.now() - avisoEspacioLocalUltimo > PAUSA_AVISO_ESPACIO_MS){
+      avisoEspacioLocalUltimo = Date.now();
+      aviso('Este aparato ya no tiene espacio para guardar copia local. Tu cambio SÍ se está subiendo a la nube, no se pierde nada.', true);
+    }
     return;
   }
   guardarSnapshotIndexedDB(datos).catch(()=>{
-    aviso('Este dispositivo ya no tiene espacio (ni en su almacén grande) para guardar las fotos/PDFs sin conexión. Tu cambio se sigue sincronizando con la nube; solo no podrás ver esas imágenes sin internet en este aparato.', true);
+    if(Date.now() - avisoEspacioGrandeUltimo > PAUSA_AVISO_ESPACIO_MS){
+      avisoEspacioGrandeUltimo = Date.now();
+      aviso('Este aparato ya no tiene espacio para fotos/PDFs sin conexión. Tu cambio sigue subiendo a la nube normal.', true);
+    }
   });
 }
 function nuevoId(){ return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
