@@ -1362,6 +1362,7 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
 <input type="file" id="archivoProyectoImagenExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 <input type="file" id="archivoCotizacionesExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 <input type="file" id="archivoPolizaExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
+<input type="file" id="archivoActivosExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 
 <script>
 /* =========================================================================
@@ -5075,6 +5076,223 @@ async function importarCotizacionesDesdeExcel(archivo){
           await new Promise(res => setTimeout(res, 0));
         }
       })();
+    });
+}
+
+/* ===================== Importar Activos desde Excel =====================
+   Mismo lector que Cotizaciones/Pólizas (leerLibroXlsx, sin librerías
+   externas), pero más simple: no hay "etapas" que reconocer, solo una
+   tabla con encabezados — los mismos que produce descargarExcelActivos(),
+   así que exportar, editar en Excel y volver a importar es un ciclo
+   redondo. Los encabezados se reconocen por alias (normalizarTextoEncabezadoXlsx),
+   no por posición, para que reordenar columnas a mano no rompa nada. */
+const ALIAS_COLUMNA_ACTIVO_XLSX = {
+  folio: ['FOLIO'],
+  tipo: ['TIPO', 'TIPO DE ACTIVO'],
+  categoria: ['CATEGORIA', 'CATEGORÍA'],
+  nombre: ['NOMBRE', 'ACTIVO', 'EQUIPO'],
+  marca: ['MARCA'],
+  modelo: ['MODELO'],
+  serie: ['SERIE', 'NUMERO DE SERIE', 'NÚMERO DE SERIE', 'NO. SERIE', 'NO SERIE'],
+  cliente: ['CLIENTE'],
+  sitio: ['SITIO', 'KIOSCO'],
+  ubicacion: ['UBICACION', 'UBICACIÓN'],
+  asignadoA: ['ASIGNADO A', 'ASIGNADO'],
+  estatus: ['ESTATUS'],
+  condicion: ['CONDICION', 'CONDICIÓN', 'CONDICION FISICA', 'CONDICIÓN FÍSICA'],
+  proveedor: ['PROVEEDOR'],
+  fechaCompra: ['FECHA DE COMPRA', 'FECHA COMPRA'],
+  costoCompra: ['COSTO DE COMPRA ($)', 'COSTO DE COMPRA', 'COSTO'],
+  garantiaHasta: ['GARANTIA HASTA', 'GARANTÍA HASTA'],
+  mantenimientoFrecuenciaDias: ['FRECUENCIA MANTENIMIENTO (DIAS)', 'FRECUENCIA DE MANTENIMIENTO (DÍAS)', 'FRECUENCIA DE MANTENIMIENTO', 'FRECUENCIA MANTENIMIENTO'],
+  proximoMantenimiento: ['PROXIMO MANTENIMIENTO', 'PRÓXIMO MANTENIMIENTO'],
+  codigo: ['CODIGO', 'CÓDIGO'],
+  tipoCodigo: ['TIPO DE CODIGO', 'TIPO DE CÓDIGO'],
+  notas: ['NOTAS']
+};
+
+function mapaColumnasActivoXlsx(filaEncabezado){
+  const mapa = {};
+  (filaEncabezado || []).forEach((valor, col)=>{
+    const norm = normalizarTextoEncabezadoXlsx(valor);
+    if(!norm) return;
+    for(const campo in ALIAS_COLUMNA_ACTIVO_XLSX){
+      if(mapa[campo] !== undefined) continue;
+      if(ALIAS_COLUMNA_ACTIVO_XLSX[campo].some(alias => normalizarTextoEncabezadoXlsx(alias) === norm)) mapa[campo] = col;
+    }
+  });
+  return mapa;
+}
+
+/* Busca, en las primeras filas de la hoja, la que sirve de encabezado —la
+   que trae reconocible al menos la columna "Nombre"—. Sin esto, un archivo
+   con una fila de título arriba (como el que exporta la propia app) no se
+   podría reimportar. */
+function extraerActivosXlsx(hoja){
+  const filas = hoja.filas || [];
+  for(let f = 0; f < Math.min(filas.length, 5); f++){
+    const mapa = mapaColumnasActivoXlsx(filas[f]);
+    if(mapa.nombre !== undefined) return { mapa, filas: filas.slice(f + 1) };
+  }
+  return null;
+}
+
+/* Una celda de fecha puede venir como número de serie de Excel (fecha de
+   verdad, lo que produce descargarExcelActivos), como texto ISO (alguien
+   la escribió a mano) o como DD/MM/AAAA (formato mexicano común al teclear
+   en Excel). Cualquier otra cosa se descarta en vez de adivinar. */
+function fechaDesdeCeldaXlsx(valor){
+  if(valor === null || valor === undefined || valor === '') return '';
+  if(typeof valor === 'number' && !isNaN(valor)){
+    const ms = Date.UTC(1899, 11, 30) + Math.round(valor) * 86400000;
+    const d = new Date(ms);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+  const texto = String(valor).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+  const ddmmaaaa = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(texto);
+  if(ddmmaaaa) return ddmmaaaa[3] + '-' + ddmmaaaa[2].padStart(2, '0') + '-' + ddmmaaaa[1].padStart(2, '0');
+  return '';
+}
+
+function estatusDesdeTextoXlsx(txt){
+  const norm = normalizarTextoEncabezadoXlsx(txt || '');
+  if(!norm) return 'activo';
+  return ESTATUS_ACTIVO.find(e => normalizarTextoEncabezadoXlsx(ETIQUETA_ESTATUS_ACTIVO[e]) === norm || normalizarTextoEncabezadoXlsx(e) === norm) || 'activo';
+}
+function condicionDesdeTextoXlsx(txt){
+  const norm = normalizarTextoEncabezadoXlsx(txt || '');
+  if(!norm) return 'buena';
+  return CONDICION_ACTIVO.find(c => normalizarTextoEncabezadoXlsx(ETIQUETA_CONDICION_ACTIVO[c]) === norm || normalizarTextoEncabezadoXlsx(c) === norm) || 'buena';
+}
+
+/* Mismo criterio que vincularOCrearSitioCotizacionXlsx: si el sitio ya
+   existe (por nombre) se reusa; si no, se crea el cliente (si tampoco
+   existía) y el sitio, ambos por nombre tal cual vienen en el Excel. */
+function vincularOCrearSitioActivoXlsx(nombreCliente, nombreSitio, cache){
+  const llave = normalizarTextoEncabezadoXlsx(nombreSitio);
+  if(cache.has(llave)) return cache.get(llave);
+  let sitio = datos.sitios.find(s => normalizarTextoEncabezadoXlsx(s.nombre) === llave);
+  if(!sitio){
+    let cliente = nombreCliente ? datos.clientes.find(c => normalizarTextoEncabezadoXlsx(c.nombre) === normalizarTextoEncabezadoXlsx(nombreCliente)) : null;
+    if(!cliente){
+      cliente = normalizarCliente({ id: nuevoId(), nombre: nombreCliente || nombreSitio, usaForpass: 'si' });
+      datos.clientes.push(cliente);
+    }
+    sitio = normalizarSitio({ id: nuevoId(), clienteId: cliente.id, nombre: nombreSitio, modulos: 0, mensualidad: 0, fechaInicio: hoyISO(), meses: 12 });
+    datos.sitios.push(sitio);
+  }
+  const resultado = { clienteId: sitio.clienteId, sitioId: sitio.id, sitioNombre: sitio.nombre };
+  cache.set(llave, resultado);
+  return resultado;
+}
+
+function filaXlsxAActivo(fila, mapa, cache){
+  const val = campo => mapa[campo] !== undefined ? fila[mapa[campo]] : undefined;
+  const textoDe = campo => (val(campo) === null || val(campo) === undefined ? '' : String(val(campo)).trim());
+  const nombre = textoDe('nombre');
+  if(!nombre) return null;
+
+  const tipo = normalizarTextoEncabezadoXlsx(textoDe('tipo')).includes('INTERNO') ? 'interno' : 'cliente';
+
+  let clienteId = '', sitioId = '', sitioNombre = '';
+  if(tipo === 'cliente'){
+    const nombreSitio = textoDe('sitio');
+    if(nombreSitio){
+      const ligado = vincularOCrearSitioActivoXlsx(textoDe('cliente'), nombreSitio, cache);
+      clienteId = ligado.clienteId; sitioId = ligado.sitioId; sitioNombre = ligado.sitioNombre;
+    }
+  }
+
+  return normalizarActivo({
+    id: nuevoId(), folio: textoDe('folio'), tipo,
+    categoria: textoDe('categoria'), nombre,
+    marca: textoDe('marca'), modelo: textoDe('modelo'), serie: textoDe('serie'),
+    clienteId, sitioId, sitioNombre,
+    ubicacion: tipo === 'interno' ? textoDe('ubicacion') : '',
+    asignadoA: tipo === 'interno' ? textoDe('asignadoA') : '',
+    estatus: estatusDesdeTextoXlsx(textoDe('estatus')),
+    condicion: condicionDesdeTextoXlsx(textoDe('condicion')),
+    proveedor: textoDe('proveedor'),
+    fechaCompra: fechaDesdeCeldaXlsx(val('fechaCompra')),
+    costoCompra: Number(val('costoCompra')) || 0,
+    garantiaHasta: fechaDesdeCeldaXlsx(val('garantiaHasta')),
+    mantenimientoFrecuenciaDias: Number(val('mantenimientoFrecuenciaDias')) || 0,
+    proximoMantenimiento: fechaDesdeCeldaXlsx(val('proximoMantenimiento')),
+    codigo: textoDe('codigo'),
+    tipoCodigo: normalizarTextoEncabezadoXlsx(textoDe('tipoCodigo')) === 'QR' ? 'qr' : 'barras',
+    notas: textoDe('notas'),
+    registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' }
+  });
+}
+
+/* Igual que un folio nuevo o un nombre+serie ya usados: se omite en vez de
+   duplicar. Sin folio en el Excel (columna vacía), se compara por
+   nombre+serie — suficiente para no repetir una recarga del mismo archivo. */
+function llaveActivoImportadoXlsx(act){
+  return act.folio
+    ? 'F:' + normalizarTextoEncabezadoXlsx(act.folio)
+    : 'N:' + normalizarTextoEncabezadoXlsx(act.nombre) + '|' + normalizarTextoEncabezadoXlsx(act.serie);
+}
+
+async function importarActivosDesdeExcel(archivo){
+  let hojas;
+  try{ hojas = await leerLibroXlsx(archivo); }
+  catch(e){ aviso('No se pudo leer el archivo: ' + e.message, true); return; }
+
+  let extraido = null;
+  for(const hoja of hojas){ extraido = extraerActivosXlsx(hoja); if(extraido) break; }
+  if(!extraido){
+    aviso('No se reconoció una tabla de activos en el archivo — falta una columna "Nombre" en el encabezado.', true);
+    return;
+  }
+
+  const cache = new Map();
+  const candidatos = [];
+  let vacias = 0;
+  extraido.filas.forEach(fila=>{
+    if(!fila.some(v => v !== null && v !== undefined && String(v).trim() !== '')){ vacias++; return; }
+    const act = filaXlsxAActivo(fila, extraido.mapa, cache);
+    if(act) candidatos.push(act);
+  });
+
+  if(!candidatos.length){ aviso('No se encontró ningún activo capturado en el archivo.', true); return; }
+
+  const yaExisten = new Set(datos.activos.map(llaveActivoImportadoXlsx));
+  const nuevos = [], duplicados = [];
+  candidatos.forEach(act=>{
+    const llave = llaveActivoImportadoXlsx(act);
+    if(yaExisten.has(llave)) duplicados.push(act);
+    else { yaExisten.add(llave); nuevos.push(act); }
+  });
+
+  if(!nuevos.length){
+    aviso('Los ' + candidatos.length + ' ' + plural(candidatos.length,'activo','activos') + ' del archivo ya estaban dados de alta (mismo folio, o mismo nombre y serie).', true);
+    return;
+  }
+
+  confirmar('Importar activos desde Excel',
+      'Se van a dar de alta <b>' + nuevos.length + '</b> ' + plural(nuevos.length,'activo nuevo','activos nuevos') + '.'
+    + (duplicados.length ? '<br>' + duplicados.length + ' ' + plural(duplicados.length,'fila se omitió','filas se omitieron') + ' por ya existir.' : '')
+    + (vacias ? '<br>' + vacias + ' ' + plural(vacias,'fila vacía','filas vacías') + ' se ignoraron.' : '')
+    + '<br><br>Los sitios o clientes que el archivo mencione y todavía no existan se crean automáticamente por nombre.',
+    'Sí, importar', ()=>{
+      nuevos.forEach(act=>{
+        if(!act.folio) act.folio = generarFolioActivo(act.fechaCreacion || hoyISO());
+        datos.activos.push(act);
+      });
+      guardarLocal();
+      anotar('importó', 'activos', nuevos.length + ' desde Excel');
+      const LOTE = 150;
+      (async()=>{
+        for(let i = 0; i < nuevos.length; i += LOTE){
+          nuevos.slice(i, i + LOTE).forEach(act => encolar({ tipo:'poner', coleccion:'activos', id:act.id, obj:act }));
+          await new Promise(res => setTimeout(res, 0));
+        }
+      })();
+      estado.modulo = 'activos'; estado.vista = 'activos';
+      render();
+      aviso(nuevos.length + ' ' + plural(nuevos.length,'activo importado','activos importados') + '.');
     });
 }
 
@@ -17310,6 +17528,8 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-activos') irAActivos();
     else if(a === 'mantenimiento-pendiente-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'mantenimiento_pendiente'; estado.busca = ''; render(); }
     else if(a === 'garantias-por-vencer-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'garantia_por_vencer'; estado.busca = ''; render(); }
+    else if(a === 'excel-activos') descargarExcelActivos();
+    else if(a === 'importar-activos-excel'){ if(exigirGestionActivos()) $('archivoActivosExcel').click(); }
     else if(a === 'nuevo-activo'){ if(exigirGestionActivos()) modalActivo(null); }
     else if(a === 'editar-activo'){ if(exigirGestionActivos()) modalActivo(estado.activoId); }
     else if(a === 'ver-activos-cliente'){ const c = clientePorId(estado.clienteId); if(c) verActivosDe(c.nombre); }
@@ -17955,6 +18175,14 @@ $('archivoPolizaExcel').addEventListener('change', async ev=>{
   await importarPolizaDesdeExcel(archivo);
 });
 
+$('archivoActivosExcel').addEventListener('change', async ev=>{
+  const archivo = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!archivo) return;
+  if(!exigirGestionActivos()) return;
+  await importarActivosDesdeExcel(archivo);
+});
+
 /* ======================= GENERADOR DE ARCHIVO XLSX =======================
    Se arma el .xlsx a mano: es un ZIP (sin compresión) con unos cuantos XML.
    Así no hace falta ninguna librería externa y la página sigue funcionando
@@ -18310,6 +18538,93 @@ function descargarExcel(clienteId){
   const sufijo = cli ? '_' + cli.nombre.replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'') : '';
   descargar(armarZip(archivos), 'Control_Forpass' + sufijo + '_' + selloFecha() + '.xlsx');
   aviso('Excel descargado con ' + filas.length + ' ' + plural(filas.length,'sitio','sitios') + '.');
+}
+
+/* Encabezados en el MISMO orden que ALIAS_COLUMNA_ACTIVO_XLSX espera (usa
+   el primer alias de cada campo), para que exportar, editar en Excel y
+   reimportar sea un ciclo redondo sin tener que adivinar columnas. */
+const ENC_ACTIVOS_XLSX = ['Folio','Tipo','Categoría','Nombre','Marca','Modelo','Serie','Cliente','Sitio',
+  'Ubicación','Asignado a','Estatus','Condición','Proveedor','Fecha de compra','Costo de compra ($)',
+  'Garantía hasta','Frecuencia mantenimiento (días)','Próximo mantenimiento','Código','Tipo de código','Notas'];
+const ANCHOS_ACTIVOS_XLSX = [14,14,16,28,14,14,16,20,16,20,18,14,12,18,14,17,14,16,16,16,12,40];
+
+function construirHojaActivos(lista){
+  const ultimaCol = letraCol(ENC_ACTIVOS_XLSX.length);
+  const ultima = Math.max(2, 1 + lista.length);
+
+  let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<dimension ref="A1:' + ultimaCol + ultima + '"/>'
+    + '<sheetViews><sheetView showGridLines="0" tabSelected="1" workbookViewId="0">'
+    + '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + '<cols>' + ANCHOS_ACTIVOS_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
+    + '<sheetData>';
+
+  xml += filaXml(1, ENC_ACTIVOS_XLSX.map(h => cT(h, 3)));
+
+  lista.forEach((a, k)=>{
+    const n = 2 + k;
+    const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+    xml += filaXml(n, [
+      cT(a.folio, 4), cT(ETIQUETA_TIPO_ACTIVO[a.tipo], 4), cT(a.categoria, 4), cT(a.nombre, 4),
+      cT(a.marca, 4), cT(a.modelo, 4), cT(a.serie, 4),
+      cT(a.tipo === 'cliente' ? (cli ? cli.nombre : '') : '', 4),
+      cT(a.tipo === 'cliente' ? a.sitioNombre : '', 4),
+      cT(a.tipo === 'interno' ? a.ubicacion : '', 4),
+      cT(a.tipo === 'interno' ? a.asignadoA : '', 4),
+      cT(ETIQUETA_ESTATUS_ACTIVO[a.estatus], 4), cT(ETIQUETA_CONDICION_ACTIVO[a.condicion], 4),
+      cT(a.proveedor, 4),
+      a.fechaCompra ? cF(a.fechaCompra, 6) : cT('', 4),
+      cN(a.costoCompra, 7),
+      a.garantiaHasta ? cF(a.garantiaHasta, 6) : cT('', 4),
+      a.mantenimientoFrecuenciaDias ? cN(a.mantenimientoFrecuenciaDias, 5) : cT('', 4),
+      a.proximoMantenimiento ? cF(a.proximoMantenimiento, 6) : cT('', 4),
+      cT(a.codigo, 4), cT(a.codigo ? (a.tipoCodigo === 'qr' ? 'QR' : 'Barras') : '', 4),
+      cT(a.notas, 4)
+    ]);
+  });
+
+  xml += '</sheetData>'
+    + '<autoFilter ref="A1:' + ultimaCol + ultima + '"/>'
+    + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+    + '</worksheet>';
+  return xml;
+}
+
+function descargarExcelActivos(){
+  const lista = datos.activos.slice().sort((x,y)=> (x.nombre||'').localeCompare(y.nombre||'','es'));
+  if(!lista.length){ aviso('No hay activos que exportar todavía.', true); return; }
+
+  const archivos = [
+    { nombre:'[Content_Types].xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      + '</Types>') },
+    { nombre:'_rels/.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/workbook.xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+      + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<sheets><sheet name="Activos" sheetId="1" r:id="rId1"/></sheets>'
+      + '<calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>') },
+    { nombre:'xl/_rels/workbook.xml.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+      + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/styles.xml', datos: aBytes(XLSX_ESTILOS) },
+    { nombre:'xl/worksheets/sheet1.xml', datos: aBytes(construirHojaActivos(lista)) }
+  ];
+
+  descargar(armarZip(archivos), 'Activos_' + selloFecha() + '.xlsx');
+  aviso('Excel descargado con ' + lista.length + ' ' + plural(lista.length,'activo','activos') + '.');
 }
 
 /* ======================== PANTALLA DE ACCESO ========================
