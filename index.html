@@ -1128,7 +1128,14 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
    raíces bajo una sola línea, que dibujaría conectores falsos entre
    direcciones que en realidad no se reportan entre sí. */
 .organigrama-zona{overflow-x:auto; -webkit-overflow-scrolling:touch; padding:6px 4px 28px;}
-.organigrama-bosque{display:flex; flex-wrap:wrap; gap:36px; justify-content:center; width:max-content; min-width:100%;}
+/* "safe center": centra el árbol cuando cabe completo, pero si es más ancho
+   que la pantalla (celular, con varias ramas) se alinea a la izquierda en
+   vez de centrarse — con "center" a secas, el navegador reparte el
+   desbordamiento por igual a ambos lados y el lado izquierdo queda
+   recortado SIN poder llegar ahí haciendo scroll (no hay scroll negativo),
+   así que las primeras tarjetas del organigrama se veían cortadas/empalmadas
+   contra el borde en el celular, sin forma de verlas completas. */
+.organigrama-bosque{display:flex; flex-wrap:wrap; gap:36px; justify-content:safe center; width:max-content; min-width:100%;}
 .organigrama-arbol, .organigrama-arbol ul{
   display:flex; list-style:none; margin:0; padding-top:0; position:relative;
 }
