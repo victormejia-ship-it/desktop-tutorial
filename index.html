@@ -6,6 +6,37 @@
 <title>Control de Forpass · Forguard</title>
 <!-- Sin internet: no hay enlaces a fuentes ni librerías externas. Todo va embebido. -->
 
+<!-- Endurece lo que el navegador deja hacer dentro de la página: nada de
+     script/estilo/fuente/imagen cargado desde fuera de este sitio, y las
+     únicas conexiones de red permitidas son las tres de Firebase que la app
+     realmente usa (login, refresco de sesión y Firestore). unsafe-inline
+     sigue siendo necesario porque toda la app vive en un solo bloque de
+     script y de estilo inline (no hay build ni servidor que firme un nonce
+     por petición); aun así esto bloquea que una página comprometida cargue
+     JS, CSS o iframes de otro dominio, o mande datos a un servidor ajeno. -->
+<!-- frame-ancestors, sandbox y report-uri no tienen efecto puestos por
+     <meta> — el estándar exige que vengan de una cabecera HTTP real, y
+     GitHub Pages no deja mandar cabeceras propias en el hosting estático.
+     Si algún día esto se sirve desde Firebase Hosting (que sí permite
+     configurar cabeceras) vale la pena moverlos ahí para bloquear que
+     alguien empotre el sitio en un iframe ajeno (clickjacking). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+
+<!-- Permite "Agregar a pantalla de inicio" en Android/Chrome (con manifest)
+     y en iOS/Safari (con estos meta apple-*, que Safari no lee del
+     manifest). Así cualquiera puede entrar desde su celular con un ícono
+     propio, a pantalla completa, sin pasar por App Store/Play Store. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#002369">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Forpass">
+
 <style>
 /* Manrope, la tipografía de cuerpo de la marca Forguard (forguard.com usa
    'Manrope','Inter'). Es una fuente VARIABLE: este único archivo cubre todos
@@ -19289,6 +19320,14 @@ if(!HAY_NUBE){
   setInterval(refrescarDesdeNube, 30000);
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reintentarSincronizar(); });
   window.addEventListener('online', reintentarSincronizar);
+}
+
+/* Habilita "Agregar a pantalla de inicio" en Android/Chrome y da algo de
+   resiliencia en datos móviles inestables (ver sw.js: red primero, caché
+   solo de respaldo). Ruta relativa para que funcione igual en
+   /desktop-tutorial/ que en un dominio propio el día que se configure. */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
 }
 </script>
 
