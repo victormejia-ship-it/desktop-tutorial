@@ -11,10 +11,18 @@ rules_version = '2';
    borra lo que haya, pega todo esto, y dale a Publicar.
 
    Permisos:
-     owner   → todo, y es el único que puede nombrar o tocar a otro owner
-     admin   → todo lo demás, incluido administrar cuentas
-     analyst → agrega y modifica clientes, sitios y pagos
-     viewer  → solo lee
+     owner    → todo, y es el único que puede nombrar o tocar a otro owner
+     admin    → todo lo demás, incluido administrar cuentas
+     analyst  → agrega y modifica clientes, sitios y pagos
+     viewer   → solo lee
+     tecnico, reportero → de piso, acotados a Reportes/Levantamientos (y
+                          Pólizas/Cotizaciones/Activos de solo lectura para
+                          tecnico) — ver el bloque de cada colección
+     cliente  → portal externo, no es personal de Forguard: ve nada más su
+                propia póliza (sin costo interno), sus cotizaciones (ídem) y
+                sus reportes — todo acotado por clienteId. Se auto-registra
+                pero nace bloqueada; Owner/Admin la vincula y aprueba desde
+                Admin → Usuarios. Ver esCliente()/miClienteId() más abajo.
    =========================================================================== */
 
 service cloud.firestore {
@@ -34,6 +42,18 @@ service cloud.firestore {
     function esAdmin()   { return conAcceso() && rol() in ['owner', 'admin']; }
     function puedeEditar() { return conAcceso() && rol() in ['owner', 'admin', 'analyst']; }
 
+    /* --- Portal de clientes (agregado 03-sep-2026) ---
+       `cliente` es la cuenta de alguien que NO trabaja en Forguard: el
+       dueño/encargado de un cliente, viendo su propia información desde
+       afuera. Nunca es "personal de piso acotado" como tecnico/reportero
+       (esos sí son de Forguard) — por eso casi ninguna regla de abajo lo
+       deja pasar por conAcceso() a secas: cada colección decide explícito
+       si un cliente entra, y si entra, siempre acotado a lo suyo
+       (miClienteId()). Lo que faltó marcar explícitamente queda cerrado
+       por el candado general del final del archivo. */
+    function esCliente()  { return conAcceso() && rol() == 'cliente'; }
+    function miClienteId() { return perfil().clienteId; }
+
     /* --- Información del tablero --- */
     /* --- Clientes ---
        Crear y corregir es el trabajo del día: lo hace cualquiera que pueda
@@ -42,7 +62,9 @@ service cloud.firestore {
        —como la colección de clientes es UNA sola para los dos módulos— también
        deja huérfana su póliza de mantenimiento. No hay deshacer. */
     match /clientes/{id} {
-      allow read:   if conAcceso();
+      /* Un cliente lee SU PROPIO documento (el id de este documento ES su
+         clienteId) — nunca el catálogo completo de clientes de Forguard. */
+      allow read:   if conAcceso() && (!esCliente() || id == miClienteId());
       allow create: if puedeEditar();
       allow update: if puedeEditar();
       allow delete: if esAdmin();
@@ -56,7 +78,9 @@ service cloud.firestore {
        y un campo ausente leído con punto es un ERROR que rechaza también lo
        legítimo. Crear exige encargado vacío: nadie se asigna al capturar. */
     match /sitios/{id} {
-      allow read:  if conAcceso();
+      /* Mismo criterio que /clientes: un cliente solo ve sus propios sitios
+         (donde tiene su Forpass/equipo), nunca el resto de la cartera. */
+      allow read:  if conAcceso() && (!esCliente() || resource.data.clienteId == miClienteId());
       allow create: if esAdmin()
                     || (puedeEditar() && request.resource.data.get('encargado', '') == '');
       allow update: if esAdmin()
@@ -76,7 +100,22 @@ service cloud.firestore {
        quien sí tiene permiso de editar. Mismo candado que sitios: cualquiera
        que edite captura y corrige, solo Admin borra. */
     match /cotizaciones/{id} {
-      allow read:   if conAcceso();
+      /* Un cliente JAMÁS lee esta colección: trae precioCosto y margen tal
+         cual. Lo suyo vive en /cotizaciones_cliente, una copia reducida sin
+         esos campos (ver datosClienteCotizacion() en index.html) — así el
+         costo interno ni siquiera viaja por la conexión hacia su sesión. */
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+    /* --- Copia para el portal de clientes, sin costo interno ni margen ---
+       La escribe la propia app (guardarCotizacion(), con el mismo permiso de
+       quien puede editar cotizaciones) cada vez que se guarda una, EXCEPTO
+       mientras sigue en 'borrador' (nunca se le compartió a nadie). El
+       cliente la lee, acotada a la suya — nunca la de otro cliente. */
+    match /cotizaciones_cliente/{id} {
+      allow read:   if conAcceso() && (!esCliente() || resource.data.clienteId == miClienteId());
       allow create: if puedeEditar();
       allow update: if puedeEditar();
       allow delete: if esAdmin();
@@ -92,9 +131,13 @@ service cloud.firestore {
        /bitacora: captura y corrige, cualquiera con acceso; borrar, solo
        Admin — el historial de un reporte (con sus fotos) no se recupera. */
     match /reportes/{id} {
-      allow read:   if conAcceso();
-      allow create: if conAcceso();
-      allow update: if conAcceso();
+      /* Un reporte no trae ningún costo (es bitácora de campo: qué se
+         encontró, qué se hizo, fotos), así que sí se puede leer tal cual —
+         acotado a los suyos. Pero SOLO leer: el portal de clientes es de
+         consulta, un cliente no levanta ni cierra tickets. */
+      allow read:   if conAcceso() && (!esCliente() || resource.data.clienteId == miClienteId());
+      allow create: if conAcceso() && !esCliente();
+      allow update: if conAcceso() && !esCliente();
       allow delete: if esAdmin();
     }
 
@@ -107,9 +150,11 @@ service cloud.firestore {
        registro de campo, no un documento de precios. Borrar, solo Admin,
        mismo criterio que el resto del tablero. */
     match /levantamientos/{id} {
-      allow read:   if conAcceso();
-      allow create: if conAcceso();
-      allow update: if conAcceso();
+      /* No forma parte de lo que pidió el portal de clientes (su póliza, sus
+         cotizaciones, sus reportes) — cerrado por completo para ese rol. */
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if conAcceso() && !esCliente();
+      allow update: if conAcceso() && !esCliente();
       allow delete: if esAdmin();
     }
 
@@ -206,7 +251,10 @@ service cloud.firestore {
        ahí fallar cerrado es lo correcto — por eso solo esta cláusula necesita
        get(). Cualquier campo nuevo que se compare en la cláusula 3 va con get(). */
     match /polizas/{id} {
-      allow read: if conAcceso();
+      /* Igual que /cotizaciones: un cliente JAMÁS lee esta colección (trae
+         costoUnitario por renglón). Lo suyo vive en /polizas_cliente, una
+         copia con ese campo en 0 (ver datosClientePoliza() en index.html). */
+      allow read: if conAcceso() && !esCliente();
 
       /* Una póliza nace como cotización. Nadie estrena uno de estos ya cerrado:
          si no, el candado del update se brinca borrando y volviendo a crear. */
@@ -230,6 +278,18 @@ service cloud.firestore {
          arriba, así que también es de Owner y Admin. */
       allow delete: if esAdmin();
     }
+    /* --- Copia para el portal de clientes, sin costo interno ---
+       La escribe la propia app (guardarPoliza(), mismo permiso que puede
+       editar pólizas) cada vez que se guarda una que SÍ se le cobra al
+       cliente (nunca las de cargoA:'interno' — ver datosClientePoliza()).
+       Aquí no hace falta congelar precios por campo como en /polizas: esta
+       copia nunca se edita a mano, solo la regenera el guardado de la real. */
+    match /polizas_cliente/{id} {
+      allow read:   if conAcceso() && (!esCliente() || resource.data.clienteId == miClienteId());
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
 
     /* --- Activos (control de activos, cliente + interno) ---
        Noveno módulo: junta en un solo catálogo el equipo instalado en casa
@@ -242,7 +302,11 @@ service cloud.firestore {
        mantenimiento o registrando que se movió de sitio. Borrar, solo
        Admin, como todo lo demás. */
     match /activos/{id} {
-      allow read:   if conAcceso();
+      /* Incluye el activo INTERNO de Forguard (herramienta, vehículo,
+         laptop) revuelto en el mismo catálogo que el equipo instalado en
+         casa del cliente — así que cerrado por completo para ese rol, ni
+         siquiera acotado a lo suyo. No es parte de lo que pidió el portal. */
+      allow read:   if conAcceso() && !esCliente();
       allow create: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
       allow update: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
       allow delete: if esAdmin();
@@ -257,7 +321,9 @@ service cloud.firestore {
        (es un directorio de consulta general); Analyst para arriba lo
        captura y corrige; borrar, solo Admin. */
     match /personal/{id} {
-      allow read:   if conAcceso();
+      /* Directorio interno de Forguard — no es de lo que pidió el portal de
+         clientes, cerrado por completo. */
+      allow read:   if conAcceso() && !esCliente();
       allow create: if puedeEditar();
       allow update: if puedeEditar();
       allow delete: if esAdmin();
@@ -272,7 +338,7 @@ service cloud.firestore {
        Owner o Admin la cambia. Este candado SÍ es de servidor, no como el de
        cerrar pólizas: aquí basta el rol, sin comparar campos. --- */
     match /catalogo/{doc} {
-      allow read:  if conAcceso();
+      allow read:  if conAcceso() && !esCliente();
       allow write: if esAdmin();
     }
 
@@ -284,11 +350,11 @@ service cloud.firestore {
        necesita para ver el formulario completo—, solo Owner o Admin los
        cambia. */
     match /segmentos/{doc} {
-      allow read:  if conAcceso();
+      allow read:  if conAcceso() && !esCliente();
       allow write: if esAdmin();
     }
     match /parametros/{doc} {
-      allow read:  if conAcceso();
+      allow read:  if conAcceso() && !esCliente();
       allow write: if esAdmin();
     }
 
@@ -296,7 +362,7 @@ service cloud.firestore {
            y nadie lo puede modificar ni borrar. --- */
     match /bitacora/{id} {
       allow read:   if esAdmin();
-      allow create: if conAcceso();
+      allow create: if conAcceso() && !esCliente();
       allow update, delete: if false;
     }
 
@@ -314,7 +380,22 @@ service cloud.firestore {
       allow read: if esAdmin() || (request.auth != null && request.auth.uid == uid);
 
       allow create: if esOwner()
-                    || (esAdmin() && request.resource.data.rol != 'owner');
+                    || (esAdmin() && request.resource.data.rol != 'owner')
+                    /* Autoservicio de clientes: cualquiera con una cuenta de
+                       Firebase Auth (recién creada por accounts:signUp, ver
+                       "Solicita tu acceso" en index.html) puede escribir SU
+                       PROPIO perfil — pero nada más así, congelado en el
+                       peor caso posible: nace 'cliente', bloqueada
+                       (activo:false) y sin vincular a ningún clienteId. Ni
+                       modificando el HTML de la página se puede lograr un
+                       create con más permiso que este: el servidor lo
+                       rechaza igual. Solo Owner/Admin puede después
+                       aprobarla (activo:true + clienteId) desde Admin →
+                       Usuarios. */
+                    || (request.auth != null && request.auth.uid == uid
+                        && request.resource.data.rol == 'cliente'
+                        && request.resource.data.activo == false
+                        && request.resource.data.clienteId == '');
 
       allow update: if esOwner()
                     || (esAdmin()
@@ -332,7 +413,7 @@ service cloud.firestore {
        nadie la escribe desde la página. El robot del respaldo sí puede, porque
        entra con cuenta de servicio y esas se saltan estas reglas. --- */
     match /sistema/{doc} {
-      allow read:  if conAcceso();
+      allow read:  if conAcceso() && !esCliente();
       allow write: if false;
     }
 

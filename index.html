@@ -1325,6 +1325,37 @@ table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
     <button type="submit" class="btn btn-primario" id="aEntrar">Entrar</button>
     <p class="acceso-pie" id="otraCuenta" style="display:none">¿No eres tú? <button type="button" id="aOtraCuenta">Entrar con otra cuenta</button></p>
     <p class="acceso-pie">¿Olvidaste tu contraseña? <button type="button" id="aOlvide">Que me manden un correo para cambiarla</button></p>
+    <p class="acceso-pie">¿Eres cliente de Forguard? <button type="button" id="aSolicitarCliente">Solicita tu acceso aquí</button></p>
+  </form>
+
+  <!-- Alta de cliente, sin pedirle permiso a nadie de Forguard primero — pero
+       la cuenta nace con activo:false (ver el registro de submit): no puede
+       entrar a nada hasta que Owner/Admin la vincule a su cliente real y la
+       apruebe desde Admin → Usuarios. Vive aparte de #formAcceso, no en un
+       modal: el modal (#telon, z-index 100) queda POR DEBAJO de esta pantalla
+       de acceso (z-index 150), así que aquí no se vería. -->
+  <form class="acceso-caja" id="formSolicitudCliente" autocomplete="on" style="display:none">
+    <h2>Solicita tu acceso</h2>
+    <p class="intro">Para clientes de Forguard: crea tu cuenta y en cuanto la revisemos vas a poder ver tu póliza, tus cotizaciones y tus reportes de mantenimiento.</p>
+    <div class="acceso-error" id="solicitudError" role="alert"></div>
+    <div class="campo">
+      <label for="scEmpresa">Nombre de tu empresa</label>
+      <input type="text" id="scEmpresa" placeholder="Como aparece en tu contrato con Forguard" required>
+    </div>
+    <div class="campo">
+      <label for="scNombre">Tu nombre</label>
+      <input type="text" id="scNombre" placeholder="Ej. Ana Torres" required>
+    </div>
+    <div class="campo">
+      <label for="scCorreo">Correo</label>
+      <input type="email" id="scCorreo" autocomplete="username" placeholder="tu@empresa.com" required>
+    </div>
+    <div class="campo">
+      <label for="scClave">Contraseña</label>
+      <input type="password" id="scClave" autocomplete="new-password" placeholder="Mínimo 6 caracteres" required>
+    </div>
+    <button type="submit" class="btn btn-primario" id="scEnviar">Enviar solicitud</button>
+    <p class="acceso-pie"><button type="button" id="scVolver">← Volver a entrar</button></p>
   </form>
 </div>
 
@@ -2266,14 +2297,63 @@ function guardarSitio(s, accion, detalle){
   encolar({ tipo:'poner', coleccion:'sitios', id:s.id, obj:s });
   anotar(accion || 'editó', 'sitio', s.nombre, detalle);
 }
+/* ===================== Portal de clientes: copias seguras =====================
+   El portal de clientes NUNCA lee /polizas ni /cotizaciones directamente — leería
+   costoUnitario/precioCosto/margen tal cual viajan por la conexión, así se
+   escondieran en la pantalla. En vez de eso, cada vez que se guarda una póliza o
+   cotización se manda TAMBIÉN una copia reducida a /polizas_cliente o
+   /cotizaciones_cliente, con el costo interno puesto en 0 — nunca "sin ese
+   campo", en 0, para que calcularPoliza()/calcularCotizacion() puedan seguir
+   usándose tal cual sobre la copia y den los mismos totales del lado cliente.
+   Las reglas de Firestore (config/firestore.rules) son las que de verdad
+   protegen esto: ni siquiera intentan leer las colecciones de costo. */
+function datosClientePoliza(p){
+  /* Una póliza 'interno' se cobra sobre el COSTO (ver calcularPoliza): ahí no
+     existe un "precio de venta" independiente del costo que se le pueda
+     enseñar a nadie, así que esta póliza sencillamente no tiene copia para
+     cliente — no debería tener un usuario de portal de todos modos. */
+  if(p.cargoA === 'interno') return null;
+  return Object.assign({}, p, {
+    /* costoUnitario es lo que de verdad hay que esconder (dinero). modelo,
+       serie y código de barras/QR van igual en 0/vacío por la misma razón
+       de siempre (ver el comentario junto a esos campos en
+       normalizarPartida): son control interno del equipo, tal cual ya
+       pasa en la cotización impresa — nunca fueron pensados para que los
+       viera nadie fuera de Forguard. */
+    partidas: p.partidas.map(x => Object.assign({}, x, { costoUnitario:0, modelo:'', serie:'', codigo:'' }))
+  });
+}
+function datosClienteCotizacion(q){
+  /* Un borrador todavía no se le compartió a nadie — ni la copia reducida
+     debe existir mientras siga así. */
+  if(q.estatus === 'borrador') return null;
+  const calc = calcularCotizacion(q);
+  return Object.assign({}, q, {
+    margen: 0,
+    respaldosCosto: [],   /* jamás para el cliente, ver el comentario en normalizarCotizacion */
+    instalacion: Object.assign({}, q.instalacion, { porcentaje:0, fijo: calc.instalacionCliente }),
+    partidas: calc.filas.map(f => ({
+      id: f.id, seccion: f.seccion, cantidad: f.cantidad, um: f.um, concepto: f.concepto,
+      precioCosto: 0, precioClienteManual: f.precioCliente
+    }))
+  });
+}
+function encolarCopiaCliente(coleccion, id, datosRedactados){
+  encolar(datosRedactados
+    ? { tipo:'poner', coleccion, id, obj: datosRedactados }
+    : { tipo:'borrar', coleccion, id });
+}
 function guardarPoliza(p, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'polizas', id:p.id, obj:p });
+  encolarCopiaCliente('polizas_cliente', p.id, datosClientePoliza(p));
   anotar(accion || 'editó', 'póliza', p.sitioNombre || p.folio || 'sin nombre', detalle);
 }
+const COPIA_CLIENTE_DE = { polizas:'polizas_cliente', cotizaciones:'cotizaciones_cliente' };
 function borrarRegistro(coleccion, id){
   guardarLocal();
   encolar({ tipo:'borrar', coleccion, id });
+  if(COPIA_CLIENTE_DE[coleccion]) encolar({ tipo:'borrar', coleccion:COPIA_CLIENTE_DE[coleccion], id });
 }
 
 /* ============================ SESIÓN Y PERMISOS ============================
@@ -2294,7 +2374,14 @@ const ROLES = {
      que solo levanta o atiende tickets no le hace falta ver clientes,
      pólizas ni cotizaciones — así que ni las ve. */
   tecnico:   { nombre:'Técnico',   desc:'Solo ve Reportes: atiende los tickets asignados — cambia su estatus, sube evidencia y los resuelve.' },
-  reportero: { nombre:'Reportero', desc:'Solo ve Reportes: levanta tickets y sigue su estatus, pero no puede editar uno ya emitido.' }
+  reportero: { nombre:'Reportero', desc:'Solo ve Reportes: levanta tickets y sigue su estatus, pero no puede editar uno ya emitido.' },
+  /* Portal externo: no es "de piso" como los dos de arriba (que son de
+     Forguard, solo que acotados), es la cuenta de un CLIENTE — alguien que
+     no trabaja aquí. Ve nada más lo suyo (`sesion.clienteId`), nunca el
+     tablero completo: portalCliente() en vez del render() normal — ver más
+     abajo. Por eso no aparece en modulosPermitidos() ni en MODULOS: ese
+     camino nunca se recorre para este rol. */
+  cliente: { nombre:'Cliente', desc:'Portal externo: ve su propia póliza, sus cotizaciones y sus reportes de mantenimiento. Nada más.' }
 };
 /* Nombres viejos de una versión anterior, por si quedó alguna cuenta con ellos. */
 const ROLES_VIEJOS = { editor:'analyst', lector:'viewer' };
@@ -2323,7 +2410,7 @@ function etiquetaRol(rol){
   return '<span class="rol c-' + r + '">' + esc(ROLES[r].nombre) + '</span>';
 }
 
-const sesion = { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' };
+const sesion = { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'' };
 
 function guardarSesion(){ try{ localStorage.setItem(LLAVE_SESION, JSON.stringify(sesion)); }catch(e){} }
 function cargarSesion(){
@@ -2333,6 +2420,10 @@ function haySesion(){ return !!(sesion.idToken && sesion.refreshToken); }
 function esOwner(){ return !HAY_NUBE || sesion.rol === 'owner'; }
 function esAdmin(){ return !HAY_NUBE || sesion.rol === 'owner' || sesion.rol === 'admin'; }
 function puedeEditar(){ return !HAY_NUBE || esAdmin() || sesion.rol === 'analyst'; }
+/* El portal de clientes solo existe con nube: en modo local no hay cuentas
+   ni clientId que filtrar, así que aquí SIEMPRE es false — nunca se cuela
+   por el "!HAY_NUBE ||" que sí llevan las de arriba. */
+function esCliente(){ return HAY_NUBE && sesion.rol === 'cliente'; }
 
 function urlAuth(metodo){
   return 'https://identitytoolkit.googleapis.com/v1/accounts:' + metodo + '?key=' + encodeURIComponent(CONFIG_NUBE.apiKey);
@@ -2424,11 +2515,13 @@ function pintarPuntoClave(){
 
 function limpiarSesionYDatos(){
   detenerVigilancia();
-  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
+  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
   datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
+  portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
+  portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
   estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
   sincronizado = false;
@@ -2444,9 +2537,17 @@ async function cargarPerfil(){
   const d = await pedirNube('/usuarios/' + encodeURIComponent(sesion.uid), { method:'GET' }, true);
   if(!d || !d.fields) throw new Error('SIN_PERMISO');
   const p = deCampos(d.fields);
-  if(p.activo === false) throw new Error('BLOQUEADO');
+  if(p.activo === false){
+    /* Un cliente recién auto-registrado también entra por activo:false —
+       nunca estuvo "bloqueado", está ESPERANDO que Forguard lo apruebe.
+       Mismo candado del lado del servidor (conAcceso() exige activo==true
+       para los dos casos), pero el mensaje que ve la persona es distinto:
+       "bloqueada" le sonaría a que hizo algo mal. */
+    throw new Error(p.rol === 'cliente' ? 'PENDIENTE_CLIENTE' : 'BLOQUEADO');
+  }
   sesion.rol = normalizarRol(p.rol);
   sesion.nombre = p.nombre || '';
+  sesion.clienteId = p.clienteId || '';
   /* El celular del vendedor sale impreso en las cotizaciones de póliza. Se trae
      aquí para poder prellenarlo; que falte nunca detiene nada, porque la póliza
      guarda su propia copia y ahí se puede teclear. */
@@ -2509,7 +2610,7 @@ async function revisarCuenta(){
     }
   }catch(e){
     const m = String((e && e.message) || '');
-    if(/SIN_PERMISO|BLOQUEADO/.test(m)){
+    if(/SIN_PERMISO|BLOQUEADO|PENDIENTE_CLIENTE/.test(m)){
       detenerVigilancia();
       vigilando = false;
       manejarFalloDeArranque(e);   /* ya sabe sacar con el mensaje correcto */
@@ -2618,6 +2719,31 @@ async function listarNube(coleccion, porPagina){
     pagina = (d && d.nextPageToken) || '';
   }while(pagina);
   return salida;
+}
+/* Para el portal de clientes: trae SOLO los documentos donde `campo == valor`
+   (p.ej. clienteId == el suyo). No sirve el "listar todo" de arriba — además
+   de traer datos ajenos, las reglas de Firestore que comparan
+   resource.data.clienteId EXIGEN que la consulta ya venga filtrada por ese
+   mismo campo; si se pidiera la colección completa, el servidor rechazaría
+   la petición entera en vez de solo esconder lo ajeno. Por eso esto usa
+   :runQuery (una consulta estructurada) y no el "listar" plano de
+   listarNube(). */
+async function consultarNubePorCampo(coleccion, campo, valor){
+  const cuerpo = {
+    structuredQuery: {
+      from: [{ collectionId: coleccion }],
+      where: { fieldFilter: { field: { fieldPath: campo }, op:'EQUAL', value: aValor(valor) } },
+      limit: 300
+    }
+  };
+  const d = await pedirNube(':runQuery', { method:'POST', body: JSON.stringify(cuerpo) });
+  return (Array.isArray(d) ? d : [])
+    .filter(fila => fila && fila.document)
+    .map(fila => {
+      const o = deCampos(fila.document.fields || {});
+      o.id = fila.document.name.split('/').pop();
+      return o;
+    });
 }
 /* updateMask explícito: sin él, Firestore no reemplaza el registro de forma predecible. */
 async function escribirNube(coleccion, id, obj){
@@ -4867,6 +4993,7 @@ function calcularCotizacion(q){
 function guardarCotizacion(q, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'cotizaciones', id:q.id, obj:q });
+  encolarCopiaCliente('cotizaciones_cliente', q.id, datosClienteCotizacion(q));
   anotar(accion || 'editó', 'cotización', q.folio || 'sin folio', detalle);
 }
 
@@ -6957,6 +7084,10 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     pantalla, no dato, así que no se sube a la nube. */
                  fuentesOcultasResultados:[],
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'', categoriaFiltroActivo:'',
+                 /* Qué pestaña ve un cliente dentro de SU portal (no es un
+                    módulo de MODULOS — ver esCliente() en render()), y cuál
+                    póliza/cotización/reporte tiene abierto en el detalle. */
+                 vistaPortal:'poliza', polizaPortalId:null, cotizacionPortalId:null, reportePortalId:null,
                  /* Cómo se ve cada lista: en tarjetas (el default de siempre) o en
                     tabla, más compacta para revisar muchas de un vistazo. Es
                     preferencia de pantalla, no dato — por eso vive aquí y no en
@@ -6994,6 +7125,11 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
    puedeGestionarLevantamiento() más abajo, que es igual de abierta. El resto
    de los módulos sigue viendo todo, como siempre. */
 function modulosPermitidos(){
+  /* Un cliente no ve NINGUNO de estos módulos — tiene su propio portal
+     (portalCliente()/render(), que se bifurca ANTES de llegar a usar esta
+     lista). Vacío a propósito: así el selector de módulo del encabezado se
+     esconde solo, entero, sin tener que tocar pintarCabecera(). */
+  if(HAY_NUBE && haySesion() && sesion.rol === 'cliente') return [];
   if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama'];
   if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'organigrama'];
   /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
@@ -13262,6 +13398,18 @@ function avisoLocal(){
 let animarTarjetas = true;
 
 function render(){
+  /* El portal de clientes es OTRO tablero, no un módulo más: nunca pasa por
+     estado.modulo/MODULOS ni por el resto de este render(). Se bifurca
+     primero que nada, antes de tocar nada pensado para el equipo de
+     Forguard. pintarCabecera() sí se reutiliza tal cual — modulosPermitidos()
+     ya devuelve [] para este rol, así que esconde solo el selector de
+     módulo completo. */
+  if(esCliente()){
+    pintarEstadoNube();
+    pintarCabecera();
+    $('vista').innerHTML = vistaPortalCliente();
+    return;
+  }
   /* Candado de verdad, no solo cosmético: si el módulo actual ya no está
      permitido para este rol (cambiaron el rol de la cuenta a mitad de
      sesión, o quedó guardado uno viejo en localStorage), se salta para
@@ -13509,6 +13657,10 @@ function pintarCabecera(){
      rol no debe ver (ver modulosPermitidos()): un técnico o un reportero
      solo debe encontrar "Reportes" en el selector. */
   const permitidos = modulosPermitidos();
+  /* Un cliente no tiene NINGÚN módulo permitido (ver modulosPermitidos()) —
+     sin esto, el contenedor se quedaba ahí vacío pero con su fondo y borde,
+     como una pastilla gris flotando sin nada adentro. */
+  $('selectorModulo').style.display = permitidos.length ? '' : 'none';
   $('selectorModulo').querySelectorAll('[data-modulo]').forEach(b=>{
     b.style.display = permitidos.includes(b.dataset.modulo) ? '' : 'none';
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
@@ -13596,6 +13748,22 @@ function vistaAdmin(){
      +   '<div class="rodillo" id="tablaUsuarios"></div>'
      + '</div>';
 
+  /* Portal de clientes: aparte de "Cuentas" (el equipo de Forguard) porque
+     son cosas distintas — alguien de afuera pidiendo entrar, no un permiso
+     que se le cambia a alguien de la casa. Las solicitudes van primero: son
+     las que necesitan una decisión; las cuentas ya aprobadas son solo
+     consulta/mantenimiento, igual que la tabla de arriba. */
+  h += '<div class="bloque"><div class="bloque-cabeza"><div>'
+     +   '<h3>Solicitudes de acceso de clientes</h3>'
+     +   '<p>Se registraron ellos mismos desde «Solicita tu acceso» — nadie de Forguard puede entrar sin que tú apruebes desde aquí.</p></div></div>'
+     +   '<div class="rodillo" id="tablaSolicitudesCliente"></div>'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div>'
+     +   '<h3>Cuentas de clientes</h3><p id="clientesResumen">Ya aprobadas — pueden ver su póliza, sus cotizaciones y sus reportes.</p></div></div>'
+     +   '<div class="rodillo" id="tablaCuentasCliente"></div>'
+     + '</div>';
+
   h += '<div class="bloque"><div class="bloque-cabeza"><div>'
      +   '<h3>Historial de cambios</h3><p>Últimos 150 movimientos, del más reciente al más viejo.</p></div></div>'
      +   '<div id="listaBitacora"></div>'
@@ -13613,9 +13781,11 @@ async function montarAdmin(forzar){
   /* Se exigen LAS DOS cosas cargadas, no solo las cuentas: el asignador de
      encargado también llena admin.usuarios, y con solo esa condición el panel
      se salteaba la carga del historial y se veía vacío como si no hubiera nada. */
-  if(admin.usuarios && admin.bitacora && !forzar){ pintarUsuarios(); pintarBitacora(); return; }
+  if(admin.usuarios && admin.bitacora && !forzar){ pintarUsuarios(); pintarSolicitudesCliente(); pintarCuentasCliente(); pintarBitacora(); return; }
   admin.cargando = true; admin.error = '';
   $('tablaUsuarios').innerHTML = '<div class="vacio-chico">Cargando cuentas…</div>';
+  $('tablaSolicitudesCliente').innerHTML = '<div class="vacio-chico">Cargando…</div>';
+  $('tablaCuentasCliente').innerHTML = '<div class="vacio-chico">Cargando…</div>';
   $('listaBitacora').innerHTML = '<div class="vacio-chico">Cargando historial…</div>';
   try{
     const [us, bi] = await Promise.all([listarNube('usuarios'), listarNube('bitacora')]);
@@ -13626,7 +13796,7 @@ async function montarAdmin(forzar){
   }finally{
     admin.cargando = false;
   }
-  pintarUsuarios(); pintarBitacora();
+  pintarUsuarios(); pintarSolicitudesCliente(); pintarCuentasCliente(); pintarBitacora();
 }
 
 function pintarUsuarios(){
@@ -13642,6 +13812,10 @@ function pintarUsuarios(){
   const ORDEN_ROL = ['owner','admin','analyst','viewer'];
   const us = (admin.usuarios || []).slice()
     .map(u => Object.assign({}, u, { rol: normalizarRol(u.rol) }))
+    /* Las cuentas de cliente tienen su propia tabla, aparte (ver
+       pintarSolicitudesCliente/pintarCuentasCliente) — aquí solo va el
+       equipo de Forguard. */
+    .filter(u => u.rol !== 'cliente')
     .sort((a,b)=> ORDEN_ROL.indexOf(a.rol) - ORDEN_ROL.indexOf(b.rol)
                   || String(a.correo||'').localeCompare(String(b.correo||'')));
 
@@ -13697,6 +13871,72 @@ function pintarUsuarios(){
           +   (puedeBorrar ? '<button type="button" class="btn btn-peligro btn-mini" data-borrar-usuario="' + esc(u.id) + '" '
                  + 'title="Borrar el acceso de esta cuenta">' + ICONO.basura + '</button>' : '')
           + '</td></tr>';
+      }).join('')
+    + '</tbody></table>';
+}
+
+/* Pendientes de revisar: rol 'cliente' recién auto-registrado, activo:false
+   todavía sin vincular a ningún cliente real (clienteId vacío). En cuanto se
+   aprueban (ver modalAprobarCliente) pasan a pintarCuentasCliente(). */
+function pintarSolicitudesCliente(){
+  const cont = $('tablaSolicitudesCliente');
+  if(!cont) return;
+  if(admin.error){ cont.innerHTML = '<div class="vacio-chico">No se pudieron cargar.</div>'; return; }
+  const pendientes = (admin.usuarios || [])
+    .filter(u => normalizarRol(u.rol) === 'cliente' && u.activo === false)
+    .sort((a,b)=> String(a.creado||'').localeCompare(String(b.creado||'')));
+  if(!pendientes.length){ cont.innerHTML = '<div class="vacio-chico">No hay solicitudes pendientes.</div>'; return; }
+  cont.innerHTML = '<table class="tabla"><thead><tr>'
+    + '<th>Nombre</th><th>Correo</th><th>Empresa que puso</th><th>Solicitada</th><th></th>'
+    + '</tr></thead><tbody>'
+    + pendientes.map(u=>
+        '<tr>'
+      +   '<td><b>' + esc(nombreDe(u) || '—') + '</b></td>'
+      +   '<td>' + esc(u.correo || '') + '</td>'
+      +   '<td>' + esc(u.empresaSolicitada || '—') + '</td>'
+      +   '<td>' + esc(fechaHora(u.creado, true)) + '</td>'
+      +   '<td class="acciones">'
+      +     '<button type="button" class="btn btn-primario btn-mini" data-aprobar-cliente="' + esc(u.id) + '">Vincular y aprobar</button>'
+      +     '<button type="button" class="btn btn-peligro btn-mini" data-rechazar-cliente="' + esc(u.id) + '">Rechazar</button>'
+      +   '</td>'
+      + '</tr>'
+      ).join('')
+    + '</tbody></table>';
+}
+
+/* Ya aprobadas: rol 'cliente' con clienteId vinculado. Bloquear/Borrar
+   reutilizan EXACTAMENTE los mismos data-bloquear/data-borrar-usuario y su
+   manejador de clic de la tabla de arriba — no hacen nada específico de rol,
+   solo buscan por id en admin.usuarios. */
+function pintarCuentasCliente(){
+  const cont = $('tablaCuentasCliente');
+  if(!cont) return;
+  if(admin.error){ cont.innerHTML = '<div class="vacio-chico">No se pudieron cargar.</div>'; return; }
+  const aprobados = (admin.usuarios || [])
+    .filter(u => normalizarRol(u.rol) === 'cliente' && u.activo !== false)
+    .sort((a,b)=> String(a.correo||'').localeCompare(String(b.correo||'')));
+  $('clientesResumen').textContent = aprobados.length
+    ? aprobados.length + ' ' + plural(aprobados.length,'cuenta aprobada','cuentas aprobadas')
+    : 'Ya aprobadas — pueden ver su póliza, sus cotizaciones y sus reportes.';
+  if(!aprobados.length){ cont.innerHTML = '<div class="vacio-chico">Todavía no hay cuentas de cliente aprobadas.</div>'; return; }
+  cont.innerHTML = '<table class="tabla"><thead><tr>'
+    + '<th>Nombre</th><th>Correo</th><th>Cliente vinculado</th><th>Estado</th><th></th>'
+    + '</tr></thead><tbody>'
+    + aprobados.map(u=>{
+        const cli = clientePorId(u.clienteId);
+        return '<tr>'
+        +   '<td><b>' + esc(nombreDe(u) || '—') + '</b></td>'
+        +   '<td>' + esc(u.correo || '') + '</td>'
+        +   '<td>' + (cli ? esc(cli.nombre) : '<span class="pista">(el cliente ya no existe)</span>') + '</td>'
+        +   '<td>' + (u.activo === false
+              ? '<span class="insignia i-error">Bloqueada</span>'
+              : '<span class="insignia i-ok"><span class="punto p-ok"></span>Activa</span>') + '</td>'
+        +   '<td class="acciones">'
+        +     '<button type="button" class="btn ' + (u.activo === false ? 'btn-verde' : 'btn-suave') + ' btn-mini" data-bloquear="' + esc(u.id) + '">'
+        +       (u.activo === false ? 'Reactivar' : 'Bloquear') + '</button>'
+        +     '<button type="button" class="btn btn-peligro btn-mini" data-borrar-usuario="' + esc(u.id) + '" title="Borrar el acceso de esta cuenta">' + ICONO.basura + '</button>'
+        +   '</td>'
+        + '</tr>';
       }).join('')
     + '</tbody></table>';
 }
@@ -13881,6 +14121,76 @@ function modalCuenta(){
    hace falta su celular impreso en una póliza. Mismo candado que borrar:
    un Admin no puede tocar la ficha de un Owner (ver puedeEditarFicha en
    pintarUsuarios y la regla /usuarios en config/firestore.rules). */
+/* Vincula la solicitud de un cliente a un registro real de datos.clientes (o
+   crea uno nuevo si de plano no está en el catálogo) y la aprueba. Mismo
+   molde "select + __nuevo__ revela un texto" que ya se usa para
+   cliente/sitio/persona en otros formularios de la app. */
+function modalAprobarCliente(usuarioId){
+  const u = (admin.usuarios || []).find(x => x.id === usuarioId);
+  if(!u) return;
+  const clientesOrdenados = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  abrirModal('Vincular y aprobar',
+      '<p style="font-size:13px; color:#3a4256; margin-bottom:14px">'
+    +   '<b>' + esc(nombreDe(u)) + '</b> (' + esc(u.correo) + ') puso como empresa: '
+    +   '<b>' + esc(u.empresaSolicitada || 'no puso ninguna') + '</b>.</p>'
+    + '<div class="campo"><label>¿A cuál cliente de tu catálogo corresponde? *</label>'
+    +   '<select id="apCliente">'
+    +     '<option value="">— Elige uno —</option>'
+    +     clientesOrdenados.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    +     '<option value="__nuevo__">+ No está — crear cliente nuevo</option>'
+    +   '</select></div>'
+    + '<div class="campo" id="zonaClienteNuevoAp" hidden><label>Nombre del cliente nuevo</label>'
+    +   '<input type="text" id="apClienteNuevoNombre" placeholder="Ej. ' + esc(u.empresaSolicitada || 'Nombre de la empresa') + '"></div>',
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">Aprobar</button>');
+
+  $('apCliente').addEventListener('change', ()=>{
+    $('zonaClienteNuevoAp').hidden = $('apCliente').value !== '__nuevo__';
+  });
+  $('apCliente').value = '';
+  if(u.empresaSolicitada){
+    const coincide = clientesOrdenados.find(c => c.nombre.trim().toLowerCase() === u.empresaSolicitada.trim().toLowerCase());
+    if(coincide) $('apCliente').value = coincide.id;
+  }
+
+  cerrarModalActual = async ()=>{
+    let sel = $('apCliente').value;
+    if(!sel){ aviso('Elige el cliente al que pertenece.', true); return; }
+
+    const btn = $('modalPie').querySelector('[data-modal="guardar"]');
+    btn.disabled = true; btn.textContent = 'Aprobando…';
+    try{
+      let clienteId = sel;
+      let clienteNombre;
+      if(sel === '__nuevo__'){
+        const nombreNuevo = $('apClienteNuevoNombre').value.trim();
+        if(!nombreNuevo){ aviso('Escribe el nombre del cliente nuevo.', true); btn.disabled = false; btn.textContent = 'Aprobar'; return; }
+        const c = normalizarCliente({ id: nuevoId(), nombre: nombreNuevo });
+        datos.clientes.push(c);
+        guardarCliente(c, 'creó', c.nombre + ' (desde una solicitud de acceso de cliente)');
+        clienteId = c.id;
+        clienteNombre = c.nombre;
+      }else{
+        clienteNombre = (clientePorId(clienteId) || {}).nombre || '';
+      }
+
+      await escribirNube('usuarios', u.id, { activo:true, clienteId, id:undefined,
+        correo:u.correo, nombre:u.nombre, rol:'cliente', telefono:u.telefono||'', foto:u.foto||'',
+        creado:u.creado, creadoPor:u.creadoPor||'', ultimoAcceso:u.ultimoAcceso||'', empresaSolicitada:u.empresaSolicitada||'' });
+      u.activo = true; u.clienteId = clienteId;
+      anotar('aprobó la cuenta de cliente de', 'cuenta', u.correo, clienteNombre);
+      cerrarModalActual = null;
+      cerrarModal();
+      pintarSolicitudesCliente(); pintarCuentasCliente();
+      aviso(nombreDe(u) + ' ya puede entrar, vinculado a ' + clienteNombre + '.');
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'Aprobar';
+      aviso('No se pudo aprobar: ' + e.message, true);
+    }
+  };
+}
+
 function modalEditarUsuario(id){
   const u = (admin.usuarios || []).find(x => x.id === id);
   if(!u) return;
@@ -13984,6 +14294,20 @@ $('vista').addEventListener('change', async ev=>{
 });
 
 $('vista').addEventListener('click', async ev=>{
+  /* --- Portal de clientes: navegación entre pestañas y detalle --- */
+  const pPestana = ev.target.closest('[data-portal]');
+  if(pPestana){
+    estado.vistaPortal = pPestana.dataset.portal;
+    estado.cotizacionPortalId = null; estado.reportePortalId = null;
+    animarTarjetas = true;
+    render();
+    return;
+  }
+  const pVerCot = ev.target.closest('[data-ver-cotizacion-portal]');
+  if(pVerCot){ estado.cotizacionPortalId = pVerCot.dataset.verCotizacionPortal; render(); return; }
+  const pVerRep = ev.target.closest('[data-ver-reporte-portal]');
+  if(pVerRep){ estado.reportePortalId = pVerRep.dataset.verReportePortal; render(); return; }
+
   const bor = ev.target.closest('[data-borrar-usuario]');
   if(bor){
     const u = (admin.usuarios || []).find(x => x.id === bor.dataset.borrarUsuario);
@@ -14038,6 +14362,29 @@ $('vista').addEventListener('click', async ev=>{
       });
     return;
   }
+
+  const rechCli = ev.target.closest('[data-rechazar-cliente]');
+  if(rechCli){
+    const u = (admin.usuarios || []).find(x => x.id === rechCli.dataset.rechazarCliente);
+    if(!u) return;
+    confirmar('Rechazar solicitud',
+      'Se borra la solicitud de <b>' + esc(nombreDe(u)) + '</b> (' + esc(u.correo) + ', ' + esc(u.empresaSolicitada || 'sin empresa') + '). '
+      + 'Su correo y contraseña siguen existiendo en Firebase, pero sin una ficha no va a poder entrar a nada. '
+      + 'Si más adelante sí es cliente, puede volver a registrarse o tú le puedes crear la cuenta desde «Crear cuenta».',
+      'Sí, rechazar', async ()=>{
+        try{
+          await borrarNube('usuarios', u.id);
+          admin.usuarios = (admin.usuarios || []).filter(x => x.id !== u.id);
+          anotar('rechazó la solicitud de', 'cuenta', u.correo);
+          pintarSolicitudesCliente();
+          aviso('Solicitud rechazada.');
+        }catch(e){ aviso('No se pudo rechazar: ' + e.message, true); }
+      });
+    return;
+  }
+
+  const aproCli = ev.target.closest('[data-aprobar-cliente]');
+  if(aproCli){ modalAprobarCliente(aproCli.dataset.aprobarCliente); return; }
 });
 
 /* ============================ VENTANA MODAL ============================ */
@@ -18922,6 +19269,11 @@ function reproducirIntro(retrasoMs){
 function mostrarAcceso(mensaje, retrasoIntro){
   $('acceso').classList.add('abierto');
   document.body.style.overflow = 'hidden';
+  /* Siempre arranca en el formulario de entrar, nunca en el de solicitar
+     acceso — aunque la última vez que se vio esta pantalla se hubiera
+     quedado del otro lado. */
+  $('formSolicitudCliente').style.display = 'none';
+  $('formAcceso').style.display = '';
   errorAcceso(mensaje || '');
   reproducirIntro(retrasoIntro);
 
@@ -19113,6 +19465,9 @@ $('formAcceso').addEventListener('submit', async ev=>{
     if(/SIN_PERMISO/.test(m)){
       errorAcceso('Tu cuenta existe pero todavía no tiene acceso concedido. Pide a un administrador que te lo dé.');
       salirSilencioso();
+    }else if(/PENDIENTE_CLIENTE/.test(m)){
+      errorAcceso('Tu solicitud de acceso todavía está pendiente de aprobación. En cuanto Forguard la revise, podrás entrar con estos mismos datos.');
+      salirSilencioso();
     }else if(/BLOQUEADO/.test(m)){
       errorAcceso('Tu cuenta está bloqueada. Pide a un administrador que la reactive.');
       /* También aquí con los datos: si intenta entrar y está bloqueada, la copia
@@ -19171,6 +19526,74 @@ $('aOlvide').addEventListener('click', async ()=>{
     errorAcceso('');
     aviso('Te mandamos un correo a ' + correo + ' para poner una contraseña nueva.');
   }catch(e){ errorAcceso(e.message); }
+});
+
+/* ------------------- Alta de cliente (autoservicio, con aprobación) -------------------
+   El toggle entre las dos formas vive aquí porque las dos comparten pantalla
+   (#acceso) — ver el comentario junto a #formSolicitudCliente en el HTML de
+   por qué esto no es un modal. */
+function errorSolicitud(txt){
+  const e = $('solicitudError');
+  e.textContent = txt || '';
+  e.classList.toggle('visible', !!txt);
+}
+function mostrarSolicitudCliente(){
+  errorAcceso(''); errorSolicitud('');
+  $('formAcceso').style.display = 'none';
+  $('formSolicitudCliente').style.display = '';
+  setTimeout(()=> $('scEmpresa').focus(), 60);
+}
+function mostrarFormAcceso(){
+  errorSolicitud(''); errorAcceso('');
+  $('formSolicitudCliente').style.display = 'none';
+  $('formAcceso').style.display = '';
+}
+$('aSolicitarCliente').addEventListener('click', mostrarSolicitudCliente);
+$('scVolver').addEventListener('click', mostrarFormAcceso);
+
+$('formSolicitudCliente').addEventListener('submit', async ev=>{
+  ev.preventDefault();
+  const empresa = $('scEmpresa').value.trim();
+  const nombre  = $('scNombre').value.trim();
+  const correo  = $('scCorreo').value.trim();
+  const clave   = $('scClave').value;
+  if(!empresa || !nombre || !correo){ errorSolicitud('Faltan datos.'); return; }
+  if(clave.length < 6){ errorSolicitud('La contraseña necesita al menos 6 caracteres.'); return; }
+
+  const btn = $('scEnviar');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  try{
+    /* Se crea la cuenta de Firebase Auth y, CON su propio token recién
+       emitido (a diferencia de "Crear cuenta" en Admin, que descarta el
+       token para no tocar la sesión del administrador), se escribe su
+       propio perfil pendiente — nadie más puede hacer esa escritura por
+       ella, y las reglas de Firestore (ver /usuarios en
+       config/firestore.rules) exigen que nazca con rol:'cliente' y
+       activo:false, así que no hay forma de que se autoapruebe. */
+    const d = await pedirAuth('signUp', { email:correo, password:clave, returnSecureToken:true });
+    sesion.correo = d.email; sesion.uid = d.localId;
+    sesion.idToken = d.idToken; sesion.refreshToken = d.refreshToken;
+    sesion.expira = Date.now() + (Number(d.expiresIn) || 3600) * 1000;
+    await escribirNube('usuarios', d.localId, {
+      correo, nombre, rol:'cliente', activo:false, clienteId:'', empresaSolicitada: empresa,
+      telefono:'', foto:'', creado: new Date().toISOString(), creadoPor:'auto-registro', ultimoAcceso:''
+    });
+    /* Ya no debe quedar "adentro": activo:false la manda derecho al mensaje
+       de pendiente en cuanto intente entrar, así que mejor ni dejarla con
+       una sesión viva mientras tanto. */
+    Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', clienteId:'' });
+    try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
+
+    mostrarFormAcceso();
+    $('aCorreo').value = correo;
+    errorAcceso('');
+    aviso('Listo — enviamos tu solicitud. En cuanto Forguard la revise, entra aquí mismo con tu correo y tu contraseña.');
+    ev.target.reset();
+  }catch(e){
+    errorSolicitud(e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Enviar solicitud';
+  }
 });
 
 /* --------------------- Persiana de cierre de sesión --------------------- */
@@ -19275,6 +19698,11 @@ let sincronizado = false;
 
 async function refrescarDesdeNube(){
   if(!HAY_NUBE || !haySesion()) return;
+  /* El portal de clientes no tiene este refresco automático de 30s en 30s —
+     su carga (cargarPortalCliente()) es aparte y bajarDeLaNube() de aquí le
+     rebotaría con 403 (las reglas le cierran /polizas, /activos, etc.).
+     Si necesita ver algo nuevo, vuelve a entrar o recarga la página. */
+  if(esCliente()) return;
   if(cola.length || vaciando) return;
   if($('telon').classList.contains('abierto')) return;
   if(document.hidden) return;
@@ -19319,6 +19747,11 @@ function manejarFalloDeArranque(e){
     mostrarAcceso('Tu cuenta ya no tiene acceso concedido. Habla con un administrador.');
     render(); return;
   }
+  if(/PENDIENTE_CLIENTE/.test(m)){
+    salirSilencioso(true);
+    mostrarAcceso('Tu solicitud de acceso todavía está pendiente de aprobación. En cuanto Forguard la revise, podrás entrar con estos mismos datos.');
+    render(); return;
+  }
   if(/BLOQUEADO/.test(m)){
     /* Con los datos: una cuenta bloqueada no se queda con la copia de la base. */
     salirSilencioso(true);
@@ -19344,6 +19777,14 @@ function manejarFalloDeArranque(e){
 }
 
 async function arrancarNube(){
+  /* El portal de clientes no baja NADA de lo que baja el resto del tablero
+     (bajarDeLaNube() lee /polizas, /cotizaciones, /activos, /personal… — todo
+     eso le está cerrado a este rol por las reglas de Firestore) — tiene su
+     propia carga, mucho más chica y siempre acotada a sesion.clienteId. Se
+     bifurca aquí, no en cada quien llama a arrancarNube(), para que el botón
+     "Entrar", el arranque de la página y reintentarSincronizar() no tengan
+     que saber de esta diferencia. */
+  if(esCliente()) return arrancarNubePortal();
   try{
     const r = await bajarDeLaNube();
     sincronizado = true;
@@ -19380,6 +19821,200 @@ async function arrancarNube(){
   if($('cargando').classList.contains('abierto')) animarTarjetas = true;
   render();
   vaciarCola();
+}
+
+/* Todo lo que ve un cliente en su portal: su propia ficha, sus sitios (para
+   poder decir "en tu sucursal X"), y las TRES cosas que pidió — su póliza
+   (de /polizas_cliente, sin costo), sus cotizaciones (de
+   /cotizaciones_cliente, ídem) y sus reportes (de /reportes, que no tiene
+   nada que esconder). Siempre acotado por clienteId, nunca "todo". */
+const portalCliente = { cliente:null, sitios:[], polizas:[], cotizaciones:[], reportes:[], cargado:false, error:'' };
+async function cargarPortalCliente(){
+  const idCliente = sesion.clienteId;
+  const [cliDoc, si, po, co, rp] = await Promise.all([
+    pedirNube('/clientes/' + encodeURIComponent(idCliente), { method:'GET' }, true),
+    consultarNubePorCampo('sitios', 'clienteId', idCliente),
+    consultarNubePorCampo('polizas_cliente', 'clienteId', idCliente),
+    consultarNubePorCampo('cotizaciones_cliente', 'clienteId', idCliente),
+    consultarNubePorCampo('reportes', 'clienteId', idCliente)
+  ]);
+  portalCliente.cliente = (cliDoc && cliDoc.fields) ? normalizarCliente(Object.assign({ id:idCliente }, deCampos(cliDoc.fields))) : null;
+  portalCliente.sitios = si.map(normalizarSitio);
+  portalCliente.polizas = po.map(normalizarPoliza);
+  portalCliente.cotizaciones = co.map(normalizarCotizacion).sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  portalCliente.reportes = rp.map(normalizarReporte).sort((a,b)=> b.fechaCreacion.localeCompare(a.fechaCreacion));
+  portalCliente.cargado = true;
+  portalCliente.error = '';
+}
+async function arrancarNubePortal(){
+  try{
+    await cargarPortalCliente();
+    sincronizado = true;
+    arrancarVigilancia();
+  }catch(e){
+    manejarFalloDeArranque(e);
+    return;
+  }
+  if($('cargando').classList.contains('abierto')) animarTarjetas = true;
+  render();
+}
+
+/* ============================ PORTAL DE CLIENTES ============================
+   Tres pestañas, de solo lectura, sin nada de lo que ve el equipo de Forguard
+   (nada de costos, nada de otros clientes, nada de activos/organigrama/etc.
+   — ver esCliente() en render() y config/firestore.rules). Los clics de
+   aquí (data-portal, data-ver-poliza-portal, etc.) los atiende el MISMO
+   $('vista').addEventListener('click', ...) de siempre: no hace falta un
+   wiring aparte porque #vista ya tiene su delegado desde el arranque.
+   ============================================================================ */
+function vistaPortalCliente(){
+  if(!portalCliente.cargado) return '<div class="vacio-chico">Cargando tu información…</div>';
+  const nombreCliente = portalCliente.cliente ? portalCliente.cliente.nombre : sesion.nombre || 'tu cuenta';
+  let h = '<div class="titulo-zona"><div><h2>' + esc(nombreCliente) + '</h2>'
+        +   '<p>Portal de cliente — consulta tu póliza, tus cotizaciones y tus reportes de mantenimiento.</p></div></div>';
+  h += '<nav class="modulos" role="tablist" aria-label="Portal" style="margin-bottom:22px; max-width:520px">'
+     +   '<button type="button" class="mod" data-portal="poliza" role="tab" aria-selected="' + (estado.vistaPortal === 'poliza') + '">Mi póliza</button>'
+     +   '<button type="button" class="mod" data-portal="cotizaciones" role="tab" aria-selected="' + (estado.vistaPortal === 'cotizaciones') + '">Mis cotizaciones</button>'
+     +   '<button type="button" class="mod" data-portal="reportes" role="tab" aria-selected="' + (estado.vistaPortal === 'reportes') + '">Mis reportes</button>'
+     + '</nav>';
+  h += estado.vistaPortal === 'cotizaciones' ? vistaPortalCotizaciones()
+     : estado.vistaPortal === 'reportes'     ? vistaPortalReportes()
+     : vistaPortalPolizas();
+  return h;
+}
+
+function sitioPortalPorId(id){ return portalCliente.sitios.find(s => s.id === id); }
+
+function vistaPortalPolizas(){
+  if(!portalCliente.polizas.length){
+    return vistaVacia('edificio', 'Todavía no hay una póliza a tu nombre',
+      'En cuanto Forguard te dé de alta una póliza de mantenimiento, la vas a ver aquí.', '', '');
+  }
+  return portalCliente.polizas.map(p=>{
+    const c = calcularPoliza(p);
+    const s = sitioPortalPorId(p.sitioId);
+    return '<div class="bloque">'
+      + '<div class="bloque-cabeza"><div>'
+      +   '<h3>' + esc(p.sitioNombre || (s && s.nombre) || 'Tu sitio') + '</h3>'
+      +   '<p><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></p>'
+      + '</div></div>'
+      + '<div class="kpis">'
+      +   tarjetaKpi('Mensualidad', dinero(c.precioMensual), 'Vigente hasta ' + fmtFecha(sumarMeses(p.fechaInicio, MESES_POLIZA)))
+      +   tarjetaKpi('Servicios este contrato', c.hechos + ' de ' + c.programados, c.pendientes ? c.pendientes + ' ' + plural(c.pendientes,'pendiente','pendientes') : 'Al corriente')
+      +   tarjetaKpi('Cobranza', c.cobrados + ' de ' + c.montos.length, c.adeudo ? 'Adeudo: ' + dinero(c.adeudo) : 'Sin adeudo')
+      + '</div>'
+      + '<div class="rodillo"><table class="tabla"><thead><tr>'
+      +   '<th>Equipo</th><th>Marca</th><th>Cant.</th><th>Visitas/año</th><th>Precio mensual*</th>'
+      + '</tr></thead><tbody>'
+      +   p.partidas.map(x=>
+            '<tr><td>' + esc(x.concepto) + '</td><td>' + esc(x.marca || '—') + '</td>'
+          +   '<td>' + numero(x.cantidad) + '</td><td>' + numero(x.frecuencia) + '</td>'
+          +   '<td>' + dinero(totalRenglon(x) / MESES_POLIZA) + '</td></tr>'
+          ).join('')
+      + '</tbody></table></div>'
+      + '<p class="pista" style="margin-top:10px">*Prorrateado del total anual del renglón entre los ' + MESES_POLIZA + ' meses del contrato.</p>'
+      + '</div>';
+  }).join('');
+}
+
+function vistaPortalCotizaciones(){
+  if(estado.cotizacionPortalId){
+    const q = portalCliente.cotizaciones.find(x => x.id === estado.cotizacionPortalId);
+    if(!q){ estado.cotizacionPortalId = null; }
+    else return vistaPortalCotizacion(q);
+  }
+  if(!portalCliente.cotizaciones.length){
+    return vistaVacia('credencial', 'Todavía no tienes cotizaciones',
+      'En cuanto Forguard te comparta una cotización, la vas a ver aquí.', '', '');
+  }
+  return '<div class="grid">' + portalCliente.cotizaciones.map(q=>{
+    const c = calcularCotizacion(q);
+    const s = sitioPortalPorId(q.sitioId);
+    const tono = ESTATUS_COTIZACION_PERDIDA.includes(q.estatus) ? 'neutro' : ESTATUS_COTIZACION_INGRESO.includes(q.estatus) ? 'ok' : 'alerta';
+    return '<div class="tarjeta tarjeta-clic" data-ver-cotizacion-portal="' + esc(q.id) + '" tabindex="0" role="button">'
+      +   '<div class="t-cabeza"><div style="flex:1; min-width:0">'
+      +     '<div class="t-nombre">' + esc(q.folio || 'Sin folio') + '</div>'
+      +     '<div class="t-sub">' + esc((s && s.nombre) || q.sitioId ? (s ? s.nombre : '') : '') + (q.tipoMtto ? (s ? ' · ' : '') + esc(q.tipoMtto) : '') + '</div>'
+      +   '</div></div>'
+      +   '<div class="t-chips"><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_COTIZACION[q.estatus] || q.estatus) + '</span></div>'
+      +   '<div class="t-datos"><div class="t-dato"><div class="d-label">Total</div><div class="d-valor">' + dinero(c.totalCliente) + '</div></div></div>'
+      +   '<div class="t-pie"><span class="pista">' + fmtFecha(q.fecha) + '</span></div>'
+      + '</div>';
+  }).join('') + '</div>';
+}
+
+function vistaPortalCotizacion(q){
+  const c = calcularCotizacion(q);
+  const s = sitioPortalPorId(q.sitioId);
+  let h = '<button type="button" class="btn btn-suave btn-mini" data-portal="cotizaciones" style="margin-bottom:16px">← Regresar a mis cotizaciones</button>';
+  h += '<div class="titulo-zona"><div><h2>' + esc(q.folio || 'Cotización') + '</h2>'
+     +   '<p>' + (s ? esc(s.nombre) + ' · ' : '') + fmtFecha(q.fecha) + '</p></div></div>';
+  h += '<div class="bloque">'
+     + '<div class="rodillo"><table class="tabla"><thead><tr>'
+     +   '<th>#</th><th>Concepto</th><th>Cant.</th><th>UM</th><th>Precio</th><th>Importe</th>'
+     + '</tr></thead><tbody>'
+     +   c.filas.map(f=>
+         '<tr><td>' + esc(f.numPart) + '</td><td>' + esc(f.concepto) + '</td><td>' + numero(f.cantidad) + '</td>'
+       +   '<td>' + esc(f.um || '—') + '</td><td>' + dinero(f.precioCliente) + '</td><td>' + dinero(f.importeCliente) + '</td></tr>'
+       ).join('')
+     +   (c.incluyeInstalacion
+          ? '<tr><td>' + esc(c.instalacionNumPart) + '</td><td>Instalación</td><td colspan="3"></td><td>' + dinero(c.instalacionCliente) + '</td></tr>'
+          : '')
+     + '</tbody></table></div>'
+     + '<div class="totales-cotizacion" style="margin-top:14px; text-align:right">'
+     +   '<p>Subtotal: <b>' + dinero(c.subtotalCliente) + '</b></p>'
+     +   '<p>IVA: <b>' + dinero(c.ivaCliente) + '</b></p>'
+     +   '<p style="font-size:16px">Total: <b>' + dinero(c.totalCliente) + '</b></p>'
+     + '</div>'
+     + '</div>';
+  return h;
+}
+
+function vistaPortalReportes(){
+  if(estado.reportePortalId){
+    const r = portalCliente.reportes.find(x => x.id === estado.reportePortalId);
+    if(!r){ estado.reportePortalId = null; }
+    else return vistaPortalReporte(r);
+  }
+  if(!portalCliente.reportes.length){
+    return vistaVacia('reporte', 'Todavía no hay reportes',
+      'Cuando Forguard levante un reporte de mantenimiento en tu sitio, lo vas a ver aquí.', '', '');
+  }
+  return '<div class="grid">' + portalCliente.reportes.map(r=>{
+    const s = sitioPortalPorId(r.sitioId);
+    const tono = TONO_ESTATUS_REPORTE[r.estatus] || 'neutro';
+    return '<div class="tarjeta tarjeta-clic" data-ver-reporte-portal="' + esc(r.id) + '" tabindex="0" role="button">'
+      +   '<div class="t-cabeza"><div style="flex:1; min-width:0">'
+      +     '<div class="t-nombre">' + esc(r.titulo || r.equipoNombre || 'Reporte') + '</div>'
+      +     '<div class="t-sub">' + esc(r.sitioNombre || (s && s.nombre) || '') + '</div>'
+      +   '</div></div>'
+      +   '<div class="t-chips">'
+      +     '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_REPORTE[r.estatus] || r.estatus) + '</span>'
+      +   '</div>'
+      +   '<div class="t-pie"><span class="pista">' + fmtFecha(r.fechaCreacion) + '</span></div>'
+      + '</div>';
+  }).join('') + '</div>';
+}
+
+function vistaPortalReporte(r){
+  const s = sitioPortalPorId(r.sitioId);
+  const tono = TONO_ESTATUS_REPORTE[r.estatus] || 'neutro';
+  let h = '<button type="button" class="btn btn-suave btn-mini" data-portal="reportes" style="margin-bottom:16px">← Regresar a mis reportes</button>';
+  h += '<div class="titulo-zona"><div><h2>' + esc(r.titulo || r.equipoNombre || 'Reporte') + '</h2>'
+     +   '<p>' + esc(r.sitioNombre || (s && s.nombre) || '') + ' · ' + fmtFecha(r.fechaCreacion) + '</p></div></div>';
+  h += '<div class="bloque">'
+     + '<p><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_REPORTE[r.estatus] || r.estatus) + '</span>'
+     +   (r.equipoNombre ? ' · ' + esc(r.equipoNombre) : '') + '</p>'
+     + (r.descripcion ? '<p style="margin-top:12px"><b>Descripción</b><br>' + esc(r.descripcion) + '</p>' : '')
+     + (r.reporteAtencion ? '<p style="margin-top:12px"><b>Atención dada</b><br>' + esc(r.reporteAtencion) + '</p>' : '')
+     + (r.fechaCierre ? '<p style="margin-top:12px" class="pista">Cerrado el ' + fmtFecha(r.fechaCierre) + '</p>' : '')
+     + (r.evidencias.length
+        ? '<div class="galeria-evidencia" style="margin-top:14px">' + r.evidencias.map(e=>
+            '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy"></div>'
+          ).join('') + '</div>'
+        : '')
+     + '</div>';
+  return h;
 }
 
 /* =============================== ARRANQUE =============================== */
