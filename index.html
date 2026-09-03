@@ -3549,6 +3549,10 @@ function normalizarActivo(a){
     proximoMantenimiento: /^\d{4}-\d{2}-\d{2}$/.test(a && a.proximoMantenimiento) ? a.proximoMantenimiento : '',
     notas: (a && a.notas ? String(a.notas) : '').trim(),
     evidencias: (Array.isArray(a && a.evidencias) ? a.evidencias : []).map(normalizarEvidencia).filter(e => e.dataUrl),
+    /* Factura u orden de compra: mismo molde que el respaldo de costo de
+       una cotización (foto o PDF) — es EL COMPROBANTE de la compra, no una
+       foto del equipo (eso ya lo cubren `evidencias`). */
+    respaldosCompra: (Array.isArray(a && a.respaldosCompra) ? a.respaldosCompra : []).map(normalizarRespaldoCosto),
     historial: (Array.isArray(a && a.historial) ? a.historial : []).map(normalizarHistorialActivo),
     registradoPor: {
       uid: (a && a.registradoPor && a.registradoPor.uid) || '',
@@ -3574,6 +3578,13 @@ function guardarActivo(a, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'activos', id:a.id, obj:a });
   anotar(accion || 'editó', 'activo', a.folio || a.nombre || 'sin folio', detalle);
+}
+
+/* Mismo criterio que tamanoRespaldos(cot): cuánto pesan, en bytes de cadena
+   dataURL, los respaldos de compra ya guardados — para no rebasar el
+   presupuesto por documento antes de sumar uno más. */
+function tamanoRespaldosActivo(a){
+  return a.respaldosCompra.reduce((s, r) => s + (r.dataUrl ? r.dataUrl.length : 0), 0);
 }
 
 /* Agrega una línea al historial PROPIO del activo y guarda. Se usa en cada
@@ -9878,6 +9889,29 @@ function vistaActivo(){
      +   '<input type="file" id="archivoEvidenciaActivo" accept="image/*" capture="environment" multiple style="display:none">'
      + '</div>';
 
+  /* Factura u orden de compra: el comprobante de la compra, distinto de las
+     fotos del equipo de arriba. Acepta imagen o PDF, mismo molde que el
+     respaldo de costo de una cotización. */
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Factura / Orden de compra</h3><p>El comprobante de la compra: foto o PDF de la factura o la OC.</p></div>'
+     +   (puedeGestionarActivos()
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="subir-respaldo-compra-activo">' + ICONO.mas + 'Agregar</button></div>'
+          : '')
+     + '</div>'
+     +   (a.respaldosCompra.length
+          ? '<div class="galeria-evidencia">' + a.respaldosCompra.map(r=>
+              '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
+              + (r.tipo === 'pdf'
+                  ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+                  : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
+              +   (puedeGestionarActivos()
+                   ? '<button type="button" class="evidencia-quitar" data-accion="quitar-respaldo-compra-activo" data-respaldo="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
+                   : '')
+              + '</div>'
+            ).join('') + '</div>'
+          : '<p class="pista" style="margin:0">Todavía no hay factura ni orden de compra cargada.</p>')
+     +   (puedeGestionarActivos() ? '<input type="file" id="archivoRespaldoCompraActivo" accept="image/*,application/pdf" style="display:none">' : '')
+     + '</div>';
+
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Historial</h3><p>Mantenimiento, movimientos y notas de este activo.</p></div>'
      +   (puedeGestionarActivos()
           ? '<div class="acciones">'
@@ -13150,6 +13184,59 @@ function render(){
     const fpA = $('filtroActivo');
     fpA.value = estado.filtro;
     fpA.addEventListener('change', ()=>{ estado.filtro = fpA.value; render(); });
+  }
+  /* Subir evidencia directo desde el detalle del activo, sin abrir el modal
+     completo de edición — mismo criterio que aeR (Reportes) arriba. */
+  const aeA = $('archivoEvidenciaActivo');
+  if(aeA){
+    aeA.addEventListener('change', async ev=>{
+      const archivos = Array.from(ev.target.files || []);
+      ev.target.value = '';
+      if(!archivos.length) return;
+      const ac = activoPorId(estado.activoId);
+      if(!ac) return;
+      const cupo = EVIDENCIA_MAX_POR_ACTIVO - ac.evidencias.length;
+      if(cupo <= 0){ aviso('Ya tiene ' + EVIDENCIA_MAX_POR_ACTIVO + ' fotos. Quita alguna para agregar otra.', true); return; }
+      for(const archivo of archivos.slice(0, cupo)){
+        try{
+          const img = await leerEvidencia(archivo);
+          const dataUrl = comprimirEvidencia(img);
+          ac.evidencias.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+        }catch(e){ aviso(e.message, true); }
+      }
+      anotarActivo(ac, 'Agregó ' + plural(archivos.length,'una foto','fotos') + ' de evidencia.', 0, 'agregó evidencia a', ac.folio || ac.nombre);
+      render(); aviso('Foto agregada.');
+    });
+  }
+  /* Factura/orden de compra de un activo: mismo criterio que el respaldo de
+     costo de una cotización (arc, más abajo) — acepta imagen o PDF. */
+  const arcA = $('archivoRespaldoCompraActivo');
+  if(arcA){
+    arcA.addEventListener('change', async ev=>{
+      const archivo = (ev.target.files || [])[0];
+      ev.target.value = '';
+      if(!archivo) return;
+      const ac = activoPorId(estado.activoId);
+      if(!ac) return;
+      try{
+        let dataUrl, tipo;
+        if(archivo.type === 'application/pdf'){
+          if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 600 KB. Prueba a comprimirlo o sube solo la parte con el costo.');
+          dataUrl = await leerArchivoComoDataURL(archivo);
+          tipo = 'pdf';
+        }else{
+          const img = await leerRespaldoImagen(archivo);
+          dataUrl = comprimirRespaldoCosto(img);
+          tipo = 'imagen';
+        }
+        if(tamanoRespaldosActivo(ac) + dataUrl.length > RESPALDO_PRESUPUESTO_TOTAL){
+          throw new Error('Ya no hay espacio para más respaldo en este activo. Quita alguno para agregar otro.');
+        }
+        ac.respaldosCompra.push(normalizarRespaldoCosto({ dataUrl, tipo, nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+        guardarActivo(ac, 'agregó factura/OC a');
+        render(); aviso('Factura/orden de compra agregada.');
+      }catch(e){ aviso(e.message, true); }
+    });
   }
   const bpP = $('buscaPersona');
   if(bpP) bpP.addEventListener('input', ()=>{ estado.busca = bpP.value; renderConservandoFoco(bpP, 'buscaPersona'); });
@@ -17542,6 +17629,15 @@ $('vista').addEventListener('click', ev=>{
       ac.evidencias = ac.evidencias.filter(e => e.id !== acc.dataset.evidencia);
       anotarActivo(ac, 'Quitó una foto de evidencia.', 0, 'quitó evidencia de', ac.folio || ac.nombre);
       render(); aviso('Foto eliminada.');
+    }
+    else if(a === 'subir-respaldo-compra-activo'){ if(exigirGestionActivos()) $('archivoRespaldoCompraActivo').click(); }
+    else if(a === 'quitar-respaldo-compra-activo'){
+      if(!exigirGestionActivos()) return;
+      const ac = activoPorId(estado.activoId);
+      if(!ac) return;
+      ac.respaldosCompra = ac.respaldosCompra.filter(r => r.id !== acc.dataset.respaldo);
+      guardarActivo(ac, 'quitó factura/OC de');
+      render(); aviso('Respaldo eliminado.');
     }
     else if(a === 'agregar-historial-activo'){ if(exigirGestionActivos()) modalHistorialActivo(estado.activoId); }
     else if(a === 'registrar-mantenimiento-activo'){ if(exigirGestionActivos()) modalMantenimientoActivo(estado.activoId); }
