@@ -1952,16 +1952,32 @@ function guardarLocal(){
   try{
     localStorage.setItem(LLAVE, JSON.stringify(quitarDataUrlsPesados(datos)));
   }catch(e2){
-    if(Date.now() - avisoEspacioLocalUltimo > PAUSA_AVISO_ESPACIO_MS){
-      avisoEspacioLocalUltimo = Date.now();
-      aviso('Este aparato ya no tiene espacio para guardar copia local. Tu cambio SÍ se está subiendo a la nube, no se pierde nada.', true);
+    /* Esto es solo la copia de respaldo sin internet DE ESTE APARATO — el
+       cambio ya se está subiendo a la nube igual. No hay nada que el
+       personal de campo pueda hacer al respecto (no administra el
+       proyecto de Firebase ni tiene por qué andar liberando espacio de
+       Safari), así que solo se le avisa a Owner/Admin, que sí puede
+       decidir si vale la pena hacer algo; a los demás roles ni les sale
+       el aviso, solo queda en la consola por si algún día hay que
+       investigar. */
+    if(esAdmin()){
+      if(Date.now() - avisoEspacioLocalUltimo > PAUSA_AVISO_ESPACIO_MS){
+        avisoEspacioLocalUltimo = Date.now();
+        aviso('Este aparato ya no tiene espacio para guardar copia local. Tu cambio SÍ se está subiendo a la nube, no se pierde nada.', true);
+      }
+    }else{
+      console.warn('guardarLocal(): sin espacio ni para la copia liviana.', e2);
     }
     return;
   }
-  guardarSnapshotIndexedDB(datos).catch(()=>{
-    if(Date.now() - avisoEspacioGrandeUltimo > PAUSA_AVISO_ESPACIO_MS){
-      avisoEspacioGrandeUltimo = Date.now();
-      aviso('Este aparato ya no tiene espacio para fotos/PDFs sin conexión. Tu cambio sigue subiendo a la nube normal.', true);
+  guardarSnapshotIndexedDB(datos).catch((e3)=>{
+    if(esAdmin()){
+      if(Date.now() - avisoEspacioGrandeUltimo > PAUSA_AVISO_ESPACIO_MS){
+        avisoEspacioGrandeUltimo = Date.now();
+        aviso('Este aparato ya no tiene espacio para fotos/PDFs sin conexión. Tu cambio sigue subiendo a la nube normal.', true);
+      }
+    }else{
+      console.warn('guardarLocal(): sin espacio para el respaldo grande (IndexedDB).', e3);
     }
   });
 }
