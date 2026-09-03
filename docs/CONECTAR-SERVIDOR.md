@@ -14,11 +14,15 @@
 > 1. Paso 5 — publicar las reglas de [config/firestore.rules](../config/firestore.rules)
 >    (incluye los bloques de `segmentos`, `parametros` y `cotizaciones`).
 > 2. Paso 6 — crear la cuenta de Owner (la de Victor).
-> 3. Agregar el dominio de GitHub Pages
->    (`https://victormejia-ship-it.github.io/*`) a los **referrers
+> 3. Agregar los dominios desde donde se abre el tablero a los **referrers
 >    permitidos** de la `apiKey`, en Google Cloud → Credenciales del proyecto
->    `forguard-soft-services`. Sin esto el login rebota con *"Requests from
->    referer … are blocked"*.
+>    `forguard-soft-services`:
+>    - `https://forguardfacilities.com.mx/*` (dominio propio, agregado
+>      03-sep-2026 — ver [DOMINIO-PROPIO.md](DOMINIO-PROPIO.md))
+>    - `https://victormejia-ship-it.github.io/*` (se puede quitar más
+>      adelante, cuando se confirme que el dominio propio ya funciona)
+>
+>    Sin esto el login rebota con *"Requests from referer … are blocked"*.
 
 ---
 
