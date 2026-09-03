@@ -3483,6 +3483,26 @@ function normalizarHistorialActivo(h){
   };
 }
 
+/* Una asignación formal de un activo interno a una persona: quién lo tiene,
+   desde cuándo, y hasta cuándo (vacío = todavía lo tiene). Es DISTINTO del
+   historial de mantenimiento: aquí solo vive quién ha tenido el activo en
+   custodia, para poder contestar "¿quién lo tiene ahorita?" y "¿quién lo
+   tuvo antes?" sin tener que leer notas de texto libre. `personaId` liga
+   contra el organigrama (datos.personal) cuando la persona ya está
+   capturada ahí; `personaNombre` se copia siempre —igual que sitioNombre en
+   pólizas— para que la asignación siga diciendo quién fue aunque esa
+   persona se borre del organigrama después. */
+function normalizarAsignacionActivo(x){
+  return {
+    id: (x && x.id) || nuevoId(),
+    personaId: (x && x.personaId) ? String(x.personaId) : '',
+    personaNombre: (x && x.personaNombre ? String(x.personaNombre) : '').trim(),
+    desde: /^\d{4}-\d{2}-\d{2}$/.test(x && x.desde) ? x.desde : hoyISO(),
+    hasta: /^\d{4}-\d{2}-\d{2}$/.test(x && x.hasta) ? x.hasta : '',
+    notas: (x && x.notas ? String(x.notas) : '').trim()
+  };
+}
+
 function normalizarActivo(a){
   const tipo = TIPO_ACTIVO.includes(a && a.tipo) ? a.tipo : 'cliente';
   return {
@@ -3505,13 +3525,27 @@ function normalizarActivo(a){
        el activo siga diciendo dónde está aunque el sitio se borre después. */
     sitioNombre: tipo === 'cliente' ? (a && a.sitioNombre ? String(a.sitioNombre) : '').trim() : '',
     ubicacion: tipo === 'interno' ? (a && a.ubicacion ? String(a.ubicacion) : '').trim() : '',
+    /* asignadoA/asignadoAId siempre reflejan la asignación ACTIVA (la
+       última de `asignaciones` sin `hasta`) — se recalculan solos en
+       asignarActivo()/devolverActivo(), no se editan sueltos, para que
+       nunca queden desincronizados del historial. */
     asignadoA: tipo === 'interno' ? (a && a.asignadoA ? String(a.asignadoA) : '').trim() : '',
+    asignadoAId: tipo === 'interno' ? ((a && a.asignadoAId) ? String(a.asignadoAId) : '') : '',
+    asignaciones: (Array.isArray(a && a.asignaciones) ? a.asignaciones : []).map(normalizarAsignacionActivo),
     estatus: ESTATUS_ACTIVO.includes(a && a.estatus) ? a.estatus : 'activo',
     condicion: CONDICION_ACTIVO.includes(a && a.condicion) ? a.condicion : 'buena',
     proveedor: (a && a.proveedor ? String(a.proveedor) : '').trim(),
     fechaCompra: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fechaCompra) ? a.fechaCompra : '',
     costoCompra: Math.max(0, Math.round((Number(a && a.costoCompra) || 0) * 100) / 100),
     garantiaHasta: /^\d{4}-\d{2}-\d{2}$/.test(a && a.garantiaHasta) ? a.garantiaHasta : '',
+    /* Mantenimiento programado (opcional): con una frecuencia capturada,
+       "Registrar mantenimiento" reprograma sola la siguiente fecha —igual
+       que el servicio recurrente de una póliza, pero mucho más simple
+       porque aquí no hay contrato ni facturación detrás, solo un
+       recordatorio. Sin frecuencia, el activo simplemente no aparece en
+       los avisos de mantenimiento próximo/vencido. */
+    mantenimientoFrecuenciaDias: Math.max(0, Math.round(Number(a && a.mantenimientoFrecuenciaDias) || 0)),
+    proximoMantenimiento: /^\d{4}-\d{2}-\d{2}$/.test(a && a.proximoMantenimiento) ? a.proximoMantenimiento : '',
     notas: (a && a.notas ? String(a.notas) : '').trim(),
     evidencias: (Array.isArray(a && a.evidencias) ? a.evidencias : []).map(normalizarEvidencia).filter(e => e.dataUrl),
     historial: (Array.isArray(a && a.historial) ? a.historial : []).map(normalizarHistorialActivo),
@@ -3547,6 +3581,67 @@ function guardarActivo(a, accion, detalle){
 function anotarActivo(a, texto, costo, accionGlobal, detalleGlobal){
   a.historial.push(normalizarHistorialActivo({ quien: nombreDe(sesion) || 'Alguien del equipo', texto, costo }));
   guardarActivo(a, accionGlobal, detalleGlobal);
+}
+
+/* La asignación viva de un activo: la última de `asignaciones` que
+   todavía no tiene `hasta`. Nunca hay más de una a la vez —asignarActivo()
+   cierra la anterior antes de abrir la siguiente. */
+function asignacionActivaDe(a){ return a.asignaciones.find(x => !x.hasta); }
+
+/* Asigna (o reasigna) un activo interno a una persona: cierra la
+   asignación previa si había una —queda en el historial con su fecha de
+   fin— y abre una nueva. `personaId` es opcional (puede ser alguien que
+   todavía no está en el organigrama); `asignadoA`/`asignadoAId` en el
+   activo siempre reflejan esta asignación activa. */
+function asignarActivo(a, personaId, personaNombre, notas){
+  const previa = asignacionActivaDe(a);
+  if(previa) previa.hasta = hoyISO();
+  a.asignaciones.push(normalizarAsignacionActivo({ personaId, personaNombre, desde: hoyISO(), notas }));
+  a.asignadoAId = personaId || '';
+  a.asignadoA = personaNombre;
+  guardarActivo(a, 'asignó', (a.folio || a.nombre) + (personaNombre ? ' a ' + personaNombre : ''));
+}
+
+/* Cierra la asignación activa (si había) y deja el activo sin asignar. */
+function devolverActivo(a, notas){
+  const previa = asignacionActivaDe(a);
+  const quienLoTenia = previa ? previa.personaNombre : '';
+  if(previa){
+    previa.hasta = hoyISO();
+    if(notas) previa.notas = previa.notas ? previa.notas + ' — ' + notas : notas;
+  }
+  a.asignadoAId = '';
+  a.asignadoA = '';
+  guardarActivo(a, 'devolvió', (a.folio || a.nombre) + (quienLoTenia ? ', lo tenía ' + quienLoTenia : ''));
+}
+
+/* Semáforo de mantenimiento programado: null si no hay fecha capturada
+   (el activo simplemente no participa en los avisos), 'error' si ya se
+   pasó la fecha, 'alerta' dentro de los próximos 7 días, 'neutro' más
+   adelante. Mismo criterio de "ventana de aviso corta" que warranty. */
+function estadoMantenimientoActivo(a){
+  if(!a.proximoMantenimiento) return null;
+  const dias = diasEntre(hoyISO(), a.proximoMantenimiento);
+  if(dias < 0) return { tono:'error', dias, texto:'Mantenimiento vencido desde el ' + fmtFecha(a.proximoMantenimiento) };
+  if(dias <= 7) return { tono:'alerta', dias, texto:'Mantenimiento en ' + dias + ' ' + plural(dias,'día','días') };
+  return { tono:'neutro', dias, texto:'Próximo mantenimiento: ' + fmtFecha(a.proximoMantenimiento) };
+}
+
+/* Registra que se hizo un mantenimiento (queda en el historial con su
+   costo) y, si el activo tiene una frecuencia capturada, reprograma sola
+   la siguiente fecha contando desde HOY —no desde la fecha vencida—: así
+   un mantenimiento atrasado no dispara varias fechas "perdidas" seguidas. */
+function registrarMantenimientoActivo(a, texto, costo){
+  a.historial.push(normalizarHistorialActivo({ quien: nombreDe(sesion) || 'Alguien del equipo', texto, costo }));
+  if(a.mantenimientoFrecuenciaDias > 0) a.proximoMantenimiento = sumarDias(hoyISO(), a.mantenimientoFrecuenciaDias);
+  guardarActivo(a, 'registró mantenimiento de', a.folio || a.nombre);
+}
+
+/* Días hasta que venza la garantía (negativo si ya venció). null si no hay
+   fecha de garantía capturada. */
+function diasParaVencerGarantia(a){
+  if(!a.garantiaHasta) return null;
+  return diasEntre(hoyISO(), a.garantiaHasta);
 }
 
 /* ============================= Organigrama ===============================
@@ -9327,12 +9422,16 @@ function botonRegresarActivos(){
 }
 
 function resumirActivos(lista){
-  const r = { total:lista.length, operacion:0, mantenimiento:0, bajaOPerdido:0, valor:0 };
+  const r = { total:lista.length, operacion:0, mantenimiento:0, bajaOPerdido:0, valor:0, garantiasPorVencer:0, mantenimientoPendiente:0 };
   lista.forEach(a=>{
     if(a.estatus === 'activo') r.operacion++;
     if(a.estatus === 'mantenimiento') r.mantenimiento++;
     if(a.estatus === 'baja' || a.estatus === 'perdido') r.bajaOPerdido++;
     r.valor += a.costoCompra;
+    const diasGarantia = diasParaVencerGarantia(a);
+    if(diasGarantia !== null && diasGarantia >= 0 && diasGarantia <= 30) r.garantiasPorVencer++;
+    const mant = estadoMantenimientoActivo(a);
+    if(mant && (mant.tono === 'error' || mant.tono === 'alerta')) r.mantenimientoPendiente++;
   });
   return r;
 }
@@ -9345,16 +9444,20 @@ function vistaActivos(){
      +   '<h2>Activos</h2>'
      +   '<p>' + numero(r.total) + ' ' + plural(r.total,'activo','activos') + ' registrados</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-activos">' + ICONO.excel + 'Descargar Excel</button>'
+     +   (puedeGestionarActivos()
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-activos-excel">' + ICONO.excel + 'Importar desde Excel</button>'
+          : '')
      +   (puedeGestionarActivos()
           ? '<button type="button" class="btn btn-primario" data-accion="nuevo-activo">' + ICONO.mas + 'Nuevo activo</button>'
           : '')
      + '</div></div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Total', numero(r.total), 'Equipo de cliente + interno')
-     + tarjetaKpi('En operación', numero(r.operacion), 'Estatus activo', r.operacion ? 'k-ok' : '')
-     + tarjetaKpi('En mantenimiento', numero(r.mantenimiento), 'Fuera de servicio temporal', r.mantenimiento ? 'k-alerta' : '')
-     + tarjetaKpi('De baja / perdidos', numero(r.bajaOPerdido), 'Ya no operan', r.bajaOPerdido ? 'k-error' : '')
+     + tarjetaKpi('Total', numero(r.total), numero(r.operacion) + ' en operación · ' + numero(r.bajaOPerdido) + ' de baja/perdidos')
+     + tarjetaKpi('Valor del inventario', dinero(r.valor), 'Suma del costo de compra')
+     + tarjetaKpi('Mantenimiento pendiente', numero(r.mantenimientoPendiente), 'Vencido o en los próximos 7 días', r.mantenimientoPendiente ? 'k-alerta' : '', r.mantenimientoPendiente ? 'mantenimiento-pendiente-activos' : '')
+     + tarjetaKpi('Garantías por vencer', numero(r.garantiasPorVencer), 'En los próximos 30 días', r.garantiasPorVencer ? 'k-alerta' : '', r.garantiasPorVencer ? 'garantias-por-vencer-activos' : '')
      + '</div>';
 
   if(!datos.activos.length){
@@ -9372,6 +9475,8 @@ function vistaActivos(){
      +     '<option value="cliente">Equipo en cliente</option>'
      +     '<option value="interno">Activo interno</option>'
      +     ESTATUS_ACTIVO.map(e=>'<option value="' + e + '">' + esc(ETIQUETA_ESTATUS_ACTIVO[e]) + '</option>').join('')
+     +     '<option value="mantenimiento_pendiente">Mantenimiento pendiente</option>'
+     +     '<option value="garantia_por_vencer">Garantía por vencer</option>'
      +   '</select>'
      +   controlAlternaVista('vistaActivos')
      + '</div>';
@@ -9385,6 +9490,14 @@ function vistaActivos(){
     }
     if(estado.filtro === 'cliente' || estado.filtro === 'interno') return a.tipo === estado.filtro;
     if(ESTATUS_ACTIVO.includes(estado.filtro)) return a.estatus === estado.filtro;
+    if(estado.filtro === 'mantenimiento_pendiente'){
+      const mant = estadoMantenimientoActivo(a);
+      return !!(mant && (mant.tono === 'error' || mant.tono === 'alerta'));
+    }
+    if(estado.filtro === 'garantia_por_vencer'){
+      const dias = diasParaVencerGarantia(a);
+      return dias !== null && dias >= 0 && dias <= 30;
+    }
     return true;
   });
 
@@ -9402,6 +9515,10 @@ function vistaActivos(){
     const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
     let chips = '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span>'
               + '<span class="insignia i-info">' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</span>';
+    const mant = estadoMantenimientoActivo(a);
+    if(mant && (mant.tono === 'error' || mant.tono === 'alerta')) chips += '<span class="insignia i-' + mant.tono + '">' + esc(mant.texto) + '</span>';
+    const diasGarantia = diasParaVencerGarantia(a);
+    if(diasGarantia !== null && diasGarantia >= 0 && diasGarantia <= 30) chips += '<span class="insignia i-alerta">Garantía vence en ' + diasGarantia + ' ' + plural(diasGarantia,'día','días') + '</span>';
 
     return '<div class="tarjeta tarjeta-clic t-' + tono + '" data-activo="' + esc(a.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
          +   '<div class="t-cabeza">'
@@ -9414,7 +9531,7 @@ function vistaActivos(){
          +   '<div class="t-chips">' + chips + '</div>'
          +   '<div class="t-datos">'
          +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'cliente' ? 'Sitio' : 'Ubicación') + '</div><div class="d-valor chico">' + esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') : (a.ubicacion || 'Sin ubicación')) + '</div></div>'
-         +     '<div class="t-dato"><div class="d-label">Condición</div><div class="d-valor">' + esc(ETIQUETA_CONDICION_ACTIVO[a.condicion]) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'interno' ? 'Asignado a' : 'Condición') + '</div><div class="d-valor chico">' + (a.tipo === 'interno' ? esc(a.asignadoA || 'Sin asignar') : esc(ETIQUETA_CONDICION_ACTIVO[a.condicion])) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + fmtFecha(a.fechaCreacion) + '</span></div>'
          + '</div>';
@@ -9425,8 +9542,8 @@ function vistaActivos(){
 
 /* Misma lista, en tabla. */
 function tablaActivos(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:900px"><thead><tr>'
-       +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Condición</th><th>Estatus</th><th>Fecha</th>'
+  return '<div class="rodillo"><table class="tabla" style="min-width:1000px"><thead><tr>'
+       +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Asignado a</th><th>Estatus</th><th>Valor</th><th>Fecha</th>'
        + '</tr></thead><tbody>'
        + lista.map(a=>{
            const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
@@ -9436,8 +9553,9 @@ function tablaActivos(lista){
                 +   '<td>' + esc(a.nombre || '—') + '</td>'
                 +   '<td>' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</td>'
                 +   '<td>' + esc(a.tipo === 'cliente' ? ((cli ? cli.nombre + ' · ' : '') + (a.sitioNombre || 'Sin sitio')) : (a.ubicacion || '—')) + '</td>'
-                +   '<td>' + esc(ETIQUETA_CONDICION_ACTIVO[a.condicion]) + '</td>'
+                +   '<td>' + esc(a.tipo === 'interno' ? (a.asignadoA || '—') : '—') + '</td>'
                 +   '<td><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span></td>'
+                +   '<td>' + dinero(a.costoCompra) + '</td>'
                 +   '<td>' + fmtFecha(a.fechaCreacion) + '</td>'
                 + '</tr>';
          }).join('')
@@ -9451,6 +9569,9 @@ function vistaActivo(){
   const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
   const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
   const garantiaVencida = !!(a.garantiaHasta && a.garantiaHasta < hoyISO());
+  const diasGarantia = diasParaVencerGarantia(a);
+  const mant = estadoMantenimientoActivo(a);
+  const asignacionActiva = a.tipo === 'interno' ? asignacionActivaDe(a) : null;
 
   let h = botonRegresarActivos();
 
@@ -9463,7 +9584,9 @@ function vistaActivo(){
      +   '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span>'
      +   '<span class="insignia i-info">' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</span>'
      +   '<span class="insignia i-neutro">Condición ' + esc(ETIQUETA_CONDICION_ACTIVO[a.condicion]).toLowerCase() + '</span>'
-     +   (garantiaVencida ? '<span class="insignia i-alerta">Garantía vencida</span>' : '')
+     +   (garantiaVencida ? '<span class="insignia i-alerta">Garantía vencida</span>'
+        : (diasGarantia !== null && diasGarantia <= 30 ? '<span class="insignia i-alerta">Garantía vence en ' + diasGarantia + ' ' + plural(diasGarantia,'día','días') + '</span>' : ''))
+     +   (mant ? '<span class="insignia i-' + mant.tono + '">' + esc(mant.texto) + '</span>' : '')
      + '</div>';
 
   h += '<div class="kpis">'
@@ -9482,10 +9605,36 @@ function vistaActivo(){
        + '</div>';
   }
 
-  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Detalles de compra</h3></div></div>'
+  /* Asignación formal: solo aplica a activos internos —el equipo de
+     cliente vive en un sitio, no lo trae una persona—. Muestra quién lo
+     tiene ahorita y, debajo, el historial completo de quién lo ha tenido. */
+  if(a.tipo === 'interno'){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Asignación</h3>'
+       +   '<p>' + (asignacionActiva ? 'Lo tiene ' + esc(asignacionActiva.personaNombre || 'alguien sin nombre') + ' desde ' + fmtFecha(asignacionActiva.desde) : 'Sin asignar a nadie.') + '</p></div>'
+       +   (puedeGestionarActivos()
+            ? '<div class="acciones">'
+              +   '<button type="button" class="btn btn-suave btn-mini" data-accion="asignar-activo">' + ICONO.persona + (asignacionActiva ? 'Reasignar' : 'Asignar') + '</button>'
+              +   (asignacionActiva ? '<button type="button" class="btn btn-suave btn-mini" data-accion="devolver-activo">' + ICONO.atras + 'Devolver</button>' : '')
+              + '</div>'
+            : '')
+       + '</div>'
+       +   (a.asignaciones.length
+            ? '<div class="lista-seguimiento">' + a.asignaciones.slice().reverse().map(x=>
+                '<div class="seguimiento-item"><b>' + esc(x.personaNombre || 'Alguien') + '</b> '
+                + '<span class="pista">' + fmtFecha(x.desde) + ' → ' + (x.hasta ? fmtFecha(x.hasta) : 'actualidad') + '</span>'
+                + (x.notas ? '<div>' + esc(x.notas) + '</div>' : '')
+                + '</div>'
+              ).join('') + '</div>'
+            : '<p class="pista" style="margin:0">Nunca se le ha asignado a nadie.</p>')
+       + '</div>';
+  }
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Detalles de compra y mantenimiento</h3></div></div>'
      +   '<div class="t-datos">'
      +     '<div class="t-dato"><div class="d-label">Proveedor</div><div class="d-valor chico">' + esc(a.proveedor || 'Sin especificar') + '</div></div>'
      +     '<div class="t-dato"><div class="d-label">Fecha de compra</div><div class="d-valor chico">' + (a.fechaCompra ? fmtFecha(a.fechaCompra) : 'Sin especificar') + '</div></div>'
+     +     '<div class="t-dato"><div class="d-label">Frecuencia de mantenimiento</div><div class="d-valor chico">' + (a.mantenimientoFrecuenciaDias ? 'Cada ' + numero(a.mantenimientoFrecuenciaDias) + ' ' + plural(a.mantenimientoFrecuenciaDias,'día','días') : 'Sin programar') + '</div></div>'
+     +     '<div class="t-dato"><div class="d-label">Próximo mantenimiento</div><div class="d-valor chico">' + (a.proximoMantenimiento ? fmtFecha(a.proximoMantenimiento) : 'Sin programar') + '</div></div>'
      +   '</div>'
      + '</div>';
 
@@ -9513,7 +9662,10 @@ function vistaActivo(){
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Historial</h3><p>Mantenimiento, movimientos y notas de este activo.</p></div>'
      +   (puedeGestionarActivos()
-          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="agregar-historial-activo">' + ICONO.mas + 'Agregar</button></div>'
+          ? '<div class="acciones">'
+            +   '<button type="button" class="btn btn-suave btn-mini" data-accion="registrar-mantenimiento-activo">' + ICONO.cheque + 'Registrar mantenimiento</button>'
+            +   '<button type="button" class="btn btn-suave btn-mini" data-accion="agregar-historial-activo">' + ICONO.mas + 'Agregar nota</button>'
+            + '</div>'
           : '')
      + '</div>'
      +   (a.historial.length
@@ -9593,8 +9745,25 @@ function modalActivo(id){
     + '<div id="actZonaInterno">'
     +   '<div class="campo"><label>Ubicación</label>'
     +     '<input type="text" id="actUbicacion" placeholder="Ej. Bodega Monterrey, Camioneta 3…" value="' + esc(a ? a.ubicacion : '') + '"></div>'
-    +   '<div class="campo"><label>Asignado a</label>'
-    +     '<input type="text" id="actAsignadoA" placeholder="Ej. Juan Pérez" value="' + esc(a ? a.asignadoA : '') + '"></div>'
+    /* La asignación de un activo YA EXISTENTE solo se toca desde los
+       botones "Asignar"/"Devolver" del detalle (ver vistaActivo) — eso es
+       lo que mantiene vivo el historial de asignaciones[]. Aquí, al
+       editar, es informativo; al crear uno nuevo, sí se puede dejar
+       asignado desde el arranque. */
+    +   (a
+        ? '<div class="campo"><label>Asignado a</label>'
+          +   '<div class="pista">' + (asignacionActivaDe(a)
+                ? 'Actualmente: <b>' + esc(a.asignadoA || 'alguien') + '</b>, desde ' + fmtFecha(asignacionActivaDe(a).desde) + '.'
+                : 'Sin asignar.') + ' Usa «Asignar» o «Devolver» en el detalle del activo para cambiarlo.</div></div>'
+        : '<div class="campo"><label>Asignar a (opcional)</label>'
+          +   '<select id="actAsignadoAId">'
+          +     '<option value="">— Sin asignar por ahora —</option>'
+          +     datos.personal.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'))
+                  .map(p => '<option value="' + esc(p.id) + '">' + esc(p.nombre) + (p.puesto ? ' — ' + esc(p.puesto) : '') + '</option>').join('')
+          +     '<option value="__otro__">Otra persona (no está en el organigrama)</option>'
+          +   '</select></div>'
+          + '<div class="campo" id="zonaAsignadoATextoAct" hidden><label>Nombre de la persona</label>'
+          +   '<input type="text" id="actAsignadoATexto" placeholder="Ej. Juan Pérez"></div>')
     + '</div>'
     + '<div class="campo"><label>Categoría</label>'
     +   '<input type="text" id="actCategoria" placeholder="Ej. Freidora, Herramienta, Vehículo, Laptop…" value="' + esc(a ? a.categoria : '') + '"></div>'
@@ -9620,6 +9789,13 @@ function modalActivo(id){
     +   '<input type="number" id="actCostoCompra" min="0" step="0.01" value="' + (a && a.costoCompra ? a.costoCompra : '') + '"></div>'
     + '<div class="campo"><label>Garantía hasta</label>'
     +   '<input type="date" id="actGarantiaHasta" value="' + esc(a ? a.garantiaHasta : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Frecuencia de mantenimiento (días, opcional)</label>'
+    +     '<input type="number" id="actMantFrecuencia" min="0" step="1" placeholder="Ej. 90" value="' + (a && a.mantenimientoFrecuenciaDias ? a.mantenimientoFrecuenciaDias : '') + '">'
+    +     '<div class="pista">Con esto capturado, «Registrar mantenimiento» reprograma sola la siguiente fecha.</div></div>'
+    +   '<div class="campo"><label>Próximo mantenimiento</label>'
+    +     '<input type="date" id="actProximoMantenimiento" value="' + esc(a ? a.proximoMantenimiento : '') + '"></div>'
+    + '</div>'
     + '<div class="campo"><label>Notas</label>'
     +   '<textarea id="actNotas" placeholder="Cualquier detalle que ayude a administrarlo…">' + esc(a ? a.notas : '') + '</textarea></div>'
     + '<div class="campo"><label>Código (barras / QR)</label>'
@@ -9663,6 +9839,15 @@ function modalActivo(id){
   pintarSitios();
   $('actTipo').addEventListener('change', pintarTipo);
   $('actCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoAct').hidden = true; pintarSitios(); });
+
+  /* Solo existe al CREAR (al editar, la asignación es de solo lectura —
+     ver el comentario junto a esos campos, arriba). */
+  const selAsignadoAId = $('actAsignadoAId');
+  if(selAsignadoAId){
+    selAsignadoAId.addEventListener('change', ()=>{
+      $('zonaAsignadoATextoAct').hidden = selAsignadoAId.value !== '__otro__';
+    });
+  }
 
   $('btnSitioNuevoAct').addEventListener('click', ()=>{
     if(!$('actCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
@@ -9769,7 +9954,7 @@ function modalActivo(id){
     const nombre = $('actNombre').value.trim();
     if(!nombre){ $('actNombre').setAttribute('aria-invalid','true'); $('actNombre').focus(); aviso('El activo necesita un nombre.', true); return; }
 
-    let clienteId = '', sitioId = '', sitioNombre = '', ubicacion = '', asignadoA = '';
+    let clienteId = '', sitioId = '', sitioNombre = '', ubicacion = '';
     if(tipoSel === 'cliente'){
       sitioId = $('actSitio').value;
       if(!sitioId){ aviso('Elige un sitio: el activo necesita saber dónde está instalado.', true); return; }
@@ -9778,17 +9963,22 @@ function modalActivo(id){
       sitioNombre = sitio ? sitio.nombre : '';
     }else{
       ubicacion = $('actUbicacion').value.trim();
-      asignadoA = $('actAsignadoA').value.trim();
     }
 
+    /* asignadoA/asignadoAId/asignaciones se dejan FUERA de datosComunes a
+       propósito: al editar, Object.assign(a, datosComunes) no debe tocar
+       la asignación viva —eso solo lo cambian asignarActivo()/
+       devolverActivo(), llamados desde el detalle—. Al crear, si se eligió
+       a alguien, se arma la primera asignación aparte, más abajo. */
     const datosComunes = {
-      tipo: tipoSel, clienteId, sitioId, sitioNombre, ubicacion, asignadoA,
+      tipo: tipoSel, clienteId, sitioId, sitioNombre, ubicacion,
       categoria: $('actCategoria').value.trim(), nombre,
       marca: $('actMarca').value.trim(), modelo: $('actModelo').value.trim(), serie: $('actSerie').value.trim(),
       codigo: $('actCodigo').value.trim(), tipoCodigo: codigoTmp,
       estatus: $('actEstatus').value, condicion: $('actCondicion').value,
       proveedor: $('actProveedor').value.trim(), fechaCompra: $('actFechaCompra').value,
       costoCompra: $('actCostoCompra').value, garantiaHasta: $('actGarantiaHasta').value,
+      mantenimientoFrecuenciaDias: $('actMantFrecuencia').value, proximoMantenimiento: $('actProximoMantenimiento').value,
       notas: $('actNotas').value.trim(), evidencias: evidenciasTmp
     };
 
@@ -9798,8 +9988,20 @@ function modalActivo(id){
       reg = normalizarActivo(a);
       Object.assign(a, reg);
     }else{
-      reg = normalizarActivo(Object.assign({ id:nuevoId(), folio: generarFolioActivo(hoyISO()),
-        registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' } }, datosComunes));
+      const creacion = Object.assign({ id:nuevoId(), folio: generarFolioActivo(hoyISO()),
+        registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' } }, datosComunes);
+      if(tipoSel === 'interno' && $('actAsignadoAId')){
+        const selPersona = $('actAsignadoAId').value;
+        let personaId = '', personaNombre = '';
+        if(selPersona === '__otro__') personaNombre = $('actAsignadoATexto').value.trim();
+        else if(selPersona){ personaId = selPersona; const p = personaPorId(selPersona); personaNombre = p ? p.nombre : ''; }
+        if(personaNombre){
+          creacion.asignadoAId = personaId;
+          creacion.asignadoA = personaNombre;
+          creacion.asignaciones = [{ personaId, personaNombre, desde: hoyISO(), hasta:'', notas:'Asignación inicial, al dar de alta el activo.' }];
+        }
+      }
+      reg = normalizarActivo(creacion);
       datos.activos.push(reg);
     }
     guardarActivo(reg, a ? 'editó' : 'creó');
@@ -9834,6 +10036,93 @@ function modalHistorialActivo(id){
     cerrarModal();
     render();
     aviso('Historial actualizado.');
+  };
+}
+
+/* ------------------- Modal: registrar mantenimiento de un activo -------------------
+   Distinto de "Agregar nota" (modalHistorialActivo): además de quedar en el
+   historial con su costo, SI el activo tiene una frecuencia capturada,
+   reprograma sola el «Próximo mantenimiento» — ver registrarMantenimientoActivo(). */
+function modalMantenimientoActivo(id){
+  const a = activoPorId(id);
+  if(!a) return;
+  if(!exigirGestionActivos()) return;
+
+  const cuerpo =
+      '<div class="campo"><label>Qué se hizo *</label>'
+    +   '<textarea id="amTexto" placeholder="Ej. Cambio de aceite y filtros, limpieza general, revisión eléctrica…"></textarea></div>'
+    + '<div class="campo"><label>Costo (opcional)</label>'
+    +   '<input type="number" id="amCosto" min="0" step="0.01" placeholder="0"></div>'
+    +   (a.mantenimientoFrecuenciaDias
+        ? '<div class="pista">Con la frecuencia capturada (cada ' + numero(a.mantenimientoFrecuenciaDias) + ' ' + plural(a.mantenimientoFrecuenciaDias,'día','días') + '), el siguiente mantenimiento se reprograma solo para el ' + fmtFecha(sumarDias(hoyISO(), a.mantenimientoFrecuenciaDias)) + '.</div>'
+        : '<div class="pista">Este activo no tiene una frecuencia capturada, así que solo queda la nota en el historial — edítalo para programar avisos futuros.</div>');
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Registrar</button>';
+
+  abrirModal('Registrar mantenimiento de ' + (a.nombre || 'este activo'), cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const texto = $('amTexto').value.trim();
+    if(!texto){ $('amTexto').setAttribute('aria-invalid','true'); $('amTexto').focus(); aviso('Describe qué se hizo.', true); return; }
+    const costo = $('amCosto').value;
+    registrarMantenimientoActivo(a, texto, costo);
+    cerrarModal();
+    render();
+    aviso('Mantenimiento registrado.' + (a.proximoMantenimiento ? ' Siguiente: ' + fmtFecha(a.proximoMantenimiento) + '.' : ''));
+  };
+}
+
+/* ------------------------- Modal: asignar un activo interno -------------------------
+   Cierra la asignación activa (si había) y abre una nueva — ver
+   asignarActivo(). El selector prioriza el organigrama (datos.personal)
+   para que quede ligado a una persona de verdad, con "otra persona" como
+   salida para quien todavía no está capturado ahí. */
+function modalAsignarActivo(id){
+  const a = activoPorId(id);
+  if(!a || a.tipo !== 'interno') return;
+  if(!exigirGestionActivos()) return;
+
+  const personalOrd = datos.personal.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+  const actual = asignacionActivaDe(a);
+
+  const cuerpo =
+      (actual ? '<div class="pista" style="margin-bottom:14px">Actualmente lo tiene <b>' + esc(actual.personaNombre) + '</b>, desde ' + fmtFecha(actual.desde) + '. Al reasignar, esa asignación se cierra sola con la fecha de hoy.</div>' : '')
+    + '<div class="campo"><label>Asignar a *</label><select id="asaPersonaId">'
+    +   '<option value="">— Elige a alguien —</option>'
+    +   personalOrd.map(p => '<option value="' + esc(p.id) + '">' + esc(p.nombre) + (p.puesto ? ' — ' + esc(p.puesto) : '') + '</option>').join('')
+    +   '<option value="__otro__">Otra persona (no está en el organigrama)</option>'
+    + '</select></div>'
+    + '<div class="campo" id="zonaAsaOtro" hidden><label>Nombre de la persona</label>'
+    +   '<input type="text" id="asaOtroNombre" placeholder="Ej. Juan Pérez"></div>'
+    + '<div class="campo"><label>Notas (opcional)</label>'
+    +   '<textarea id="asaNotas" placeholder="Ej. Se le entrega con cargador y maletín."></textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (actual ? 'Reasignar' : 'Asignar') + '</button>';
+
+  abrirModal((actual ? 'Reasignar' : 'Asignar') + ' ' + (a.nombre || 'activo'), cuerpo, pie);
+
+  $('asaPersonaId').addEventListener('change', ()=>{
+    $('zonaAsaOtro').hidden = $('asaPersonaId').value !== '__otro__';
+  });
+
+  cerrarModalActual = ()=>{
+    const sel = $('asaPersonaId').value;
+    if(!sel){ aviso('Elige a quién se le asigna.', true); return; }
+    let personaId = '', personaNombre = '';
+    if(sel === '__otro__'){
+      personaNombre = $('asaOtroNombre').value.trim();
+      if(!personaNombre){ $('asaOtroNombre').setAttribute('aria-invalid','true'); $('asaOtroNombre').focus(); aviso('Escribe el nombre de la persona.', true); return; }
+    }else{
+      personaId = sel;
+      const p = personaPorId(sel);
+      personaNombre = p ? p.nombre : '';
+    }
+    asignarActivo(a, personaId, personaNombre, $('asaNotas').value.trim());
+    cerrarModal();
+    render();
+    aviso((a.folio || a.nombre) + ' asignado a ' + personaNombre + '.');
   };
 }
 
@@ -17019,6 +17308,8 @@ $('vista').addEventListener('click', ev=>{
         });
     }
     else if(a === 'ir-activos') irAActivos();
+    else if(a === 'mantenimiento-pendiente-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'mantenimiento_pendiente'; estado.busca = ''; render(); }
+    else if(a === 'garantias-por-vencer-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'garantia_por_vencer'; estado.busca = ''; render(); }
     else if(a === 'nuevo-activo'){ if(exigirGestionActivos()) modalActivo(null); }
     else if(a === 'editar-activo'){ if(exigirGestionActivos()) modalActivo(estado.activoId); }
     else if(a === 'ver-activos-cliente'){ const c = clientePorId(estado.clienteId); if(c) verActivosDe(c.nombre); }
@@ -17033,6 +17324,20 @@ $('vista').addEventListener('click', ev=>{
       render(); aviso('Foto eliminada.');
     }
     else if(a === 'agregar-historial-activo'){ if(exigirGestionActivos()) modalHistorialActivo(estado.activoId); }
+    else if(a === 'registrar-mantenimiento-activo'){ if(exigirGestionActivos()) modalMantenimientoActivo(estado.activoId); }
+    else if(a === 'asignar-activo'){ if(exigirGestionActivos()) modalAsignarActivo(estado.activoId); }
+    else if(a === 'devolver-activo'){
+      if(!exigirGestionActivos()) return;
+      const ac = activoPorId(estado.activoId);
+      if(!ac) return;
+      const actual = asignacionActivaDe(ac);
+      confirmar('Devolver activo',
+        'Se va a marcar <b>' + esc(ac.nombre || 'este activo') + '</b> como devuelto' + (actual ? ' por <b>' + esc(actual.personaNombre) + '</b>' : '') + ', y queda sin asignar a nadie.',
+        'Sí, devolver', ()=>{
+          devolverActivo(ac, '');
+          render(); aviso('Activo devuelto, queda sin asignar.');
+        });
+    }
     else if(a === 'cambiar-estatus-activo'){
       if(!exigirGestionActivos()) return;
       const ac = activoPorId(estado.activoId);
