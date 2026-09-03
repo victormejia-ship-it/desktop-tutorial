@@ -1,11 +1,16 @@
 # Poner el tablero en forguardfacilities.com.mx
 
-> **03-sep-2026**: Victor compró el dominio `forguardfacilities.com.mx`. Ya
-> quedó todo listo del lado del código (el archivo `CNAME` de este repo, que
-> es lo que le dice a GitHub Pages qué dominio propio usar). Lo que sigue son
-> 3 pasos afuera del código, en 3 paneles distintos, que solo Victor puede
-> hacer porque requieren entrar con sus cuentas — igual que pasó con las
-> reglas de Firestore y con crear la cuenta de Owner.
+> ✅ **Hecho — 03-sep-2026**: el tablero ya vive en
+> **https://forguardfacilities.com.mx/**, con HTTPS y login verificados.
+> Los 3 pasos de abajo (DNS, GitHub Pages, Firebase) ya se hicieron. Esta
+> página se deja como referencia — sirve si algún día hay que mover el
+> tablero a otro dominio, o si hay que revisar algo de esta configuración.
+
+> Victor compró el dominio `forguardfacilities.com.mx`. Del lado del código
+> solo hizo falta el archivo `CNAME` de este repo (le dice a GitHub Pages
+> qué dominio propio usar). Los demás pasos fueron afuera del código, en 3
+> paneles distintos, porque requieren entrar con las cuentas de Victor —
+> igual que pasó con las reglas de Firestore y con crear la cuenta de Owner.
 
 Son unos 15-20 minutos de trabajo + tiempo de espera de DNS (de unos minutos
 hasta 24-48 horas, casi siempre es rápido).
