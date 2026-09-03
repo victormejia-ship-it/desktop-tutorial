@@ -1862,6 +1862,11 @@ function quitarDataUrlsPesados(obj){
 const IDB_NOMBRE = 'forguard_forpass_grande';
 const IDB_TIENDA = 'snapshots';
 const IDB_LLAVE = 'principal';
+/* Segunda llave en la MISMA tienda: respaldo de emergencia de la cola de
+   cambios sin subir (ver guardarCola/cargarCola), para cuando ni siquiera
+   localStorage tiene espacio para ella — ver el bloque de arriba de
+   guardarLocal() para el porqué de fondo. */
+const IDB_LLAVE_COLA = 'cola';
 function abrirIndexedDB(){
   return new Promise((resolve, reject) => {
     if(!window.indexedDB){ reject(new Error('IndexedDB no disponible')); return; }
@@ -1871,27 +1876,27 @@ function abrirIndexedDB(){
     pet.onerror = () => reject(pet.error || new Error('No se pudo abrir IndexedDB'));
   });
 }
-async function guardarSnapshotIndexedDB(obj){
+async function guardarSnapshotIndexedDB(obj, llave){
   const db = await abrirIndexedDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_TIENDA, 'readwrite');
-    tx.objectStore(IDB_TIENDA).put(obj, IDB_LLAVE);
+    tx.objectStore(IDB_TIENDA).put(obj, llave || IDB_LLAVE);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error || new Error('No se pudo guardar en IndexedDB'));
   });
 }
-async function leerSnapshotIndexedDB(){
+async function leerSnapshotIndexedDB(llave){
   const db = await abrirIndexedDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_TIENDA, 'readonly');
-    const pet = tx.objectStore(IDB_TIENDA).get(IDB_LLAVE);
+    const pet = tx.objectStore(IDB_TIENDA).get(llave || IDB_LLAVE);
     pet.onsuccess = () => resolve(pet.result || null);
     pet.onerror = () => reject(pet.error || new Error('No se pudo leer de IndexedDB'));
   });
 }
-function borrarSnapshotIndexedDB(){
+function borrarSnapshotIndexedDB(llave){
   abrirIndexedDB().then(db=>{
-    db.transaction(IDB_TIENDA, 'readwrite').objectStore(IDB_TIENDA).delete(IDB_LLAVE);
+    db.transaction(IDB_TIENDA, 'readwrite').objectStore(IDB_TIENDA).delete(llave || IDB_LLAVE);
   }).catch(()=>{});
 }
 /* Al abrir sin internet (modo local, o la nube que no contesta): si
@@ -2639,8 +2644,45 @@ const LLAVE_COLA = 'forguard_forpass_cola_v1';
 let cola = [];
 let vaciando = false, intentosFallidos = 0, temporizadorCola = null;
 
-function cargarCola(){ try{ cola = JSON.parse(localStorage.getItem(LLAVE_COLA) || '[]'); }catch(e){ cola = []; } }
-function guardarCola(){ try{ localStorage.setItem(LLAVE_COLA, JSON.stringify(cola)); }catch(e){} }
+/* La cola es lo único que de verdad no se puede perder: es la lista de
+   cambios que todavía no llegan al servidor. Si el aparato se queda sin
+   espacio justo para ESTA llave de localStorage (raro, porque es chica,
+   pero puede pasar si el resto del cupo ya está tomado por la copia
+   grande), se manda un respaldo a IndexedDB — que tiene muchísimo más
+   cupo — para que sobreviva aunque se cierre la pestaña antes de
+   reconectar. cargarCola() la recupera sola al volver a abrir. */
+function cargarCola(){
+  try{ cola = JSON.parse(localStorage.getItem(LLAVE_COLA) || '[]'); }catch(e){ cola = []; }
+  leerSnapshotIndexedDB(IDB_LLAVE_COLA).then(respaldo=>{
+    if(!Array.isArray(respaldo) || !respaldo.length) return;
+    const yaEstaban = new Set(cola.map(x => x.coleccion + '/' + x.id));
+    const nuevos = respaldo.filter(x => !yaEstaban.has(x.coleccion + '/' + x.id));
+    if(!nuevos.length) return;
+    cola = cola.concat(nuevos);
+    guardarCola();
+    borrarSnapshotIndexedDB(IDB_LLAVE_COLA);
+    pintarEstadoNube();
+    vaciarCola();
+  }).catch(()=>{});
+}
+let avisoColaSinEspacioUltimo = 0;
+function guardarCola(){
+  try{
+    localStorage.setItem(LLAVE_COLA, JSON.stringify(cola));
+    return;
+  }catch(e){}
+  guardarSnapshotIndexedDB(cola, IDB_LLAVE_COLA).catch(()=>{
+    /* Ni localStorage ni IndexedDB tuvieron espacio — esto sí es serio: un
+       cambio pendiente podría perderse si se cierra la app antes de
+       reconectar. A diferencia de los avisos de guardarLocal(), este le
+       sale a CUALQUIER rol, porque a todos les conviene saber que no deben
+       cerrar la app hasta que el cambio suba. */
+    if(Date.now() - avisoColaSinEspacioUltimo > PAUSA_AVISO_ESPACIO_MS){
+      avisoColaSinEspacioUltimo = Date.now();
+      aviso('Este aparato no tiene NADA de espacio libre. No cierres la app hasta reconectarte, o este cambio podría perderse.', true);
+    }
+  });
+}
 
 function encolar(op){
   if(!HAY_NUBE) return;
@@ -19367,6 +19409,18 @@ if(!HAY_NUBE){
   setInterval(refrescarDesdeNube, 30000);
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reintentarSincronizar(); });
   window.addEventListener('online', reintentarSincronizar);
+  /* Mismo aviso que ya existe en "Cerrar sesión" (con cola.length), pero
+     para cuando alguien cierra la pestaña o navega a otro lado sin pasar
+     por ese botón —el caso más común en la práctica. No cubre un cierre
+     forzado de la app (deslizarla para matarla en el celular): eso ningún
+     sitio web lo puede interceptar. Los cambios NO se borran aquí (a
+     diferencia de "Salir de todos modos"): siguen en la cola para
+     reintentar en cuanto se vuelva a abrir la página. */
+  window.addEventListener('beforeunload', ev=>{
+    if(!cola.length) return;
+    ev.preventDefault();
+    ev.returnValue = '';
+  });
 }
 
 /* Habilita "Agregar a pantalla de inicio" en Android/Chrome y da algo de
