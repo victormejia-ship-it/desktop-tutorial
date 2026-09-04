@@ -336,7 +336,16 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .grafica-tt .tt-total{border-top:1px solid var(--line); margin-top:5px; padding-top:6px; font-weight:700; color:var(--navy);}
 .grafica-tt .tt-negativo{color:var(--error);}
 
-.t-cabeza{display:flex; align-items:flex-start; gap:10px;}
+/* Encabezado de tarjeta: logo/iniciales a la izquierda, nombre y datos a la
+   derecha. Es un solo molde (.t-cabeza + .t-avatar + .t-nombre/.t-sub) que
+   comparten TODAS las listas con avatar de cliente — Clientes, Resumen de
+   clientes, Pólizas, Cotizaciones, Reportes, Activos, Levantamientos —
+   porque todas llaman a avatarCliente(). Agrandarlo aquí una sola vez basta
+   para que se vea igual de "grande a la izquierda, datos a la derecha" en
+   cualquier sección, sin tocar cada vista una por una. align-items:center
+   (antes flex-start) centra el bloque de texto contra el logo, que ya no es
+   del mismo alto que una sola línea de nombre. */
+.t-cabeza{display:flex; align-items:center; gap:12px;}
 .t-nombre{font-size:16.5px; font-weight:700; color:var(--navy); line-height:1.25; word-break:break-word;}
 .t-sub{font-size:11.5px; color:var(--gray); margin-top:2px;}
 /* Etiqueta de zona del sitio, con su color */
@@ -369,12 +378,12 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .colores button[aria-pressed="true"]{border-color:var(--navy); transform:scale(1.08);}
 .colores button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 .t-avatar{
-  width:40px; height:40px; border-radius:11px; flex-shrink:0; display:grid; place-items:center;
-  background:linear-gradient(135deg,var(--navy-2),var(--accent)); color:#fff; font-size:14.5px; font-weight:700; letter-spacing:.02em;
+  width:48px; height:48px; border-radius:13px; flex-shrink:0; display:grid; place-items:center;
+  background:linear-gradient(135deg,var(--navy-2),var(--accent)); color:#fff; font-size:16px; font-weight:700; letter-spacing:.02em;
   overflow:hidden;
 }
 /* Con logo: fondo blanco y la imagen completa, sin recortarla ni deformarla. */
-.t-avatar.con-logo{background:#fff; border:1px solid var(--line); padding:3px;}
+.t-avatar.con-logo{background:#fff; border:1px solid var(--line); padding:4px;}
 .t-avatar.con-logo img{width:100%; height:100%; object-fit:contain; display:block;}
 
 /* Zona de carga del logo dentro del formulario */
@@ -777,7 +786,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
    iconos seguidos nadie adivina cuál es cuál mientras espera. */
 /* El avatar de la tarjeta de póliza es un botón: lleva al cliente para subirle la
    foto. Se ve idéntico al avatar normal — la única pista es el cursor. */
-.avatar-btn{background:none; border:none; padding:0; cursor:pointer; position:relative; line-height:0; border-radius:12px;}
+.avatar-btn{background:none; border:none; padding:0; cursor:pointer; position:relative; line-height:0; border-radius:13px;}
 .avatar-btn:hover{opacity:.82;}
 .avatar-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
