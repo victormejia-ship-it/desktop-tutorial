@@ -7571,7 +7571,9 @@ const ICONO = {
   codigoBarras:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5v14M8 5v14M11 5v14M14 5v14M16 5v14M20 5v14"/></svg>',
   activo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>',
   organigrama:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
-  duplicar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+  duplicar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  ojo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  ojoTachado:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 4.22-5.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -13285,16 +13287,21 @@ function vistaPrecios(){
        + '<td><span class="pista" title="' + esc(ETIQUETA_PONDERACION[e.ponderacion]) + '">' + e.ponderacion + ' · ' + esc(ETIQUETA_PONDERACION[e.ponderacion]) + '</span></td>'
        + '<td>' + (e.descripcion ? '<div class="pista">' + esc(e.descripcion) + '</div>' : '<span class="pista">— sin descripción —</span>') + '</td>'
        + (puede
+           /* Solo el ícono, con title como tooltip — mismo criterio que las
+              tarjetas de póliza (ver data-editar-poliza): tres botones con
+              texto aquí eran la columna más ancha de toda la tabla (345px a
+              1440px de pantalla) y obligaban a hacer scroll horizontal para
+              llegar a "Duplicar". Icono solo cabe en una fracción de eso. */
            ? '<td class="acciones">'
-             + '<button type="button" class="btn btn-suave btn-mini" data-editar-equipo="' + esc(e.id) + '">' + ICONO.lapiz + 'Editar precio</button>'
+             + '<button type="button" class="btn btn-suave btn-mini" data-editar-equipo="' + esc(e.id) + '" title="Editar precio">' + ICONO.lapiz + '</button>'
              + '<button type="button" class="btn btn-suave btn-mini" data-duplicar-equipo="' + esc(e.id) + '" '
-               + 'title="Crea un equipo nuevo con estos mismos datos, para cambiar solo lo que haga falta (p.ej. otro precio o descripción) sin tocar este.">'
-               + ICONO.duplicar + 'Duplicar</button>'
+               + 'title="Duplicar: crea un equipo nuevo con estos mismos datos, para cambiar solo lo que haga falta sin tocar este.">'
+               + ICONO.duplicar + '</button>'
              + '<button type="button" class="btn btn-suave btn-mini" data-apagar-equipo="' + esc(e.id) + '" '
                + 'title="' + (e.activo
-                   ? 'Deja de aparecer en el buscador al cotizar. No se borra: las pólizas que ya lo usan siguen viéndolo.'
-                   : 'Vuelve a aparecer en el buscador al cotizar.') + '">'
-               + (e.activo ? 'Ya no ofrecer' : 'Volver a ofrecer') + '</button>'
+                   ? 'Ya no ofrecer: deja de aparecer en el buscador al cotizar. No se borra: las pólizas que ya lo usan siguen viéndolo.'
+                   : 'Volver a ofrecer: vuelve a aparecer en el buscador al cotizar.') + '">'
+               + (e.activo ? ICONO.ojoTachado : ICONO.ojo) + '</button>'
              + '</td>'
            : '')
        + '</tr>';
