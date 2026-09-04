@@ -2474,6 +2474,16 @@ function haySesion(){ return !!(sesion.idToken && sesion.refreshToken); }
 function esOwner(){ return !HAY_NUBE || sesion.rol === 'owner'; }
 function esAdmin(){ return !HAY_NUBE || sesion.rol === 'owner' || sesion.rol === 'admin'; }
 function puedeEditar(){ return !HAY_NUBE || esAdmin() || sesion.rol === 'analyst'; }
+/* Mismo candado que la regla del servidor sobre /polizas: mientras sigue en
+   'cotizacion' o 'enviada' cualquiera con puedeEditar() le toca los precios;
+   ya cerrada (activa/cancelada), solo Admin — «corregir precios» es cosa de
+   Admin para arriba una vez que el cliente ya aceptó. Se usa tanto para
+   pintar el botón "Actualizar al de grupo" (ver vistaPoliza) como para
+   revalidar en el dispatcher antes de tocar nada: la regla real vive en
+   Firestore, esto solo evita el viaje redondo de un 403 silencioso. */
+function puedePolizaCorregirPrecios(p){
+  return esAdmin() || (puedeEditar() && ['cotizacion','enviada'].includes(p.estatus));
+}
 /* El portal de clientes solo existe con nube: en modo local no hay cuentas
    ni clientId que filtrar, así que aquí SIEMPRE es false — nunca se cuela
    por el "!HAY_NUBE ||" que sí llevan las de arriba. */
@@ -12972,6 +12982,16 @@ function vistaPoliza(){
      puedeRegistrarServicioPoliza() incluye ese rol): es donde se marca que
      un mantenimiento ya se hizo. Mismo molde que las casillas de cobro. */
   const marcable = puedeRegistrarServicioPoliza();
+  /* Precio de grupo desalineado (pedido explícito: "la trampa de grasa para
+     el grupo está en 5,500 y en esta póliza sigue con el precio anterior").
+     Prender "Usar precios de grupo" en una póliza SOLO afecta lo que se
+     agregue de aquí en adelante (ver agregarDelEquipo) — a propósito no
+     retoca renglones ya guardados, así que sin esto un precio de grupo que
+     cambia después de cotizar se queda desfasado para siempre. Aquí se
+     ofrece la corrección, renglón por renglón, con su propio botón: nunca
+     homologa solo, y quien no le dé clic se queda con el precio que ya
+     tenía — es la "selección de actualizarlo o mantenerlo" que se pidió. */
+  const puedeCorregirPrecios = puedePolizaCorregirPrecios(p);
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Equipos cotizados</h3>'
      + '<p>El total de cada renglón se calcula: precio × cantidad × servicios al año. Nunca se captura.'
      + (marcable ? ' Pica un mes para registrar que ese mantenimiento ya se hizo.' : '') + '</p>'
@@ -13013,14 +13033,35 @@ function vistaPoliza(){
          };
          const meses = x.mesesServicio.map(m => chip(m, servicioHecho(p,x,m) ? 'z-verde' : 'z-gris', false)).join(' ')
            + fuera.map(m => chip(m, 'z-ambar', true)).join(' ');
+         /* Override de precio de grupo para ESTE equipo, si el cliente tiene
+            uno capturado (ver modalPreciosGrupo) y este renglón trae de
+            verdad un catalogoId que ligue con él — un renglón capturado a
+            mano ("Agregar otro") nunca tiene catalogoId y por lo tanto
+            nunca puede desalinearse: no hay con qué compararlo. */
+         const ov = x.catalogoId && cli ? cli.preciosGrupo[x.catalogoId] : null;
+         const difPrecio = !!(ov && ov.precioUnitario && ov.precioUnitario !== x.precioUnitario);
+         const difCosto = !!(ov && ov.costoUnitario && ov.costoUnitario !== x.costoUnitario);
+         /* Un solo botón, aunque los dos campos estén desalineados: "Actualizar
+            al de grupo" siempre pareja ambos a la vez (ver el dispatcher de
+            data-homologar-precio), así nunca queda a medias — precio nuevo con
+            costo viejo, o viceversa. Sin permiso, se avisa el desfase igual
+            —hasta un Viewer debería saber que este renglón quedó atrás— pero
+            sin ofrecer un botón que el servidor le va a negar. */
+         const botonHomologar = puedeCorregirPrecios
+           ? '<button type="button" class="btn btn-suave btn-mini" style="margin-top:3px" '
+             + 'data-homologar-precio="' + esc(p.id) + '" data-partida="' + esc(x.id) + '" '
+             + 'title="Actualiza este renglón al precio/costo de grupo vigente de ' + esc(cli.nombre) + '">Actualizar al de grupo</button>'
+           : '';
          return '<tr>'
            + '<td>' + (i+1) + '</td>'
            + '<td><b>' + esc(x.concepto) + '</b>'
            +   (descripcionDe(x) ? '<div class="pista">' + esc(descripcionDe(x)) + '</div>' : '') + '</td>'
            + '<td>' + esc(x.marca || '—') + '</td>'
            + '<td>' + numero(x.cantidad) + '</td>'
-           + '<td>' + dineroCent(x.precioUnitario) + '</td>'
-           + '<td>' + (x.costoUnitario ? dineroCent(x.costoUnitario) : '<span class="pista">sin costo</span>') + '</td>'
+           + '<td>' + dineroCent(x.precioUnitario)
+             + (difPrecio ? '<div class="pista" style="color:var(--alerta)">Grupo: ' + dineroCent(ov.precioUnitario) + '</div>' + botonHomologar : '') + '</td>'
+           + '<td>' + (x.costoUnitario ? dineroCent(x.costoUnitario) : '<span class="pista">sin costo</span>')
+             + (difCosto ? '<div class="pista" style="color:var(--alerta)">Grupo: ' + dineroCent(ov.costoUnitario) + '</div>' + (difPrecio ? '' : botonHomologar) : '') + '</td>'
            + '<td>' + x.frecuencia + (cuadraFrecuencia(x) ? '' : ' <b style="color:var(--error)">≠' + x.mesesServicio.length + '</b>') + '</td>'
            + '<td>' + meses + '</td>'
            + '<td><b>' + dineroCent(c.totales[i]) + '</b></td>'
@@ -18736,6 +18777,32 @@ $('vista').addEventListener('click', ev=>{
 
   const edP = t.closest('[data-editar-poliza]');
   if(edP){ if(exigirPermiso()) modalPoliza(edP.dataset.editarPoliza); return; }
+
+  /* "Actualizar al de grupo": homologa UN renglón al precio de grupo vigente
+     del cliente (ver puedePolizaCorregirPrecios y el botón en vistaPoliza).
+     Nunca pasa solo — es la corrección explícita que se pidió cuando el
+     precio de grupo cambia y una póliza vieja se quedó atrás. */
+  const homP = t.closest('[data-homologar-precio]');
+  if(homP){
+    if(!exigirPermiso()) return;
+    const pol = polizaPorId(homP.dataset.homologarPrecio);
+    if(!pol) return;
+    if(!puedePolizaCorregirPrecios(pol)){
+      aviso('Esta póliza ya está cerrada: solo un Admin puede corregir sus precios.', true);
+      return;
+    }
+    const x = pol.partidas.find(y => y.id === homP.dataset.partida);
+    const cliente = x ? clientePorId(pol.clienteId) : null;
+    const ov = x && x.catalogoId && cliente ? cliente.preciosGrupo[x.catalogoId] : null;
+    if(!x || !ov) return;
+    const antes = x.precioUnitario;
+    if(ov.precioUnitario) x.precioUnitario = ov.precioUnitario;
+    if(ov.costoUnitario) x.costoUnitario = ov.costoUnitario;
+    guardarPoliza(pol, 'homologó precio de grupo en', x.concepto + ': ' + dineroCent(antes) + ' → ' + dineroCent(x.precioUnitario));
+    render();
+    aviso(x.concepto + ' actualizado al precio de grupo.');
+    return;
+  }
 
   const boP = t.closest('[data-borrar-poliza]');
   if(boP){
