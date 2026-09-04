@@ -1904,16 +1904,29 @@ function sugerirCategoriasCatalogo(){
     + (sinPista.length ? ' ' + sinPista.length + ' se quedaron sin categoría (no matchearon ninguna palabra clave): ' + sinPista.join(', ') + '.' : ''));
 }
 
+/* Tipo oración, pero SOLO si el texto viene TODO en mayúsculas (típico de un
+   Excel importado así) — si ya trae alguna minúscula se deja tal cual, para
+   no atropellar un nombre que ya estaba bien escrito o una marca propia en
+   medio ("Horno Rational"). Se usa en concepto/marca/descripción de equipos y
+   renglones; modelo, serie y código quedan fuera a propósito — son
+   identificadores, no prosa, y ahí sí es normal que vayan en mayúsculas. */
+function aOracion(texto){
+  const t = (texto || '').trim().replace(/\s+/g, ' ');
+  if(!t || /[a-záéíóúñü]/.test(t)) return t;
+  const bajo = t.toLowerCase();
+  return bajo.charAt(0).toUpperCase() + bajo.slice(1);
+}
+
 /* Un renglón de la lista de precios. Mismo tono que los otros normalizadores:
    esta función es el contrato. El precio se limita al centavo por la misma razón
    que en las partidas — un precio con milésimas no se puede facturar. */
 function normalizarEquipo(e){
   return {
     id: (e.id || '').trim() || nuevoId(),
-    concepto: (e.concepto || '').trim(),
+    concepto: aOracion((e.concepto || '').trim()),
     precio: Math.max(0, Math.round((Number(e.precio) || 0) * 100) / 100),
     frecuencia: Math.max(1, Math.min(MESES_POLIZA, parseInt(e.frecuencia,10) || 1)),
-    descripcion: (e.descripcion || '').trim(),
+    descripcion: aOracion((e.descripcion || '').trim()),
     /* Lo que de verdad cuesta dar ese servicio, para poder comparar precio vs
        costo vs margen — antes solo existía el precio de venta. Se captura
        insumos y mano de obra por separado, como en la hoja de costos real; el
@@ -6204,12 +6217,16 @@ function normalizarPartida(x){
        alguien duplica o borra un renglón. Es la misma lección que ya nos costó
        una vez con los meses: llavear por el dato, nunca por la posición. */
     id: (x.id || '').trim() || nuevoId(),
-    concepto: (x.concepto || '').trim(),
-    marca: (x.marca || '').trim(),
+    /* aOracion(): un renglón importado de un Excel en MAYÚSCULAS (el caso
+       típico) se ve así en la agenda, el calendario y el documento impreso.
+       Solo baja el texto que viene TODO en mayúsculas — uno ya bien escrito,
+       o con una marca propia en medio, se respeta tal cual. */
+    concepto: aOracion((x.concepto || '').trim()),
+    marca: aOracion((x.marca || '').trim()),
     /* Llave del catálogo, para rellenar la descripción sin guardarla. */
     catalogoId: (x.catalogoId || '').trim(),
     /* Solo se guarda si alguien la editó a mano. Vacía = se usa la del catálogo. */
-    descripcion: (x.descripcion || '').trim(),
+    descripcion: aOracion((x.descripcion || '').trim()),
     cantidad,
     /* Al centavo. Un precio con más decimales no se puede facturar, y además
        rompería la promesa de que la suma de las casillas de cobro da el anual
