@@ -6613,6 +6613,12 @@ function calcularPoliza(p){
   const utilidadCent = precioAnualCent - costoAnualCent;
   const utilidadAnual = deCentavos(utilidadCent);
   const margenPct = precioAnualCent ? (utilidadCent / precioAnualCent * 100) : 0;
+  /* Mismo criterio que precioMensual: nominal, entre 12 fijo — no se recalcula
+     del calendario real para no tener dos "costos mensuales" distintos. */
+  const costoMensualCent = Math.floor(costoAnualCent / MESES_POLIZA);
+  const costoMensual = deCentavos(costoMensualCent);
+  const utilidadMensualCent = cuotaCent - costoMensualCent;
+  const utilidadMensual = deCentavos(utilidadMensualCent);
 
   const arranco = diasEntre(p.fechaInicio, hoy) >= 0;
   const mesesCumplidos = arranco ? mesesTranscurridos(p.fechaInicio, hoy) : 0;
@@ -6704,7 +6710,7 @@ function calcularPoliza(p){
            esAumento: descuento < 0,
            descuentoAbs: Math.abs(descuento),
            montoDescuentoAbs: Math.abs(deCentavos(descuentoCent)),
-           costos, costoAnual, costoAnualCent, utilidadAnual, margenPct,
+           costos, costoAnual, costoAnualCent, costoMensual, utilidadAnual, utilidadMensual, margenPct,
            montos, montosCent, costoMontos, costoMontosCent,
            cobrados, debidos, cobrosAtrasados, adeudo, cobrado, proximoCobro,
            programados, hechos, pendientes, atrasados, tocanEsteMes, huerfanos,
@@ -9496,10 +9502,14 @@ function vistaPolizas(){
          /* Al centavo, como el detalle: la tarjeta decía $737,135 y adentro
             $737,134.80 — dos números para la misma póliza. */
          +     '<div class="t-dato"><div class="d-label">Precio anual</div><div class="d-valor">' + dineroCent(c.precioAnual) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Precio mensual</div><div class="d-valor">' + dineroCent(c.precioMensual) + '</div></div>'
          +     '<div class="t-dato"><div class="d-label">Costo anual</div><div class="d-valor">' + dineroCent(c.costoAnual) + '</div></div>'
-         +     '<div class="t-dato"><div class="d-label">Margen</div><div class="d-valor" style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+         +     '<div class="t-dato"><div class="d-label">Costo mensual</div><div class="d-valor">' + dineroCent(c.costoMensual) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Margen anual</div><div class="d-valor" style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
          +       dineroCent(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
-         +     '<div class="t-dato"><div class="d-label">Servicios</div><div class="d-valor">' + c.hechos + ' de ' + c.programados + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Margen mensual</div><div class="d-valor" style="color:' + (c.utilidadMensual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+         +       dineroCent(c.utilidadMensual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
+         +     '<div class="t-dato" style="grid-column:1/-1"><div class="d-label">Servicios</div><div class="d-valor">' + c.hechos + ' de ' + c.programados + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie">'
          +     '<button type="button" class="btn btn-suave btn-mini" data-ver-poliza="' + esc(p.id) + '">Ver detalle →</button>'
