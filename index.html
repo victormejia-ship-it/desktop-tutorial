@@ -15918,8 +15918,10 @@ function modalPoliza(id, origenLevantamiento){
     +       '<div class="pista">Manda el calendario: los meses de servicio se cuentan desde aquí.</div></div>'
     +   '</div>'
     +   '<div class="campo"><label>Facturación</label><select id="pFacturacion"' + bloq + '>'
-    +     '<option value="anual"' + (!p || p.facturacion === 'anual' ? ' selected' : '') + '>Anual — un solo cobro</option>'
-    +     '<option value="mensual"' + (p && p.facturacion === 'mensual' ? ' selected' : '') + '>Mensual — doce cobros</option>'
+    +     '<option value="anual"' + (p && p.facturacion === 'anual' ? ' selected' : '') + '>Anual — un solo cobro</option>'
+    /* Default de una póliza nueva: mensual — es lo que se cobra casi siempre;
+       anual queda como la excepción que hay que elegir a propósito. */
+    +     '<option value="mensual"' + (!p || p.facturacion === 'mensual' ? ' selected' : '') + '>Mensual — doce cobros</option>'
     +   '</select></div>'
     +   '<div class="campo"><label>Cargo a</label><select id="pCargoA">'
     +     '<option value="cliente"' + (!p || p.cargoA === 'cliente' ? ' selected' : '') + '>Cliente — cuenta como ingreso</option>'
