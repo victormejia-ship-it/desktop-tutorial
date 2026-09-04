@@ -1070,6 +1070,16 @@ table.tabla select{
 }
 table.tabla select:focus{border-color:var(--accent);}
 table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
+/* Encabezado ordenable (ver thOrdenPoliza): mismo look que un th normal en
+   reposo, para no gritar "aquí hay noventa controles" en una fila que ya
+   tiene varios — el cursor y el hover son la única pista hasta que alguien
+   pasa el mouse. La columna activa se pone del color de marca para que se
+   note de un vistazo cuál está mandando el orden. */
+table.tabla th.th-orden{cursor:pointer; user-select:none;}
+table.tabla th.th-orden:hover{color:var(--navy);}
+table.tabla th.th-orden:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
+table.tabla th.th-orden[aria-sort="ascending"], table.tabla th.th-orden[aria-sort="descending"]{color:var(--navy);}
+table.tabla th.th-orden .flecha-orden{color:var(--accent);}
 .vacio-chico{font-size:12.5px; color:var(--gray); text-align:center; padding:24px 10px; line-height:1.6;}
 
 /* Credenciales recién creadas */
@@ -7103,6 +7113,12 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
                  vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas',
+                 /* Orden de la lista de pólizas: por qué columna y en qué
+                    sentido. Misma naturaleza que vistaPolizas de arriba —
+                    preferencia de pantalla, no dato — así que aplica igual en
+                    tarjetas y en tabla aunque solo la tabla tenga encabezados
+                    donde darle clic (ver thOrdenPoliza). */
+                 ordenPolizas:'sitio', ordenPolizasDir:'asc',
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
@@ -9102,12 +9118,55 @@ function tituloPoliza(p){
   return sitio + ' · ' + cli.nombre;
 }
 
+/* Compara dos pólizas según la columna de orden elegida (ver estado.ordenPolizas
+   y thOrdenPoliza). Texto con localeCompare('es') para que ordene como
+   esperaría una persona (acentos, mayúsculas); folio con numeric:true para
+   que "POL-2" quede antes que "POL-10" en vez de ordenarlo como texto puro,
+   letra por letra. */
+function compararPolizas(a, b, clave){
+  const ca = calcularPoliza(a), cb = calcularPoliza(b);
+  switch(clave){
+    case 'cliente': {
+      const na = (clientePorId(a.clienteId) || {}).nombre || '';
+      const nb = (clientePorId(b.clienteId) || {}).nombre || '';
+      return na.localeCompare(nb, 'es');
+    }
+    case 'folio': return (a.folio || '').localeCompare(b.folio || '', 'es', { numeric:true });
+    case 'estado': return ca.estado.localeCompare(cb.estado, 'es');
+    case 'cargoA': return (a.cargoA || '').localeCompare(b.cargoA || '', 'es');
+    /* ISO (AAAA-MM-DD): comparar como texto ya ordena por fecha. */
+    case 'vigencia': return (a.fechaInicio || '').localeCompare(b.fechaInicio || '');
+    case 'precioAnual': return ca.precioAnual - cb.precioAnual;
+    case 'costoAnual': return ca.costoAnual - cb.costoAnual;
+    case 'margen': return ca.margenPct - cb.margenPct;
+    case 'servicios': return (ca.programados ? ca.hechos/ca.programados : 0) - (cb.programados ? cb.hechos/cb.programados : 0);
+    case 'sitio':
+    default: return tituloPoliza(a).localeCompare(tituloPoliza(b), 'es');
+  }
+}
+
+/* Encabezado de columna ordenable: clic (o Enter/Espacio, ver el keydown de
+   #vista) cambia el orden de TODA la lista — tabla y tarjetas por igual,
+   aunque la flecha solo se vea aquí. Un segundo clic en la misma columna
+   invierte el sentido en vez de no hacer nada; cambiar de columna siempre
+   arranca en ascendente, que es lo que alguien espera al probar una nueva. */
+function thOrdenPoliza(etiqueta, clave){
+  const activo = estado.ordenPolizas === clave;
+  const dir = activo ? estado.ordenPolizasDir : '';
+  return '<th class="th-orden" data-accion="ordenar-poliza" data-clave="' + clave + '" tabindex="0" role="button" '
+       +   'aria-sort="' + (activo ? (dir === 'desc' ? 'descending' : 'ascending') : 'none') + '">'
+       +   esc(etiqueta) + (activo ? '<span class="flecha-orden">' + (dir === 'desc' ? ' ▾' : ' ▴') + '</span>' : '')
+       + '</th>';
+}
+
 /* Misma lista de pólizas, en tabla: cada <tr> lleva el mismo data-poliza que
    ya usan las tarjetas para abrir el detalle. */
 function tablaPolizas(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:900px"><thead><tr>'
-       +   '<th>Sitio</th><th>Cliente</th><th>Folio</th><th>Estado</th><th>Cargo a</th>'
-       +   '<th>Precio anual</th><th>Costo anual</th><th>Margen</th><th>Servicios</th>'
+  return '<div class="rodillo"><table class="tabla" style="min-width:1040px"><thead><tr>'
+       +   thOrdenPoliza('Sitio', 'sitio') + thOrdenPoliza('Cliente', 'cliente') + thOrdenPoliza('Folio', 'folio')
+       +   thOrdenPoliza('Estado', 'estado') + thOrdenPoliza('Cargo a', 'cargoA') + thOrdenPoliza('Vigencia', 'vigencia')
+       +   thOrdenPoliza('Precio anual', 'precioAnual') + thOrdenPoliza('Costo anual', 'costoAnual')
+       +   thOrdenPoliza('Margen', 'margen') + thOrdenPoliza('Servicios', 'servicios')
        + '</tr></thead><tbody>'
        + lista.map(p=>{
            const c = calcularPoliza(p);
@@ -9120,6 +9179,7 @@ function tablaPolizas(lista){
                 +   '<td>' + (p.cargoA === 'interno'
                        ? '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span>'
                        : '<span class="pista">Cliente</span>') + '</td>'
+                +   '<td>' + fmtFecha(p.fechaInicio) + '</td>'
                 +   '<td>' + dineroCent(c.precioAnual) + '</td>'
                 +   '<td>' + dineroCent(c.costoAnual) + '</td>'
                 +   '<td style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
@@ -9201,6 +9261,13 @@ function vistaPolizas(){
     if(estado.filtro === 'calle' && p.estatus !== 'enviada') return false;
     if(estado.filtro === 'pendientes' && !(c.tocanEsteMes || c.atrasados)) return false;
     return true;
+  });
+  /* Mismo orden para tarjetas y tabla, aunque solo la tabla tenga encabezados
+     donde elegirlo (ver thOrdenPoliza): cambiar de vista no debería además
+     cambiar el orden en el que aparecen. */
+  lista.sort((a,b)=>{
+    const r = compararPolizas(a, b, estado.ordenPolizas);
+    return estado.ordenPolizasDir === 'desc' ? -r : r;
   });
 
   if(!lista.length){
@@ -18031,6 +18098,14 @@ $('vista').addEventListener('click', ev=>{
       estado[acc.dataset.campo] = acc.dataset.modo;
       render();
     }
+    else if(a === 'ordenar-poliza'){
+      /* Un segundo clic en la misma columna invierte el sentido; cambiar de
+         columna siempre arranca en ascendente. Ver thOrdenPoliza/compararPolizas. */
+      const clave = acc.dataset.clave;
+      if(estado.ordenPolizas === clave) estado.ordenPolizasDir = estado.ordenPolizasDir === 'desc' ? 'asc' : 'desc';
+      else { estado.ordenPolizas = clave; estado.ordenPolizasDir = 'asc'; }
+      render();
+    }
     else if(a === 'nueva-cotizacion'){ if(exigirPermiso()) modalCotizacion(null); }
     else if(a === 'importar-cotizaciones-excel'){ if(exigirPermiso()) $('archivoCotizacionesExcel').click(); }
     else if(a === 'filtrar-cotizaciones-etapa'){ estado.filtro = acc.dataset.etapa; render(); }
@@ -18657,7 +18732,12 @@ $('vista').addEventListener('keydown', ev=>{
   const irPR = ev.target.closest('[data-ir-poliza-resumen]');
   if(irPR){ ev.preventDefault(); irADetallePoliza(irPR.dataset.irPolizaResumen); return; }
   const irQR = ev.target.closest('[data-ir-cotizacion-resumen]');
-  if(irQR){ ev.preventDefault(); irADetalleCotizacion(irQR.dataset.irCotizacionResumen); }
+  if(irQR){ ev.preventDefault(); irADetalleCotizacion(irQR.dataset.irCotizacionResumen); return; }
+  /* Encabezados ordenables (thOrdenPoliza): no tienen su propio dato de
+     navegación como los de arriba, así que en vez de otro dispatcher aquí,
+     simplemente se les reenvía el clic — ya lo maneja el de #vista. */
+  const tarOrden = ev.target.closest('[data-accion="ordenar-poliza"]');
+  if(tarOrden){ ev.preventDefault(); tarOrden.click(); }
 });
 
 function entrarCliente(id){
