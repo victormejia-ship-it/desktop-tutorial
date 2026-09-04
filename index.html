@@ -9326,8 +9326,14 @@ function compararPolizas(a, b, clave){
     /* ISO (AAAA-MM-DD): comparar como texto ya ordena por fecha. */
     case 'vigencia': return (a.fechaInicio || '').localeCompare(b.fechaInicio || '');
     case 'precioAnual': return ca.precioAnual - cb.precioAnual;
+    case 'precioMensual': return ca.precioMensual - cb.precioMensual;
     case 'costoAnual': return ca.costoAnual - cb.costoAnual;
+    case 'costoMensual': return ca.costoMensual - cb.costoMensual;
     case 'margen': return ca.margenPct - cb.margenPct;
+    /* El % es el mismo número que "margen" (es una razón, no cambia entre
+       anual y mensual) — se deja como llave aparte solo para que la flecha de
+       orden aparezca en la columna que de verdad se clicó, no en las dos. */
+    case 'margenMensual': return ca.margenPct - cb.margenPct;
     case 'servicios': return (ca.programados ? ca.hechos/ca.programados : 0) - (cb.programados ? cb.hechos/cb.programados : 0);
     case 'sitio':
     default: return tituloPoliza(a).localeCompare(tituloPoliza(b), 'es');
@@ -9351,11 +9357,13 @@ function thOrdenPoliza(etiqueta, clave){
 /* Misma lista de pólizas, en tabla: cada <tr> lleva el mismo data-poliza que
    ya usan las tarjetas para abrir el detalle. */
 function tablaPolizas(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:1040px"><thead><tr>'
+  return '<div class="rodillo"><table class="tabla" style="min-width:1400px"><thead><tr>'
        +   thOrdenPoliza('Sitio', 'sitio') + thOrdenPoliza('Cliente', 'cliente') + thOrdenPoliza('Folio', 'folio')
        +   thOrdenPoliza('Estado', 'estado') + thOrdenPoliza('Cargo a', 'cargoA') + thOrdenPoliza('Vigencia', 'vigencia')
-       +   thOrdenPoliza('Precio anual', 'precioAnual') + thOrdenPoliza('Costo anual', 'costoAnual')
-       +   thOrdenPoliza('Margen', 'margen') + thOrdenPoliza('Servicios', 'servicios')
+       +   thOrdenPoliza('Precio anual', 'precioAnual') + thOrdenPoliza('Precio mensual', 'precioMensual')
+       +   thOrdenPoliza('Costo anual', 'costoAnual') + thOrdenPoliza('Costo mensual', 'costoMensual')
+       +   thOrdenPoliza('Margen anual', 'margen') + thOrdenPoliza('Margen mensual', 'margenMensual')
+       +   thOrdenPoliza('Servicios', 'servicios')
        + '</tr></thead><tbody>'
        + lista.map(p=>{
            const c = calcularPoliza(p);
@@ -9370,9 +9378,13 @@ function tablaPolizas(lista){
                        : '<span class="pista">Cliente</span>') + '</td>'
                 +   '<td>' + fmtFecha(p.fechaInicio) + '</td>'
                 +   '<td>' + dineroCent(c.precioAnual) + '</td>'
+                +   '<td>' + dineroCent(c.precioMensual) + '</td>'
                 +   '<td>' + dineroCent(c.costoAnual) + '</td>'
+                +   '<td>' + dineroCent(c.costoMensual) + '</td>'
                 +   '<td style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
                 +     dineroCent(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</td>'
+                +   '<td style="color:' + (c.utilidadMensual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+                +     dineroCent(c.utilidadMensual) + ' (' + c.margenPct.toFixed(1) + '%)</td>'
                 +   '<td>' + c.hechos + ' de ' + c.programados + '</td>'
                 + '</tr>';
          }).join('')
