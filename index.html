@@ -16091,6 +16091,49 @@ function deshacerServicio(polizaId, partidaId, mes, vuelveAlCalendario){
    "qué hay que hacer este mes"— y en la tabla de captura no se contesta: ahí se
    ve por renglón, no por mes.
    --------------------------------------------------------------------------- */
+/* Reacomoda el calendario de una póliza YA GUARDADA usando la categoría que
+   tenga HOY cada equipo — para pólizas creadas antes de que existiera la
+   calendarización automática (todo les cayó en el mes 0 por default) o con
+   equipos que en ese momento todavía no tenían categoría en el catálogo.
+   Ver el botón "Recalcular calendario" en modalCalendario().
+
+   A propósito NO toca:
+   - Renglones sin catalogoId (capturados a mano): no hay categoría de dónde
+     sacar un arranque mejor.
+   - Equipos que siguen sin categoría: recalcularlos los dejaría en el mismo
+     mes 0 de siempre, sin ganar nada — clasifícalos primero en Lista de
+     precios (ver sugerirCategoriasCatalogo).
+   - Renglones "a mano" (mesArranqueDe === null): alguien marcó esos meses
+     suelto a propósito, un recálculo automático no debe pisar esa decisión.
+   - Renglones cuyo arranque actual YA es el que le tocaría hoy por su
+     categoría: no hay nada que mover. */
+function recalcularCalendarioPoliza(id){
+  const p = polizaPorId(id);
+  if(!p) return;
+  if(!exigirPermiso()) return;
+  let cambiados = 0;
+  p.partidas.forEach(x=>{
+    if(!x.catalogoId) return;
+    const eq = datos.catalogo.find(e => e.id === x.catalogoId);
+    if(!eq || !eq.categoria) return;
+    const actual = mesArranqueDe(x);
+    if(actual === null) return;
+    const sugerido = arranqueCalendarioEquipo(eq.categoria);
+    if(actual === sugerido) return;
+    x.mesesServicio = mesesRegulares(sugerido, x.frecuencia);
+    cambiados++;
+  });
+  if(!cambiados){
+    aviso('Ningún equipo tenía un calendario distinto al que le tocaría hoy por su categoría. No hubo nada que ajustar.', true);
+    return;
+  }
+  guardarPoliza(p, 'recalculó calendario por categoría en',
+    cambiados + ' ' + plural(cambiados,'equipo reacomodado','equipos reacomodados'));
+  render();
+  modalCalendario(id);
+  aviso(cambiados + ' ' + plural(cambiados,'equipo reacomodado','equipos reacomodados') + ' según su categoría.');
+}
+
 function modalCalendario(id){
   const p = polizaPorId(id);
   if(!p) return;
@@ -16130,6 +16173,13 @@ function modalCalendario(id){
     +     ' · ' + c.hechos + ' ' + plural(c.hechos,'hecho','hechos') + '</b></div>'
     +   '<div class="c-fila"><span>Mes más cargado:</span><b>' + pico + ' ' + plural(pico,'equipo','equipos') + '</b></div>'
     + '</div>'
+    /* Para pólizas armadas ANTES de que existiera la calendarización por
+       categoría (o con equipos que en ese momento no tenían categoría
+       todavía): sin esto, la única forma de escalonarlas era recrearlas. */
+    + (puedeEditar()
+        ? '<button type="button" class="btn btn-suave btn-mini" style="margin-top:10px" data-recalcular-calendario="' + esc(p.id) + '">'
+          + ICONO.organigrama + ' Recalcular calendario por categoría</button>'
+        : '')
     + (marcable ? '<div class="pista" style="margin:10px 0 0">Pica un equipo para registrar que su mantenimiento ya se hizo.</div>' : '')
     + '<div class="cal-meses">'
     + meses.map(z=>{
@@ -16192,8 +16242,23 @@ function modalCalendario(id){
   /* Delegado y colgado aquí, no fuera: #modalCuerpo lo reemplaza cerrarModal()
      por un clon limpio en cada cierre, así que este listener se va con él y no
      se acumula. Colgarlo una vez fuera no serviría — apuntaría al nodo viejo. */
-  if(marcable){
+  if(marcable || puedeEditar()){
     $('modalCuerpo').addEventListener('click', ev=>{
+      /* window.confirm() y no confirmar(): este último reemplaza #modalCuerpo
+         —el mismo contenedor del calendario— así que aceptar cerraría el
+         calendario en vez de dejarlo ver ya recalculado. Mismo criterio que
+         ya usa "Borrar renglón" en modalPoliza. */
+      const recal = ev.target.closest('[data-recalcular-calendario]');
+      if(recal){
+        if(window.confirm(
+          'Va a revisar los equipos de esta póliza que tengan categoría asignada en el catálogo y, si su arranque '
+          + 'actual no coincide con el que le tocaría hoy (caliente primero, luego frío, equipo menor, rational y '
+          + 'extracción), lo va a mover. No toca renglones capturados a mano, equipos sin categoría todavía, ni meses '
+          + 'marcados "a mano" a propósito. Si algún servicio ya registrado queda fuera del nuevo calendario, se sigue '
+          + 'viendo (marcado "fuera de calendario"), nunca se borra.\n\n¿Recalcular el calendario de esta póliza?'
+        )) recalcularCalendarioPoliza(recal.dataset.recalcularCalendario);
+        return;
+      }
       const b = ev.target.closest('[data-servicio]');
       if(!b) return;
       modalServicioPoliza(b.dataset.servicio, b.dataset.partida, +b.dataset.mes, true);
