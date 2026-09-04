@@ -963,6 +963,17 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .c-tecnico  {background:#FCEFDD; color:#9A5B12; border-color:#F0D9B4;}
 .c-reportero{background:#F1EAFB; color:#6A3FA0; border-color:#DCC9F2;}
 table.tabla select.sel-rol{font-weight:600;}
+/* Mismos colores que los chips de categoría de equipo (COLOR_CATEGORIA_EQUIPO
+   en index.html: z-rojo/z-azul/z-gris/z-morado/z-naranja), pero definidos
+   aparte con selector compuesto (3 clases + 2 elementos) para que sí le gane
+   en especificidad a `table.tabla select` de la línea de abajo — con una sola
+   clase, como .c-owner de arriba, la pierde y el select se queda gris. */
+table.tabla select.sel-categoria{font-weight:600;}
+table.tabla select.sel-categoria.c-caliente{background:#FCEDEC; color:#B3312C; border-color:#F0CBC9;}
+table.tabla select.sel-categoria.c-frio{background:#EAF1FC; color:#1B4FA8; border-color:#C6D8F5;}
+table.tabla select.sel-categoria.c-equipoMenor{background:#F1F3F8; color:#5C6273; border-color:#DFE3EE;}
+table.tabla select.sel-categoria.c-rational{background:#F1ECFB; color:#5B3A9E; border-color:#DBCEF3;}
+table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12; border-color:#F6D6BE;}
 @media (max-width:700px){ .pastilla span.txt{display:none;} .pastilla{padding:6px 8px;} }
 
 /* ---------- Pantalla de acceso ---------- */
@@ -13249,9 +13260,20 @@ function vistaPrecios(){
          const margenPct = e.precio ? (margen / e.precio * 100) : 0;
          return '<tr' + (e.activo ? '' : ' style="opacity:.5"') + '>'
        + '<td><b>' + esc(e.concepto) + '</b>' + (e.activo ? '' : ' <span class="pista" style="display:inline">(apagado)</span>') + '</td>'
-       + '<td>' + (e.categoria
-           ? '<span class="chip-zona ' + COLOR_CATEGORIA_EQUIPO[e.categoria] + '">' + esc(ETIQUETA_CATEGORIA_EQUIPO[e.categoria]) + '</span>'
-           : '<span class="pista">— sin categoría —</span>') + '</td>'
+       + '<td>' + (puede
+           /* Editable directo en la tabla: cambiar la categoría es algo que se
+              hace seguido al ir clasificando el catálogo, y antes obligaba a
+              abrir "Editar precio" solo para tocar este campo. El select se
+              guarda solo al cambiar — data-cambiar-categoria, ver el listener
+              de 'change' junto a data-rol. */
+           ? '<select class="sel-categoria c-' + (e.categoria || 'ninguna') + '" data-cambiar-categoria="' + esc(e.id) + '">'
+             + '<option value=""' + (!e.categoria ? ' selected' : '') + '>— Sin categoría —</option>'
+             + CATEGORIAS_EQUIPO.map(k => '<option value="' + k + '"' + (e.categoria === k ? ' selected' : '') + '>'
+                 + esc(ETIQUETA_CATEGORIA_EQUIPO[k]) + '</option>').join('')
+             + '</select>'
+           : (e.categoria
+               ? '<span class="chip-zona ' + COLOR_CATEGORIA_EQUIPO[e.categoria] + '">' + esc(ETIQUETA_CATEGORIA_EQUIPO[e.categoria]) + '</span>'
+               : '<span class="pista">— sin categoría —</span>')) + '</td>'
        + '<td>' + (costo ? dineroCent(costo) : '<span class="pista">sin costo</span>') + '</td>'
        + '<td' + (e.precio ? '' : ' style="color:var(--error)"') + '>' + (e.precio ? dineroCent(e.precio) : 'sin precio') + '</td>'
        + '<td' + (e.precio && costo
@@ -14582,6 +14604,23 @@ function modalEditarUsuario(id){
 
 /* --------------------- Acciones del panel de admin --------------------- */
 $('vista').addEventListener('change', async ev=>{
+  const selCat = ev.target.closest('[data-cambiar-categoria]');
+  if(selCat){
+    if(!exigirAdmin('cambiar la lista de precios')) { render(); return; }
+    if(!datos.catalogo.length) datos.catalogo = CATALOGO_SEMILLA.map(normalizarEquipo);
+    const eq = datos.catalogo.find(x => x.id === selCat.dataset.cambiarCategoria);
+    if(!eq) return;
+    const anterior = eq.categoria;
+    eq.categoria = CATEGORIAS_EQUIPO.includes(selCat.value) ? selCat.value : '';
+    guardarCatalogo('cambió la categoría de ' + eq.concepto + ' · '
+      + (ETIQUETA_CATEGORIA_EQUIPO[anterior] || 'sin categoría') + ' → ' + (ETIQUETA_CATEGORIA_EQUIPO[eq.categoria] || 'sin categoría'));
+    /* Solo se repinta el select (clase de color incluida), no toda la tabla:
+       así no se pierde el foco ni el texto de "Buscar equipo" a media edición. */
+    selCat.className = 'sel-categoria c-' + (eq.categoria || 'ninguna');
+    aviso(eq.concepto + ': categoría actualizada.');
+    return;
+  }
+
   const sel = ev.target.closest('[data-rol]');
   if(!sel) return;
   const uid = sel.dataset.rol, rol = sel.value;
