@@ -3519,7 +3519,7 @@ function normalizarPartidaCotizacion(x){
     seccion: (x && x.seccion ? String(x.seccion) : '').trim(),
     cantidad: Math.max(0, numDef(x && x.cantidad, 0)),
     um: (x && x.um ? String(x.um) : '').trim(),
-    concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
+    concepto: aOracion((x && x.concepto ? String(x.concepto) : '').trim()),
     precioCosto: Math.max(0, numDef(x && x.precioCosto, 0)),
     /* null = "sin precio propio": el precio al cliente sale de costo × margen.
        Un número aquí es una excepción capturada a mano para ESE renglón, tal
@@ -3805,7 +3805,7 @@ function normalizarReporte(r){
        nunca un formulario detiene a alguien porque le falta un renglón
        en el catálogo. */
     equipoCatalogoId: (r && r.equipoCatalogoId ? String(r.equipoCatalogoId) : '').trim(),
-    equipoNombre: (r && r.equipoNombre ? String(r.equipoNombre) : '').trim(),
+    equipoNombre: aOracion((r && r.equipoNombre ? String(r.equipoNombre) : '').trim()),
     titulo: (r && r.titulo ? String(r.titulo) : '').trim(),
     descripcion: (r && r.descripcion ? String(r.descripcion) : '').trim(),
     /* Lo que el técnico encontró y lo que hizo para resolverlo. Es DISTINTO
@@ -3967,8 +3967,11 @@ function normalizarActivo(a){
        "Vehículo" a "Laptop", y un selector fijo obligaría a inventar una
        categoría "Otros" que con el tiempo se vuelve la más usada. */
     categoria: (a && a.categoria ? String(a.categoria) : '').trim(),
-    nombre: (a && a.nombre ? String(a.nombre) : '').trim(),
-    marca: (a && a.marca ? String(a.marca) : '').trim(),
+    /* aOracion(): mismo criterio que equipos/renglones de póliza — un activo
+       importado o capturado en MAYÚSCULAS se ve así en toda la app. Modelo y
+       serie, dos líneas abajo, se quedan intactos a propósito. */
+    nombre: aOracion((a && a.nombre ? String(a.nombre) : '').trim()),
+    marca: aOracion((a && a.marca ? String(a.marca) : '').trim()),
     modelo: (a && a.modelo ? String(a.modelo) : '').trim(),
     serie: (a && a.serie ? String(a.serie) : '').trim(),
     codigo: (a && a.codigo ? String(a.codigo) : '').trim(),
@@ -4225,7 +4228,7 @@ function normalizarHallazgo(h){
        copiado, mismo molde que en reportes/pólizas) o texto libre: un
        hallazgo de "falta señalización de salida" no tiene equipo. */
     equipoCatalogoId: (h && h.equipoCatalogoId ? String(h.equipoCatalogoId) : '').trim(),
-    equipoNombre: (h && h.equipoNombre ? String(h.equipoNombre) : '').trim(),
+    equipoNombre: aOracion((h && h.equipoNombre ? String(h.equipoNombre) : '').trim()),
     hallazgo: (h && h.hallazgo ? String(h.hallazgo) : '').trim(),
     accion: ACCION_HALLAZGO.includes(h && h.accion) ? h.accion : 'correctivo',
     prioridad: PRIORIDAD_REPORTE.includes(h && h.prioridad) ? h.prioridad : 'media',
@@ -4467,7 +4470,7 @@ function normalizarConceptoProyecto(x){
        viaja completo cuando se importa de un desglose como el de Excel, que
        trae un proveedor por renglón. */
     proveedor: (x && x.proveedor ? String(x.proveedor) : '').trim(),
-    concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
+    concepto: aOracion((x && x.concepto ? String(x.concepto) : '').trim()),
     cantidad: Math.max(0, numDef(x && x.cantidad, 1)),
     precioUnitario: Math.max(0, numDef(x && x.precioUnitario, 0))
   };
