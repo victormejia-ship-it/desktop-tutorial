@@ -742,8 +742,12 @@ button.mes{cursor:pointer;}
 .tabla-renglones tfoot .lbl{text-align:right; font-weight:500; color:var(--gray);}
 /* Renglón con meses que no siguen el intervalo: se marca para que no se pierda. */
 .tabla-renglones tr.irregular > td{background:#fffdf6;}
-.fila-meses > td{background:var(--bg); padding:10px 12px 13px; border-bottom:1px solid var(--line);}
-.fila-info > td{background:var(--bg); padding:10px 12px 13px; border-bottom:1px solid var(--line);}
+.fila-meses > td, .fila-info > td, .fila-series > td{background:var(--bg); padding:10px 12px 13px; border-bottom:1px solid var(--line);}
+.btn-series{display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:6px; background:none;
+  padding:5px 8px; font-size:11.5px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit; white-space:nowrap;}
+.btn-series svg{width:12px; height:12px; flex:none;}
+.btn-series:hover{border-color:var(--navy); color:var(--navy); background:#fff;}
+.btn-series.on{border-color:var(--navy); color:var(--navy); background:var(--bg);}
 .info-equipo{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px;}
 .info-equipo label{display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--gray); font-weight:600; flex:1 1 180px;}
 .info-equipo label input{font-size:13px; font-weight:400; color:var(--navy);}
@@ -6189,6 +6193,9 @@ function normalizarPartida(x){
         .filter(m => Number.isInteger(m) && m >= 0 && m < MESES_POLIZA)
     )].sort((a,b)=> a - b);
 
+  const cantidad = Math.max(1, parseInt(x.cantidad,10) || 1);
+  const limpiaSerie = s => (s || '').trim().replace(/[^A-Za-z0-9-]/g, '').slice(0, 40);
+
   return {
     mesesServicio,
     /* Identidad estable del renglón. NO es adorno: lo ejecutado se guarda
@@ -6203,7 +6210,7 @@ function normalizarPartida(x){
     catalogoId: (x.catalogoId || '').trim(),
     /* Solo se guarda si alguien la editó a mano. Vacía = se usa la del catálogo. */
     descripcion: (x.descripcion || '').trim(),
-    cantidad: Math.max(1, parseInt(x.cantidad,10) || 1),
+    cantidad,
     /* Al centavo. Un precio con más decimales no se puede facturar, y además
        rompería la promesa de que la suma de las casillas de cobro da el anual
        exacto: si el precio trae milésimas, el anual las trae y el reparto en
@@ -6218,12 +6225,18 @@ function normalizarPartida(x){
     frecuencia,
     /* Solo para control interno del equipo (no sale en la cotización impresa
        al cliente): modelo y número de serie del equipo físico, y un código
-       (para barras/QR) que identifica esta unidad en campo. Si cantidad > 1
-       se asume que las unidades son idénticas y comparten un solo folio;
-       para números de serie distintos por unidad hay que "Duplicar" el
-       renglón en filas de cantidad 1. */
+       (para barras/QR) que identifica esta unidad en campo. Si cantidad === 1
+       basta con "serie"; si cantidad > 1 las unidades pueden traer cada una su
+       propio número en "series" (uno por unidad, ver modalPoliza → botón
+       "Capturar series"). Se recorta a `cantidad` entradas: si alguien baja la
+       cantidad después de capturarlas, las sobrantes no se guardan solas. */
     modelo: (x.modelo || '').trim().slice(0, 60),
-    serie: (x.serie || '').trim().replace(/[^A-Za-z0-9-]/g, '').slice(0, 40),
+    serie: limpiaSerie(x.serie),
+    /* Denso a propósito, del largo exacto de `cantidad`: solo se captura la
+       unidad 1 y la 3 de un renglón de 3 deja la 2 como HUECO en el arreglo
+       (nadie escribió ese índice todavía), y [].map() salta los huecos en vez
+       de mandarlos como '' — Array.from() sí los rellena. */
+    series: Array.from({length: cantidad}, (_,j) => limpiaSerie(Array.isArray(x.series) ? x.series[j] : '')),
     codigo: (x.codigo || '').trim().replace(/[^A-Za-z0-9\-_. ]/g, '').toUpperCase().slice(0, 30),
     /* Qué tipo de etiqueta imprimir para este código: barras (Code128) o QR.
        Code128 es más angosto y lo lee cualquier lector láser barato; el QR
@@ -7640,7 +7653,8 @@ const ICONO = {
   organigrama:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
   duplicar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   ojo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>',
-  ojoTachado:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 4.22-5.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+  ojoTachado:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 4.22-5.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
+  listaSerie:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -16603,7 +16617,18 @@ function modalPoliza(id, origenLevantamiento){
            tipo de dato (identifican la unidad), no una configuración avanzada
            como el calendario o el código de barras/QR. */
         + '<td class="marca"><input type="text" data-campo="modelo" value="' + esc(x.modelo) + '" placeholder="—" title="Modelo (solo control interno)"' + soloL + '></td>'
-        + '<td class="marca"><input type="text" data-campo="serie" value="' + esc(x.serie) + '" placeholder="—" title="Número de serie (solo control interno)"' + soloL + '></td>'
+        /* Con más de una unidad, un solo campo de texto no alcanza para
+           identificarlas por separado: se cambia por un botón que abre la
+           captura de un número de serie POR unidad (ver abajo, fila-series).
+           Con una sola unidad el campo de siempre basta y no hace falta el
+           paso extra. */
+        + '<td class="marca">' + (x.cantidad > 1
+            ? '<button type="button" class="btn-series' + (x._seriesAbierta ? ' on' : '') + '" data-series-mano="' + i + '"'
+              + ' data-tip="Número de serie de cada unidad"' + bloq + '>' + ICONO.listaSerie + ' '
+              + (lim.series.filter(Boolean).length ? lim.series.filter(Boolean).length + '/' + x.cantidad : 'Capturar')
+              + '</button>'
+            : '<input type="text" data-campo="serie" value="' + esc(x.serie) + '" placeholder="—" title="Número de serie (solo control interno)"' + soloL + '>')
+          + '</td>'
         + '<td class="mini"><input type="number" min="1" step="1" data-campo="cantidad" value="' + x.cantidad + '"' + soloL + '></td>'
         + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioUnitario" value="' + numero(x.precioUnitario) + '"' + soloL + '></td>'
         + '<td class="med"><input type="text" inputmode="decimal" data-campo="costoUnitario" value="' + numero(x.costoUnitario) + '"' + soloL + '></td>'
@@ -16664,6 +16689,21 @@ function modalPoliza(id, origenLevantamiento){
           + '</td></tr>';
       }
 
+      /* Números de serie por unidad: solo cuando hay más de una y alguien
+         abrió el desglose. Reemplaza el "Duplicar + separar en cantidad 1"
+         de antes — el renglón sigue siendo uno solo, con una casilla de
+         serie por cada unidad que lo compone. */
+      if(x._seriesAbierta && x.cantidad > 1){
+        const casillasSerie = Array.from({length:x.cantidad}, (_,j)=>
+          '<label>Unidad ' + (j+1) + '<input type="text" data-serie-unidad="' + j + '" '
+          + 'value="' + esc(lim.series[j] || '') + '" placeholder="—"' + soloL + '></label>').join('');
+        extra += '<tr class="fila-series" data-idx="' + i + '"><td></td><td colspan="11">'
+          +   '<div class="pista" style="margin-bottom:7px">Número de serie de cada una de las ' + x.cantidad + ' unidades de '
+          +     '<b>' + esc(x.concepto || 'este renglón') + '</b>. Solo control interno: no aparece en la cotización que ve el cliente.</div>'
+          +   '<div class="info-equipo">' + casillasSerie + '</div>'
+          + '</td></tr>';
+      }
+
       return fila + extra;
     }).join('');
 
@@ -16689,8 +16729,8 @@ function modalPoliza(id, origenLevantamiento){
      índice: recorrer 150 renglones en cada tecla se siente. */
   function refrescar(soloIdx){
     const sel = soloIdx === undefined
-      ? 'tbody tr[data-idx]:not(.fila-meses):not(.fila-info)'
-      : 'tbody tr[data-idx="' + soloIdx + '"]:not(.fila-meses):not(.fila-info)';
+      ? 'tbody tr[data-idx]:not(.fila-meses):not(.fila-info):not(.fila-series)'
+      : 'tbody tr[data-idx="' + soloIdx + '"]:not(.fila-meses):not(.fila-info):not(.fila-series)';
     const nodos = $('listaPartidas').querySelectorAll(sel);
     nodos.forEach(nodo=>{
       const i = +nodo.dataset.idx, x = partidasTmp[i];
@@ -16812,6 +16852,24 @@ function modalPoliza(id, origenLevantamiento){
   /* ---- Listeners delegados: se cuelgan UNA vez, fuera de pintarPartidas.
      Adentro se acumularían y una sola acción correría N veces. ---- */
   $('listaPartidas').addEventListener('input', ev=>{
+    const serieUnidad = ev.target.closest('[data-serie-unidad]');
+    if(serieUnidad){
+      const fila = serieUnidad.closest('[data-idx]');
+      const x = partidasTmp[+fila.dataset.idx];
+      if(!x) return;
+      if(!Array.isArray(x.series)) x.series = [];
+      x.series[+serieUnidad.dataset.serieUnidad] = serieUnidad.value;
+      x._tocada = true;
+      /* Solo el contador del botón, sin pintarPartidas(): un redibujo completo
+         aquí le quitaría el cursor al campo a media captura, igual que con
+         el resto de los campos de esta tabla. */
+      const btn = $('listaPartidas').querySelector('tr[data-idx="' + fila.dataset.idx + '"]:not(.fila-series) [data-series-mano]');
+      if(btn){
+        const n = x.series.filter(Boolean).length;
+        btn.innerHTML = ICONO.listaSerie + ' ' + (n ? n + '/' + x.cantidad : 'Capturar');
+      }
+      return;
+    }
     const campo = ev.target.closest('[data-campo]');
     if(!campo) return;
     const fila = campo.closest('[data-idx]');
@@ -16819,7 +16877,15 @@ function modalPoliza(id, origenLevantamiento){
     if(!x) return;
     const k = campo.dataset.campo;
     x._tocada = true;
-    if(k === 'cantidad'){ x.cantidad = parseInt(campo.value,10) || 0; }
+    if(k === 'cantidad'){
+      const antes = x.cantidad;
+      x.cantidad = parseInt(campo.value,10) || 0;
+      /* Cruzar la frontera 1 ⇄ más de 1 cambia qué va en la columna Serie: un
+         campo simple contra el botón de series por unidad. Ahí sí hace falta
+         redibujar; el resto de las veces basta con refrescar() y no perder el
+         cursor de en medio de la captura. */
+      if((antes <= 1) !== (x.cantidad <= 1)){ pintarPartidas(); return; }
+    }
     else if(k === 'frecuencia'){
       const antes = mesArranqueDe(normalizarPartida(x));
       x.frecuencia = parseInt(campo.value,10) || 0;
@@ -16882,6 +16948,13 @@ function modalPoliza(id, origenLevantamiento){
       pintarPartidas();
       return;
     }
+    const seriesMano = ev.target.closest('[data-series-mano]');
+    if(seriesMano){
+      const x = partidasTmp[+seriesMano.dataset.seriesMano];
+      x._seriesAbierta = !x._seriesAbierta;
+      pintarPartidas();
+      return;
+    }
     const infoMano = ev.target.closest('[data-info-mano]');
     if(infoMano){
       const x = partidasTmp[+infoMano.dataset.infoMano];
@@ -16916,8 +16989,12 @@ function modalPoliza(id, origenLevantamiento){
          dejarle el mismo id le heredaría los servicios del original — y borrar
          uno de los dos borraría los del otro. normalizarPartida le pone uno
          nuevo. */
+      /* series también se copia aparte: sin el .slice() el duplicado compartiría
+         el mismo arreglo que el original y capturar la serie de una unidad en
+         el duplicado se vería (mal) reflejada en el renglón original. */
       const copia = Object.assign({}, partidasTmp[i],
-        { id:'', mesesServicio: partidasTmp[i].mesesServicio.slice() });
+        { id:'', mesesServicio: partidasTmp[i].mesesServicio.slice(),
+          series: (partidasTmp[i].series || []).slice() });
       partidasTmp.splice(i + 1, 0, normalizarPartida(copia));
       partidasTmp[i + 1]._tocada = true;
       pintarPartidas();
