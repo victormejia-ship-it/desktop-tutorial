@@ -60,13 +60,25 @@ service cloud.firestore {
        editar. BORRAR es de Admin para arriba (decidido el 19-ago-2026): un
        cliente se lleva de golpe sus sitios con su historial de pagos y sus OC, y
        —como la colección de clientes es UNA sola para los dos módulos— también
-       deja huérfana su póliza de mantenimiento. No hay deshacer. */
+       deja huérfana su póliza de mantenimiento. No hay deshacer.
+
+       preciosGrupo (agregado 04-sep-2026, ver modalPreciosGrupo en index.html)
+       se congela para quien no es Admin, mismo criterio que `encargado` en
+       /sitios: es un precio, y las decisiones de precio son de Admin para
+       arriba en todo el tablero (misma razón que /catalogo solo lo escribe
+       esAdmin()). Con get() en las dos puntas por la misma lección del
+       descuento — un cliente de antes de este campo no lo trae guardado, y
+       leerlo con punto sería un error que rechaza también la corrección más
+       inocente que un Analyst haga al resto del cliente. */
     match /clientes/{id} {
       /* Un cliente lee SU PROPIO documento (el id de este documento ES su
          clienteId) — nunca el catálogo completo de clientes de Forguard. */
       allow read:   if conAcceso() && (!esCliente() || id == miClienteId());
-      allow create: if puedeEditar();
-      allow update: if puedeEditar();
+      allow create: if esAdmin()
+                    || (puedeEditar() && request.resource.data.get('preciosGrupo', {}) == {});
+      allow update: if esAdmin()
+                    || (puedeEditar()
+                        && request.resource.data.get('preciosGrupo', {}) == resource.data.get('preciosGrupo', {}));
       allow delete: if esAdmin();
     }
     /* --- Sitios ---

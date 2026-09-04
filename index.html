@@ -1834,6 +1834,28 @@ function costoTotalEquipo(e){
   return Math.round(base * (1 + COSTO_INDIRECTO_PCT / 100) * 100) / 100;
 }
 
+/* Precio y costo con los que se sugiere un equipo AL AGREGARLO a una póliza
+   (ver agregarDelEquipo en modalPoliza): el estándar de /catalogo de siempre,
+   o el precio de grupo del cliente si la póliza lo tiene prendido (ver
+   usaPreciosGrupo en normalizarPoliza) Y el cliente de verdad tiene uno
+   capturado para este equipo (cliente.preciosGrupo, ver modalPreciosGrupo).
+   Precio y costo se resuelven CADA UNO por su lado: un grupo puede traer solo
+   precio especial y dejar el costo estándar, o al revés. Esto NUNCA toca
+   /catalogo — solo decide qué número sugerir esta vez; una vez agregado el
+   renglón es una partida más, con su propio precioUnitario/costoUnitario
+   editable como cualquier otra. */
+function precioEquipoParaPoliza(e, clienteId, usaGrupo){
+  const estandar = { precioUnitario: e.precio, costoUnitario: costoTotalEquipo(e) };
+  if(!usaGrupo) return estandar;
+  const cliente = clienteId ? clientePorId(clienteId) : null;
+  const ov = cliente ? cliente.preciosGrupo[e.id] : null;
+  if(!ov) return estandar;
+  return {
+    precioUnitario: ov.precioUnitario || estandar.precioUnitario,
+    costoUnitario: ov.costoUnitario || estandar.costoUnitario
+  };
+}
+
 /* La descripción va al revés que el precio: NO se copia al documento salvo que
    alguien la edite a mano. Describe el trabajo, no el contrato, así que si
    mañana mejoramos el texto conviene que todas las pólizas lo tomen. Y de paso
@@ -2058,7 +2080,22 @@ function normalizarCliente(c){
     /* Valores de los parámetros personalizados (Admin → Segmentos y
        parámetros), llaveados por el id del parámetro para que sobrevivan si
        se renombra la etiqueta. */
-    personalizados: (c.personalizados && typeof c.personalizados === 'object' && !Array.isArray(c.personalizados)) ? c.personalizados : {}
+    personalizados: (c.personalizados && typeof c.personalizados === 'object' && !Array.isArray(c.personalizados)) ? c.personalizados : {},
+    /* Precios especiales para ESTE cliente/grupo, llaveados por el id del
+       equipo del catálogo — ver modalPreciosGrupo(). A propósito viven AQUÍ,
+       dentro del cliente, y no dentro de /catalogo: cambiar un precio de
+       grupo no debe mover ni un peso la lista general que usa todo el resto
+       de la cartera. Cada póliza decide si los usa con su propia casilla
+       (usaPreciosGrupo, ver normalizarPoliza) — definir un precio de grupo no
+       cambia sola ninguna póliza ya guardada, ni las nuevas por default. */
+    preciosGrupo: (c.preciosGrupo && typeof c.preciosGrupo === 'object' && !Array.isArray(c.preciosGrupo))
+      ? Object.fromEntries(Object.entries(c.preciosGrupo)
+          .map(([id, v]) => [id, {
+            precioUnitario: Math.max(0, Math.round((Number(v && v.precioUnitario) || 0) * 100) / 100),
+            costoUnitario: Math.max(0, Math.round((Number(v && v.costoUnitario) || 0) * 100) / 100)
+          }])
+          .filter(([,v]) => v.precioUnitario || v.costoUnitario))
+      : {}
   };
 }
 
@@ -5995,6 +6032,14 @@ function normalizarPoliza(p){
        empresa o centro de costo interno, no solo uno fijo. */
     cargoA: p.cargoA === 'interno' ? 'interno' : 'cliente',
     cargoAInterno: (p.cargoAInterno ? String(p.cargoAInterno) : '').trim(),
+    /* ¿Esta póliza cotiza con los precios de grupo de su cliente (ver
+       cliente.preciosGrupo) en vez de la lista general? Es por póliza y no
+       por cliente a propósito: un cliente con varios sitios puede querer que
+       unos usen el precio negociado y otros no — prender el precio de grupo
+       en el cliente no debe mover de golpe TODAS sus pólizas. Solo afecta
+       equipos que se agreguen de aquí en adelante (ver agregarDelEquipo en
+       modalPoliza); los renglones ya guardados no se retocan solos. */
+    usaPreciosGrupo: p.usaPreciosGrupo === true,
     notas: p.notas || ''
   };
 }
@@ -13236,6 +13281,75 @@ function modalEquipo(id){
   };
 }
 
+/* ===================== Precios de grupo (por cliente) =====================
+   Un cliente con varios sitios (un "grupo": BANORTE con sus tres torres,
+   MERCADO LIBRE con sus sitios) a veces negocia un precio de servicio propio,
+   distinto al de la lista general — y ese precio especial no debe mover ni un
+   peso la lista de costos que usa el resto de la cartera. Por eso vive DENTRO
+   del registro del cliente (cliente.preciosGrupo, ver normalizarCliente) y no
+   en /catalogo: es la diferencia entre "cambiarle el precio a esta cuenta" y
+   "cambiarle el precio a todo el mundo".
+
+   Cada equipo del catálogo puede o no tener un override aquí; los que no lo
+   tienen siguen cotizándose al precio/costo estándar. Y cada PÓLIZA decide
+   por su cuenta si usa estos precios (casilla en modalPoliza, campo
+   usaPreciosGrupo) — definir un precio de grupo no le cambia nada a ninguna
+   póliza ya guardada, ni a las nuevas por default: un sitio del mismo cliente
+   puede seguir cotizándose a precio de lista si así se negoció ese sitio en
+   particular. Mismo criterio de permisos que la lista general (ver
+   vistaPrecios): cualquiera la puede ver al cotizar, solo Admin la cambia. */
+function modalPreciosGrupo(clienteId){
+  if(!exigirAdmin('definir precios de grupo')) return;
+  const c = clientePorId(clienteId);
+  if(!c) return;
+  const lista = catalogo().filter(e => e.activo).slice().sort((a,b)=> a.concepto.localeCompare(b.concepto,'es'));
+
+  const cuerpo =
+      '<p class="pista">Precios especiales solo para las pólizas de <b>' + esc(c.nombre) + '</b> que decidan '
+    + 'usarlos (casilla «Usar precios de grupo» en cada póliza) — la lista general de precios no se toca, y el '
+    + 'resto de la cartera ni se entera. Deja un campo vacío para que ese equipo siga cotizándose al precio o '
+    + 'costo estándar.</p>'
+    + '<div class="rodillo"><table class="tabla">'
+    + '<thead><tr><th>Equipo</th><th>Precio estándar</th><th>Precio de grupo</th>'
+    + '<th>Costo estándar</th><th>Costo de grupo</th></tr></thead><tbody>'
+    + (lista.length ? lista.map(e=>{
+        const ov = c.preciosGrupo[e.id] || null;
+        return '<tr data-fila-precio-grupo="' + esc(e.id) + '">'
+          + '<td><b>' + esc(e.concepto) + '</b></td>'
+          + '<td>' + (e.precio ? dineroCent(e.precio) : '<span class="pista">sin precio</span>') + '</td>'
+          + '<td><input type="text" inputmode="decimal" class="pg-precio" placeholder="= estándar" '
+            +   'value="' + (ov && ov.precioUnitario ? numero(ov.precioUnitario) : '') + '"></td>'
+          + '<td>' + (costoTotalEquipo(e) ? dineroCent(costoTotalEquipo(e)) : '<span class="pista">sin costo</span>') + '</td>'
+          + '<td><input type="text" inputmode="decimal" class="pg-costo" placeholder="= estándar" '
+            +   'value="' + (ov && ov.costoUnitario ? numero(ov.costoUnitario) : '') + '"></td>'
+          + '</tr>';
+      }).join('') : '<tr><td colspan="5"><span class="pista">No hay equipos activos en el catálogo.</span></td></tr>')
+    + '</tbody></table></div>';
+
+  abrirModal('Precios de grupo — ' + c.nombre, cuerpo,
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">Guardar</button>');
+  $('modal').classList.add('enorme');
+
+  document.querySelectorAll('#modalCuerpo .pg-precio, #modalCuerpo .pg-costo')
+    .forEach(inp => inp.addEventListener('input', ()=> formatearMiles(inp)));
+
+  cerrarModalActual = ()=>{
+    const nuevo = {};
+    lista.forEach(e=>{
+      const fila = document.querySelector('#modalCuerpo [data-fila-precio-grupo="' + CSS.escape(e.id) + '"]');
+      if(!fila) return;
+      const precioUnitario = aNumero(fila.querySelector('.pg-precio').value);
+      const costoUnitario = aNumero(fila.querySelector('.pg-costo').value);
+      if(precioUnitario || costoUnitario) nuevo[e.id] = { precioUnitario, costoUnitario };
+    });
+    c.preciosGrupo = nuevo;
+    guardarCliente(c, 'editó');
+    cerrarModal(); render();
+    aviso('Precios de grupo actualizados.');
+  };
+}
+
 /* ===================== VISTA: agenda de servicios =====================
    Contesta «qué toca ahora, en todas las pólizas». Ver agendaServicios() para el
    porqué de agrupar por estado y no por mes. */
@@ -14554,12 +14668,22 @@ function modalCliente(id){
           + 'Apagada, solo vive en Pólizas — hay cuentas con póliza y sin Forpass, y al revés. '
           + 'Un cliente con kioscos capturados aparece en Forpass de todos modos.</div>';
       })()
+    /* Solo al editar (necesita el id) y solo Admin, mismo criterio que la
+       lista general de precios — ver modalPreciosGrupo(). */
+    + (c && esAdmin()
+        ? '<div class="campo"><label>Precios de grupo</label>'
+          + '<button type="button" class="btn btn-suave btn-mini" id="btnPreciosGrupo">' + ICONO.credencial + 'Definir precios de grupo'
+          + (Object.keys(c.preciosGrupo).length ? ' (' + Object.keys(c.preciosGrupo).length + ' definidos)' : '') + '</button>'
+          + '<div class="pista">Precio o costo especial para este cliente en equipos concretos, sin tocar la lista '
+          + 'general — cada póliza decide si los usa con su propia casilla.</div></div>'
+        : '')
     + camposParametros('clientes', 'c', c ? c.personalizados : {});
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (c ? 'Guardar cambios' : 'Agregar cliente') + '</button>';
 
   abrirModal(c ? 'Editar cliente' : 'Agregar cliente', cuerpo, pie);
+  if($('btnPreciosGrupo')) $('btnPreciosGrupo').addEventListener('click', ()=> modalPreciosGrupo(c.id));
 
   /* Estado del encuadre mientras el modal está abierto. */
   let imgLogo = null;                 /* la imagen cargada, si hay una para encuadrar */
@@ -16037,6 +16161,14 @@ function modalPoliza(id, origenLevantamiento){
     + '</div>'
 
     + '<div class="seccion"><h4>Equipos cotizados</h4>'
+    /* Precios de grupo (ver modalPreciosGrupo, en el cliente): decisión de
+       ESTA póliza, no del cliente completo — un cliente con varios sitios
+       puede querer que unos usen el precio negociado y otros no. Solo cambia
+       lo que se SUGIERE al agregar un equipo nuevo (ver agregarDelEquipo);
+       los renglones que ya estaban en la tabla no se tocan solos. */
+    +   '<label class="casilla"><input type="checkbox" id="pUsaPreciosGrupo"' + (p && p.usaPreciosGrupo ? ' checked' : '') + '> '
+    +     'Usar precios de grupo de este cliente</label>'
+    +   '<div class="pista" id="pPistaPreciosGrupo"></div>'
     +   '<div class="equipos-scroll">'
     +     '<div class="equipo-fijo" id="equipoFijo">'
     +       '<div class="busca-equipo">'
@@ -16105,9 +16237,23 @@ function modalPoliza(id, origenLevantamiento){
                   correo: $('pVendCorreo').value.trim(), telefono: $('pVendTel').value.trim() },
       cargoA: $('pCargoA').value,
       cargoAInterno: $('pCargoAInterno').value.trim(),
+      usaPreciosGrupo: $('pUsaPreciosGrupo').checked,
       notas: $('pNotas').value.trim()
     };
   }
+
+  /* Qué le explica la casilla de precios de grupo, según el cliente elegido
+     ahora mismo — cambia con #pCliente, no con el checkbox. */
+  function pintarPreciosGrupo(){
+    const cli = clientePorId($('pCliente').value);
+    const n = cli ? Object.keys(cli.preciosGrupo).length : 0;
+    $('pPistaPreciosGrupo').textContent = n
+      ? 'Este cliente tiene ' + n + ' ' + plural(n,'precio de grupo definido','precios de grupo definidos')
+        + '. Solo aplica a los equipos que agregues de aquí en adelante — los renglones que ya están en la tabla no cambian solos.'
+      : 'Este cliente todavía no tiene precios de grupo' + (esAdmin() ? ' — puedes definirlos desde "Editar cliente".' : ' definidos.');
+  }
+  pintarPreciosGrupo();
+  $('pCliente').addEventListener('change', pintarPreciosGrupo);
 
   /* Muestra el nombre de a quién se le carga solo cuando de verdad hace
      falta: con "Cliente" seleccionado, ese campo no significa nada. El tipo
@@ -16602,16 +16748,19 @@ function modalPoliza(id, origenLevantamiento){
     agregarDelEquipo(e);
   }
   function agregarDelEquipo(e){
+    /* Precio de grupo del cliente elegido, si la casilla está prendida (ver
+       precioEquipoParaPoliza) — cae solo al estándar si no aplica. */
+    const { precioUnitario, costoUnitario } = precioEquipoParaPoliza(e, $('pCliente').value, $('pUsaPreciosGrupo').checked);
     agregarRenglon({
       catalogoId: e.id, concepto: e.concepto, cantidad: 1,
-      precioUnitario: e.precio, costoUnitario: costoTotalEquipo(e), frecuencia: e.frecuencia,
+      precioUnitario, costoUnitario, frecuencia: e.frecuencia,
       /* Arranca en el primer mes; "Balancear calendario" los reparte después. */
       mesesServicio: mesesRegulares(0, e.frecuencia)
     }, null);
     /* El foco vuelve al buscador, no a la cantidad: así se encadenan los 34
        equipos escribiendo, y las cantidades se ajustan al final en la tabla. */
     if($('pBuscaEquipo')) $('pBuscaEquipo').focus();
-    if(!e.precio) aviso(e.concepto + ' no tiene precio en el catálogo. Escríbelo en el renglón.', true);
+    if(!precioUnitario) aviso(e.concepto + ' no tiene precio en el catálogo. Escríbelo en el renglón.', true);
   }
   $('pBuscaEquipo').addEventListener('change', agregarDelCatalogo);
   $('pBuscaEquipo').addEventListener('keydown', ev=>{

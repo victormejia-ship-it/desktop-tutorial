@@ -12,11 +12,12 @@
 > config) **ya están hechos**. Lo que sigue pendiente, y como es un proyecto
 > propio, Victor puede hacerlo él mismo sin pedirle permiso a nadie:
 > 1. Paso 5 — publicar las reglas de [config/firestore.rules](../config/firestore.rules)
->    (incluye los bloques de `segmentos`, `parametros`, `cotizaciones`, y
->    desde el 03-sep-2026 el **portal de clientes**: `polizas_cliente`,
+>    (incluye los bloques de `segmentos`, `parametros`, `cotizaciones`, el
+>    **portal de clientes** del 03-sep-2026: `polizas_cliente`,
 >    `cotizaciones_cliente` y las restricciones de `esCliente()` en
->    `clientes`/`sitios`/`reportes`/etc. — **hay que volver a pegar el
->    archivo completo** aunque ya se hubiera publicado antes, o el
+>    `clientes`/`sitios`/`reportes`/etc., y desde el 04-sep-2026 el congelado
+>    de `preciosGrupo` en `clientes` (solo Admin lo cambia) — **hay que volver
+>    a pegar el archivo completo** aunque ya se hubiera publicado antes, o el
 >    autorregistro de clientes y su portal no van a funcionar).
 > 2. Paso 6 — crear la cuenta de Owner (la de Victor).
 > 3. Agregar los dominios desde donde se abre el tablero a los **referrers
