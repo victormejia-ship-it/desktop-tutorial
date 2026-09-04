@@ -7510,7 +7510,8 @@ const ICONO = {
   documento:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
   codigoBarras:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5v14M8 5v14M11 5v14M14 5v14M16 5v14M20 5v14"/></svg>',
   activo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8L12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>',
-  organigrama:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>'
+  organigrama:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
+  duplicar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -13179,6 +13180,9 @@ function vistaPrecios(){
        + (puede
            ? '<td class="acciones">'
              + '<button type="button" class="btn btn-suave btn-mini" data-editar-equipo="' + esc(e.id) + '">' + ICONO.lapiz + 'Editar precio</button>'
+             + '<button type="button" class="btn btn-suave btn-mini" data-duplicar-equipo="' + esc(e.id) + '" '
+               + 'title="Crea un equipo nuevo con estos mismos datos, para cambiar solo lo que haga falta (p.ej. otro precio o descripción) sin tocar este.">'
+               + ICONO.duplicar + 'Duplicar</button>'
              + '<button type="button" class="btn btn-suave btn-mini" data-apagar-equipo="' + esc(e.id) + '" '
                + 'title="' + (e.activo
                    ? 'Deja de aparecer en el buscador al cotizar. No se borra: las pólizas que ya lo usan siguen viéndolo.'
@@ -13196,43 +13200,66 @@ function vistaPrecios(){
   return h;
 }
 
-/* Alta y edición de un equipo del catálogo. */
-function modalEquipo(id){
+/* ID nuevo y único para un equipo del catálogo, a partir de su nombre. Antes
+   se armaba en línea dentro de cerrarModalActual con este mismo slug, sin
+   checar si ya existía — inofensivo mientras solo servía para "Agregar
+   equipo" (nadie teclea el nombre EXACTO de otro a propósito), pero
+   "Duplicar" sí lo hace todo el tiempo: el formulario arranca con el mismo
+   nombre del original. Sin este candado, duplicar y guardar sin renombrar
+   pisaba el equipo de origen en silencio (mismo id, mismo slug) en vez de
+   crear uno nuevo. */
+function idUnicoEquipo(concepto){
+  const base = concepto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') || 'equipo';
+  let id = base, n = 2;
+  while(catalogo().some(x => x.id === id)){ id = base + '-' + n; n++; }
+  return id;
+}
+
+/* Alta y edición de un equipo del catálogo. `duplicarDe` (id de otro equipo)
+   solo se usa cuando `id` viene vacío: precarga el formulario con SUS
+   valores para poder crear una variante ("Freidora de dos canastas" a partir
+   de "Freidora") cambiando solo lo que haga falta, sin recapturar todo desde
+   cero — pero es un alta nueva de verdad, con su propio id (ver
+   idUnicoEquipo): el equipo de origen no se toca. */
+function modalEquipo(id, duplicarDe){
   if(!exigirAdmin('cambiar la lista de precios')) return;
   const e = id ? catalogo().find(x => x.id === id) : null;
+  const origen = !e && duplicarDe ? catalogo().find(x => x.id === duplicarDe) : null;
+  const base = e || origen;
 
   const cuerpo =
       '<div class="campo"><label>Equipo *</label>'
-    +   '<input type="text" id="eqConcepto" placeholder="Ej. Cámara de refrigeración" value="' + esc(e ? e.concepto : '') + '"></div>'
+    +   '<input type="text" id="eqConcepto" placeholder="Ej. Cámara de refrigeración" '
+    +     'value="' + esc(origen ? origen.concepto + ' (copia)' : (base ? base.concepto : '')) + '"></div>'
     + '<div class="fila2">'
     +   '<div class="campo"><label>Precio unitario</label>'
-    +     '<input type="text" inputmode="decimal" id="eqPrecio" value="' + (e && e.precio ? numero(e.precio) : '') + '">'
+    +     '<input type="text" inputmode="decimal" id="eqPrecio" value="' + (base && base.precio ? numero(base.precio) : '') + '">'
     +     '<div class="pista">Es una sugerencia: al cotizar se puede cambiar en el renglón.</div></div>'
     +   '<div class="campo"><label>Servicios al año</label>'
-    +     '<input type="number" min="1" max="' + MESES_POLIZA + '" id="eqFrecuencia" value="' + (e ? e.frecuencia : 3) + '">'
+    +     '<input type="number" min="1" max="' + MESES_POLIZA + '" id="eqFrecuencia" value="' + (base ? base.frecuencia : 3) + '">'
     +     '<div class="pista" id="eqIntervalo"></div></div>'
     + '</div>'
     + '<div class="seccion"><h4>Costo del servicio</h4>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Costo de insumos</label>'
-    +       '<input type="text" inputmode="decimal" id="eqCostoInsumos" value="' + (e && e.costoInsumos ? numero(e.costoInsumos) : '') + '"></div>'
+    +       '<input type="text" inputmode="decimal" id="eqCostoInsumos" value="' + (base && base.costoInsumos ? numero(base.costoInsumos) : '') + '"></div>'
     +     '<div class="campo"><label>Costo de mano de obra</label>'
-    +       '<input type="text" inputmode="decimal" id="eqCostoManoObra" value="' + (e && e.costoManoObra ? numero(e.costoManoObra) : '') + '"></div>'
+    +       '<input type="text" inputmode="decimal" id="eqCostoManoObra" value="' + (base && base.costoManoObra ? numero(base.costoManoObra) : '') + '"></div>'
     +   '</div>'
     +   '<div class="pista" id="eqCostoResumen"></div>'
     + '</div>'
     + '<div class="campo"><label>Peso en el % de funcionamiento</label><select id="eqPonderacion">'
-    +   [1,2,3,4,5].map(n => '<option value="' + n + '"' + ((e ? e.ponderacion : 3) === n ? ' selected' : '') + '>'
+    +   [1,2,3,4,5].map(n => '<option value="' + n + '"' + ((base ? base.ponderacion : 3) === n ? ' selected' : '') + '>'
         + n + ' · ' + esc(ETIQUETA_PONDERACION[n]) + '</option>').join('')
     + '</select>'
     +   '<div class="pista">Qué tanto pesa este equipo en el análisis de un levantamiento de sitio: 1 (apenas afecta operar '
     +     'la cocina) a 5 (crítico, ej. una cámara de refrigeración). No afecta precios ni cotizaciones.</div></div>'
     + '<div class="campo"><label>Descripción del trabajo (opcional)</label>'
-    +   '<textarea id="eqDescripcion" placeholder="Lo que se le hace al equipo en cada visita. Sale impreso en la cotización.">' + esc(e ? e.descripcion : '') + '</textarea></div>';
+    +   '<textarea id="eqDescripcion" placeholder="Lo que se le hace al equipo en cada visita. Sale impreso en la cotización.">' + esc(base ? base.descripcion : '') + '</textarea></div>';
 
-  abrirModal(e ? 'Editar ' + e.concepto : 'Agregar equipo al catálogo', cuerpo,
+  abrirModal(e ? 'Editar ' + e.concepto : (origen ? 'Duplicar ' + origen.concepto : 'Agregar equipo al catálogo'), cuerpo,
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-    + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (e ? 'Guardar cambios' : 'Agregar') + '</button>');
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (e ? 'Guardar cambios' : (origen ? 'Guardar como nuevo' : 'Agregar')) + '</button>');
 
   function pintarIntervalo(){
     const f = Math.max(1, Math.min(MESES_POLIZA, parseInt($('eqFrecuencia').value,10) || 1));
@@ -13263,7 +13290,7 @@ function modalEquipo(id){
     const concepto = $('eqConcepto').value.trim();
     if(!concepto){ $('eqConcepto').setAttribute('aria-invalid','true'); $('eqConcepto').focus(); aviso('El equipo necesita un nombre.', true); return; }
     const nuevo = normalizarEquipo({
-      id: e ? e.id : concepto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''),
+      id: e ? e.id : idUnicoEquipo(concepto),
       concepto, precio: aNumero($('eqPrecio').value),
       frecuencia: $('eqFrecuencia').value, descripcion: $('eqDescripcion').value.trim(),
       costoInsumos: aNumero($('eqCostoInsumos').value), costoManoObra: aNumero($('eqCostoManoObra').value),
@@ -13275,7 +13302,7 @@ function modalEquipo(id){
     if(!datos.catalogo.length) datos.catalogo = CATALOGO_SEMILLA.map(normalizarEquipo);
     const i = datos.catalogo.findIndex(x => x.id === nuevo.id);
     if(i === -1) datos.catalogo.push(nuevo); else datos.catalogo[i] = nuevo;
-    guardarCatalogo((e ? 'editó ' : 'agregó ') + concepto + ' · ' + dineroCent(nuevo.precio));
+    guardarCatalogo((e ? 'editó ' : (origen ? 'duplicó ' : 'agregó ')) + concepto + ' · ' + dineroCent(nuevo.precio));
     cerrarModal(); render();
     aviso(e ? 'Equipo actualizado.' : 'Equipo agregado.');
   };
@@ -18676,6 +18703,9 @@ $('vista').addEventListener('click', ev=>{
 
   const edE = t.closest('[data-editar-equipo]');
   if(edE){ modalEquipo(edE.dataset.editarEquipo); return; }
+
+  const dupE = t.closest('[data-duplicar-equipo]');
+  if(dupE){ modalEquipo(null, dupE.dataset.duplicarEquipo); return; }
 
   const apE = t.closest('[data-apagar-equipo]');
   if(apE){
