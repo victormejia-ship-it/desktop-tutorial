@@ -1839,6 +1839,67 @@ function arranqueCalendarioEquipo(categoria){
   return i === -1 ? 0 : i;
 }
 
+/* Palabras clave para SUGERIR la categoría de un equipo por su nombre —
+   pedido explícito: con 55+ equipos ya en el catálogo, y la mayoría de los
+   nombres diciendo su categoría de por sí ("Barra caliente", "Cámara de
+   refrigeración"...), pedirle a alguien que los clasifique uno por uno antes
+   de que la calendarización por categoría sirva de algo es demasiado trabajo
+   repetido. Es una SUGERENCIA, nunca una regla: solo se ofrece para equipos
+   que TODAVÍA no tienen categoría (ver sugerirCategoriasCatalogo), jamás pisa
+   una que alguien ya haya puesto a mano, y lo que no matchee ningún patrón se
+   queda sin categoría para revisarlo aparte. El orden de las filas SÍ importa
+   — "Horno Rational" tiene que caer en Rational, no en Caliente por "horno",
+   así que Rational y Extracción van primero. */
+/* Cada palabra clave va con \b en las dos puntas: sin eso, "asador" hace
+   match DENTRO de "am[asador]a" (Amasadora) y la clasifica de caliente por
+   error — el mismo riesgo corre cualquier palabra corta contra un nombre
+   compuesto. Las únicas SIN \b son las dos raíces a propósito ("refrigera",
+   "congela"): tienen que matchear tanto "refrigeraCIÓN"/"refrigeraDOR" como
+   "ultraCONGELAdor" — un \b al inicio las hubiera roto en ese último caso,
+   porque "congela" ahí no arranca en un borde de palabra. */
+const PALABRAS_CATEGORIA_EQUIPO = [
+  ['rational', /\brational\b/],
+  ['extraccion', /\bextraccion\b|\bcampana\b/],
+  ['caliente', /\bcaliente\b|\bhorno\b|\bparrilla\b|\bplancha\b|\bfreidora\b|\bestufa\b|\bcalenton\b|\bvaporera\b|\bsalamandra\b|\bcomal\b|\basador\b/],
+  ['frio', /\bfrio\b|\bfria\b|refrigera|congela|\bhielo\b/],
+  ['equipoMenor', /\bbatidora\b|\blicuadora\b|\bamasadora\b|\bturbo\b|banda transportadora|\blavaloza\b|\brebanadora\b|\bprocesador\b|\bmolino\b|\bsierra\b/]
+];
+function sugerirCategoriaPorNombre(concepto){
+  const t = llaveTexto(concepto);
+  for(const [cat, patron] of PALABRAS_CATEGORIA_EQUIPO) if(patron.test(t)) return cat;
+  return '';
+}
+
+/* Recorre TODO el catálogo y le pone categoría sugerida a los que no tengan
+   una — nunca toca los que ya la traen, sean del patrón de arriba o no (una
+   categoría puesta a mano vale más que una adivinada). Mismo molde que
+   importarCostosCatalogo(): cuenta lo que sí pudo y lo que se quedó igual,
+   guarda una sola vez al final y avisa el resumen. */
+function sugerirCategoriasCatalogo(){
+  if(!exigirAdmin('sugerir categorías del catálogo')) return;
+  if(!datos.catalogo.length) datos.catalogo = CATALOGO_SEMILLA.map(normalizarEquipo);
+
+  let clasificados = 0;
+  const sinPista = [];
+  datos.catalogo.forEach(e=>{
+    if(e.categoria) return;                 /* ya tiene — no se toca */
+    const sugerida = sugerirCategoriaPorNombre(e.concepto);
+    if(sugerida){ e.categoria = sugerida; clasificados++; }
+    else sinPista.push(e.concepto);
+  });
+
+  if(!clasificados){
+    aviso('Ningún equipo sin categoría coincidió con una palabra clave conocida. Clasifícalos a mano desde la tabla.', true);
+    return;
+  }
+
+  guardarCatalogo('sugirió categoría en ' + clasificados + ' ' + plural(clasificados,'equipo','equipos'));
+  render();
+  aviso(clasificados + ' ' + plural(clasificados,'equipo clasificado','equipos clasificados') + ' por su nombre. '
+    + 'Revísalos en la tabla y corrige el que no aplique.'
+    + (sinPista.length ? ' ' + sinPista.length + ' se quedaron sin categoría (no matchearon ninguna palabra clave): ' + sinPista.join(', ') + '.' : ''));
+}
+
 /* Un renglón de la lista de precios. Mismo tono que los otros normalizadores:
    esta función es el contrato. El precio se limita al centavo por la misma razón
    que en las partidas — un precio con milésimas no se puede facturar. */
@@ -13210,6 +13271,10 @@ function vistaPrecios(){
      +   (puede ? '<button type="button" class="btn btn-suave" data-accion="importar-costos" '
           + 'title="Carga de un clic la hoja de costos 2026 que ya compartiste, sin tener que buscar el archivo">'
           + ICONO.mas + 'Importar costos</button>' : '')
+     +   (puede ? '<button type="button" class="btn btn-suave" data-accion="sugerir-categorias" '
+          + 'title="Le pone categoría a los equipos que todavía no tienen, adivinando por su nombre (p.ej. \'Barra caliente\' → Caliente). '
+          + 'Nunca toca los que ya tienen una puesta a mano.">'
+          + ICONO.organigrama + 'Sugerir categorías</button>' : '')
      +   (puede ? '<button type="button" class="btn btn-primario" data-accion="nuevo-equipo">' + ICONO.mas + 'Agregar equipo</button>' : '')
      + '</div></div>';
 
@@ -18701,6 +18766,16 @@ $('vista').addEventListener('click', ev=>{
         + 'la descripción SOLO se rellena donde esté vacía, sin pisar una que ya hayas escrito. Lo que venga en blanco en la '
         + 'hoja se deja como está.',
         'Sí, cargar', ()=> importarCostosCatalogo(COSTOS_CATALOGO_2026));
+    }
+    else if(a === 'sugerir-categorias'){
+      if(!exigirAdmin('sugerir categorías del catálogo')) return;
+      confirmar('Sugerir categorías por nombre',
+        'Va a intentar adivinar la categoría de los equipos que TODAVÍA no tienen una, buscando palabras clave en su nombre '
+        + '("caliente"/"horno"/"plancha" → Caliente; "frío"/"refrigera"/"congela" → Frío; "rational" → Rational; "extracción"/'
+        + '"campana" → Extracción; "batidora"/"licuadora"/"amasadora" → Equipo menor). Los que ya tengan una categoría puesta '
+        + 'a mano NO se tocan, y lo que no matchee ninguna palabra se queda sin categoría para clasificarlo aparte. Siempre se '
+        + 'puede corregir después en la tabla.',
+        'Sí, sugerir', sugerirCategoriasCatalogo);
     }
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
