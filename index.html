@@ -1802,6 +1802,32 @@ const CATALOGO_SEMILLA = [
 function catalogo(){ return datos.catalogo.length ? datos.catalogo : CATALOGO_SEMILLA.map(normalizarEquipo); }
 const equipoDeCatalogo = id => catalogo().find(e => e.id === id) || null;
 
+/* Categoría de un equipo, para armar SOLA la calendarización inicial de una
+   póliza (pedido explícito): caliente, frío y equipo menor se sirven cada
+   uno en su propio mes —así el técnico atiende toda la línea caliente en una
+   visita, toda la fría en otra, nunca las dos el mismo mes— en ese orden de
+   prioridad. Rational y extracción van al final porque no importa si se
+   empalman entre sí o con las demás, aunque traigan frecuencias distintas:
+   no vale la pena la complejidad de evitarles encimarse. El orden del arreglo
+   ES la prioridad — ver CATEGORIA_ARRANQUE más abajo, que la deriva de aquí
+   en vez de repetirla a mano. */
+const CATEGORIAS_EQUIPO = ['caliente', 'frio', 'equipoMenor', 'rational', 'extraccion'];
+const ETIQUETA_CATEGORIA_EQUIPO = {
+  caliente:'Caliente', frio:'Frío', equipoMenor:'Equipo menor', rational:'Rational', extraccion:'Extracción'
+};
+/* Color de chip por categoría, nada más para que la lista de precios se lea
+   de un vistazo (rojo/azul como calor y frío es la asociación obvia). */
+const COLOR_CATEGORIA_EQUIPO = { caliente:'z-rojo', frio:'z-azul', equipoMenor:'z-gris', rational:'z-morado', extraccion:'z-naranja' };
+/* Mes de arranque (0-11) que le toca a cada categoría al agregar un equipo
+   nuevo a una póliza — ver agregarDelEquipo() en modalPoliza y el alta desde
+   un levantamiento. Se deriva de la posición en CATEGORIAS_EQUIPO para que
+   cambiar el orden ahí baste; sin categoría (equipo capturado a mano o
+   catálogo viejo) cae en 0, el default de siempre. */
+function arranqueCalendarioEquipo(categoria){
+  const i = CATEGORIAS_EQUIPO.indexOf(categoria);
+  return i === -1 ? 0 : i;
+}
+
 /* Un renglón de la lista de precios. Mismo tono que los otros normalizadores:
    esta función es el contrato. El precio se limita al centavo por la misma razón
    que en las partidas — un precio con milésimas no se puede facturar. */
@@ -1827,7 +1853,11 @@ function normalizarEquipo(e){
        cámara de refrigeración). Entero, 3 = importancia media por default —
        así un equipo recién dado de alta ya entra al cálculo sin que alguien
        tenga que ponderarlo primero a mano. */
-    ponderacion: Math.max(1, Math.min(5, parseInt(e.ponderacion, 10) || 3))
+    ponderacion: Math.max(1, Math.min(5, parseInt(e.ponderacion, 10) || 3)),
+    /* '' = sin categoría (equipos de antes de esta función, o que de plano no
+       encajan en ninguna) — arranqueCalendarioEquipo() ya sabe tratarla como
+       0, el default de toda la vida. */
+    categoria: CATEGORIAS_EQUIPO.includes(e.categoria) ? e.categoria : ''
   };
 }
 
@@ -13207,7 +13237,9 @@ function vistaPrecios(){
            + 'y se puede volver a ofrecer cuando quieras.</p></div></div>'
          : '')
      + '<div class="rodillo"><table class="tabla">'
-     + '<thead><tr><th>Equipo</th><th>Costo</th><th>Precio unitario</th><th>Margen</th><th>Servicios/año</th>'
+     + '<thead><tr><th>Equipo</th>'
+     + '<th title="Con qué mes arranca su calendario al agregarlo a una póliza nueva — ver «Categoría (opcional)» al editar">Categoría</th>'
+     + '<th>Costo</th><th>Precio unitario</th><th>Margen</th><th>Servicios/año</th>'
      + '<th title="Qué tanto pesa este equipo en el % de funcionamiento de un levantamiento de sitio">Peso</th>'
      + '<th>Descripción del trabajo</th>'
      + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
@@ -13217,6 +13249,9 @@ function vistaPrecios(){
          const margenPct = e.precio ? (margen / e.precio * 100) : 0;
          return '<tr' + (e.activo ? '' : ' style="opacity:.5"') + '>'
        + '<td><b>' + esc(e.concepto) + '</b>' + (e.activo ? '' : ' <span class="pista" style="display:inline">(apagado)</span>') + '</td>'
+       + '<td>' + (e.categoria
+           ? '<span class="chip-zona ' + COLOR_CATEGORIA_EQUIPO[e.categoria] + '">' + esc(ETIQUETA_CATEGORIA_EQUIPO[e.categoria]) + '</span>'
+           : '<span class="pista">— sin categoría —</span>') + '</td>'
        + '<td>' + (costo ? dineroCent(costo) : '<span class="pista">sin costo</span>') + '</td>'
        + '<td' + (e.precio ? '' : ' style="color:var(--error)"') + '>' + (e.precio ? dineroCent(e.precio) : 'sin precio') + '</td>'
        + '<td' + (e.precio && costo
@@ -13242,7 +13277,7 @@ function vistaPrecios(){
            : '')
        + '</tr>';
        }).join('')
-       : '<tr><td colspan="' + (puede ? 8 : 7) + '"><span class="pista">Ningún equipo coincide con la búsqueda.</span></td></tr>')
+       : '<tr><td colspan="' + (puede ? 9 : 8) + '"><span class="pista">Ningún equipo coincide con la búsqueda.</span></td></tr>')
      + '</tbody></table></div>'
      + (puede ? '<div class="pista" style="margin-top:10px">La lista es un solo documento: si dos administradores la editan al mismo tiempo, gana el último que guarde.</div>' : '')
      + '</div>';
@@ -13298,6 +13333,14 @@ function modalEquipo(id, duplicarDe){
     +   '</div>'
     +   '<div class="pista" id="eqCostoResumen"></div>'
     + '</div>'
+    + '<div class="campo"><label>Categoría (opcional)</label><select id="eqCategoria">'
+    +   '<option value=""' + (!base || !base.categoria ? ' selected' : '') + '>— Sin categoría —</option>'
+    +   CATEGORIAS_EQUIPO.map(k => '<option value="' + k + '"' + (base && base.categoria === k ? ' selected' : '') + '>'
+        + esc(ETIQUETA_CATEGORIA_EQUIPO[k]) + '</option>').join('')
+    + '</select>'
+    +   '<div class="pista">Decide en qué mes arranca su calendario al agregarlo a una póliza nueva: caliente, frío y '
+    +     'equipo menor caen cada uno en su propio mes para no mezclar visitas; Rational y Extracción no se cuidan de '
+    +     'empalmarse con nada, así que da igual el mes en que caigan.</div></div>'
     + '<div class="campo"><label>Peso en el % de funcionamiento</label><select id="eqPonderacion">'
     +   [1,2,3,4,5].map(n => '<option value="' + n + '"' + ((base ? base.ponderacion : 3) === n ? ' selected' : '') + '>'
         + n + ' · ' + esc(ETIQUETA_PONDERACION[n]) + '</option>').join('')
@@ -13345,6 +13388,7 @@ function modalEquipo(id, duplicarDe){
       frecuencia: $('eqFrecuencia').value, descripcion: $('eqDescripcion').value.trim(),
       costoInsumos: aNumero($('eqCostoInsumos').value), costoManoObra: aNumero($('eqCostoManoObra').value),
       ponderacion: $('eqPonderacion').value,
+      categoria: $('eqCategoria').value,
       activo: e ? e.activo : true
     });
     /* Si la lista todavía era la semilla, al primer cambio se materializa completa:
@@ -16075,7 +16119,9 @@ function modalPoliza(id, origenLevantamiento){
         precioUnitario: eq ? eq.precio : 0,
         costoUnitario: eq ? costoTotalEquipo(eq) : 0,
         frecuencia,
-        mesesServicio: mesesRegulares(0, frecuencia)
+        /* Mismo criterio que agregarDelEquipo(): el mes de arranque lo decide
+           la categoría del equipo, no siempre el mes 0. */
+        mesesServicio: mesesRegulares(arranqueCalendarioEquipo(eq ? eq.categoria : ''), frecuencia)
       }));
     });
   }
@@ -16831,8 +16877,12 @@ function modalPoliza(id, origenLevantamiento){
     agregarRenglon({
       catalogoId: e.id, concepto: e.concepto, cantidad: 1,
       precioUnitario, costoUnitario, frecuencia: e.frecuencia,
-      /* Arranca en el primer mes; "Balancear calendario" los reparte después. */
-      mesesServicio: mesesRegulares(0, e.frecuencia)
+      /* Arranca en el mes que le toca a SU categoría (ver arranqueCalendarioEquipo):
+         caliente, frío y equipo menor caen cada uno en su propio mes para que
+         el técnico no atienda dos líneas distintas la misma visita; sin
+         categoría (o rational/extracción, a quienes no les importa empalmarse)
+         arranca en el mes 0 de siempre. */
+      mesesServicio: mesesRegulares(arranqueCalendarioEquipo(e.categoria), e.frecuencia)
     }, null);
     /* El foco vuelve al buscador, no a la cantidad: así se encadenan los 34
        equipos escribiendo, y las cantidades se ajustan al final en la tabla. */
