@@ -5954,14 +5954,15 @@ function normalizarPoliza(p){
        Guardar el monto sería exactamente el error de MXGT01, donde el 5%
        vivía enterrado en los totales y por eso el papel dejó de cuadrar.
 
-       El SIGNO decide qué es: positivo, un descuento normal (cargoA
-       'cliente'); negativo, un AUMENTO (cargoA 'interno' — cuando la
-       absorbemos nosotros, no se le da un descuento a nadie, se le suma un
-       cargo administrativo al costo real antes de cargárselo a quien
-       corresponda). Se acota a [-500, 100]: no se puede descontar más del
-       100% del precio, y un aumento tiene tope de sobra en 500%. Dos
-       decimales, como siempre: un 5.125% no existe en una negociación y sí
-       produce centavos que nadie puede reproducir a mano. */
+       El SIGNO decide qué es: positivo, un descuento (resta); negativo, un
+       AUMENTO (suma). Lo elige un select aparte en el formulario
+       (pTipoAjuste), independiente de "Cargo a" — ese sigue decidiendo la
+       BASE (subtotal si es cliente, costo anual si es interno), no el signo,
+       así que un cliente puede llevar un aumento y lo interno un descuento,
+       no solo la combinación de antes. Se acota a [-500, 100]: no se puede
+       descontar más del 100% del precio, y un aumento tiene tope de sobra en
+       500%. Dos decimales, como siempre: un 5.125% no existe en una
+       negociación y sí produce centavos que nadie puede reproducir a mano. */
     descuento: Math.max(-500, Math.min(100,
       Math.round((parseFloat(p.descuento) || 0) * 100) / 100)),
     /* La que sale en la portada del documento. */
@@ -15930,19 +15931,26 @@ function modalPoliza(id, origenLevantamiento){
     /* El ajuste (descuento o aumento) solo lo VE quien lo puede poner. A un
        Analyst no se le enseña una casilla que el servidor le va a negar; y si
        la póliza ya trae uno, se le muestra como texto para que sepa con qué
-       está trabajando. El campo SIEMPRE captura un número positivo — es
-       pintarCargoA() quien decide, según "Cargo a", si eso es un descuento
-       (cliente) o un aumento (interno); leerForm() es quien de verdad le
-       pone el signo al guardar. */
+       está trabajando. El tipo (descuento/aumento) es un select APARTE de
+       "Cargo a": antes el signo salía forzado de ahí (cliente siempre
+       descuento, interno siempre aumento) y no había forma de subirle el
+       precio a un cliente ni bajarle el costo a lo interno. "Cargo a" sigue
+       decidiendo la BASE (subtotal si es cliente, costo anual si es interno);
+       este select decide si esa base se resta o se suma. El campo numérico
+       SIEMPRE captura un número positivo — leerForm() es quien de verdad le
+       pone el signo al guardar, según pTipoAjuste. */
     +   (esAdmin()
-        ? '<div class="campo"><label id="pEtiquetaDescuento">' + (p && p.descuento < 0 ? 'Aumento (%)' : 'Descuento (%)') + '</label>'
-          + '<input type="number" id="pDescuento" min="0" max="500" step="0.01" '
-          +   'value="' + (p && p.descuento ? Math.abs(p.descuento) : '') + '" placeholder="0">'
-          + '<div class="pista" id="pPistaDescuento">' + (p && p.descuento < 0
-                ? 'Se le suma al costo real antes de cargárselo a quien corresponda, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.'
-                : 'Se aplica al total, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.')
+        ? '<div class="fila2">'
+          +   '<div class="campo"><label>Tipo de ajuste</label><select id="pTipoAjuste">'
+          +     '<option value="descuento"' + (!(p && p.descuento < 0) ? ' selected' : '') + '>Descuento — resta</option>'
+          +     '<option value="aumento"' + (p && p.descuento < 0 ? ' selected' : '') + '>Aumento — suma</option>'
+          +   '</select></div>'
+          +   '<div class="campo"><label>Descuento / aumento (%)</label>'
+          +     '<input type="number" id="pDescuento" min="0" max="500" step="0.01" '
+          +       'value="' + (p && p.descuento ? Math.abs(p.descuento) : '') + '" placeholder="0"></div>'
           + '</div>'
-          + '</div>'
+          + '<div class="pista">Se aplica sobre el subtotal (el costo anual si "Cargo a" es Interno) — descuento resta, '
+          +   'aumento suma. Se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.</div>'
         : (p && p.descuento
             ? '<div class="campo"><label>' + (p.descuento < 0 ? 'Aumento' : 'Descuento') + '</label>'
               + '<input type="text" value="' + Math.abs(p.descuento) + '% — solo un Admin lo cambia" readonly>'
@@ -16011,10 +16019,11 @@ function modalPoliza(id, origenLevantamiento){
          trae los campos del formulario, y sin esto editar una póliza le borraría
          el descuento a quien no lo puede ver. Es la misma trampa que ya nos costó
          las OC y el historial de servicios. El campo siempre trae un número
-         positivo; aquí se le pone el signo según a quién se le está cargando
-         AHORA MISMO — cliente resta (descuento), interno suma (aumento). */
+         positivo; aquí se le pone el signo según pTipoAjuste — descuento resta,
+         aumento suma — sin importar a quién se le esté cargando (eso solo
+         decide la base, ver pintarCargoA). */
       descuento: $('pDescuento')
-        ? ($('pCargoA').value === 'interno' ? -1 : 1) * (parseFloat($('pDescuento').value) || 0)
+        ? ($('pTipoAjuste') && $('pTipoAjuste').value === 'aumento' ? -1 : 1) * (parseFloat($('pDescuento').value) || 0)
         : (p ? p.descuento : 0),
       fechaCotizacion: $('pCotizacion').value || hoyISO(),
       fechaInicio: $('pInicio').value || hoyISO(),
@@ -16032,24 +16041,18 @@ function modalPoliza(id, origenLevantamiento){
   }
 
   /* Muestra el nombre de a quién se le carga solo cuando de verdad hace
-     falta: con "Cliente" seleccionado, ese campo no significa nada. De paso,
-     el mismo número de la casilla de ajuste cambia de sentido: con Cliente es
-     un descuento (resta), con Interno es un aumento (suma) — nunca los dos a
-     la vez, así que basta con relabelear y dejar que refrescarResumen() haga
-     las cuentas con el signo que le toque en leerForm(). */
+     falta: con "Cliente" seleccionado, ese campo no significa nada. El tipo
+     de ajuste (descuento/aumento) ya no depende de esto — es su propio select,
+     ver el comentario junto a "pTipoAjuste" — así que aquí solo queda dejar
+     que refrescarResumen() haga las cuentas con la base que le toque. */
   function pintarCargoA(){
     const interno = $('pCargoA').value === 'interno';
     $('zonaCargoAInterno').hidden = !interno;
-    if($('pEtiquetaDescuento')) $('pEtiquetaDescuento').textContent = interno ? 'Aumento (%)' : 'Descuento (%)';
-    if($('pPistaDescuento')){
-      $('pPistaDescuento').innerHTML = interno
-        ? 'Se le suma al costo real antes de cargárselo a quien corresponda, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.'
-        : 'Se aplica al total, se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.';
-    }
     refrescarResumen();
   }
   pintarCargoA();
   $('pCargoA').addEventListener('change', pintarCargoA);
+  if($('pTipoAjuste')) $('pTipoAjuste').addEventListener('change', refrescarResumen);
 
   /* Los sitios de Forpass del cliente elegido. Se repinta solo este select. */
   function pintarSitios(){
