@@ -1078,6 +1078,15 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 .enlace{background:none; border:none; font-family:inherit; font-size:inherit; color:var(--accent); font-weight:600; cursor:pointer; padding:0;}
 .enlace:hover{text-decoration:underline;}
 
+/* ===================== Guía de uso (Ayuda) ===================== */
+.guia-pasos{margin:0 0 16px; padding-left:22px; display:flex; flex-direction:column; gap:9px;}
+.guia-pasos li{font-size:13.5px; line-height:1.6; color:var(--ink);}
+.guia-pasos li b{color:var(--navy);}
+.guia-tip{background:var(--ok-suave); border:1px solid #c5e6d3; border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.6; color:#215c3f; margin:0 0 16px;}
+.guia-tip b{display:block; margin-bottom:5px; color:#1a4a32; font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
+.guia-tip ul{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px;}
+.guia-roles{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--gray); background:var(--neutro-suave); border-radius:20px; padding:5px 12px; margin:0 0 16px;}
+
 .rodillo{overflow-x:auto; -webkit-overflow-scrolling:touch;}
 table.tabla{width:100%; border-collapse:collapse; min-width:620px;}
 table.tabla th{
@@ -1279,6 +1288,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     <button type="button" class="mod" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
     <button type="button" class="mod" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
     <button type="button" class="mod" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
+    <button type="button" class="mod" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
   </nav>
   <div class="nube-zona">
     <span class="correo-sesion" id="nombreSesion"></span>
@@ -7770,6 +7780,8 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                  /* Qué mes se ve en el cierre mensual de refacciones
                     ('AAAA-MM'). Empieza en el mes en curso. */
                  mesCierreRefacciones: hoyISO().slice(0,7),
+                 /* Qué tema de la Guía de uso (Ayuda) está abierto. */
+                 temaAyudaId: null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  /* Qué fuentes de ingreso están "apagadas" en las gráficas de
@@ -7803,7 +7815,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -7830,8 +7842,8 @@ function modulosPermitidos(){
      lista). Vacío a propósito: así el selector de módulo del encabezado se
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
   if(HAY_NUBE && haySesion() && sesion.rol === 'cliente') return [];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama'];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'organigrama'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
   /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
      editar precios (ver el comentario arriba de normalizarProyectoImagen())
      — un Viewer sigue viendo Pólizas de solo lectura, pero este módulo ni
@@ -7852,6 +7864,7 @@ function inicioDelModulo(){
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
+       : estado.modulo === 'ayuda' ? 'ayuda'
        : 'clientes';
 }
 
@@ -8053,6 +8066,21 @@ function entrarRefaccion(id){
   if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'refaccion'; estado.refaccionId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irAAyuda(){
+  if(estado.modulo !== 'ayuda'){ estado.modulo = 'ayuda'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'ayuda'; estado.temaAyudaId = null;
+  estado.busca = '';
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarTemaAyuda(id){
+  if(estado.modulo !== 'ayuda'){ estado.modulo = 'ayuda'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'ayuda-tema'; estado.temaAyudaId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -9238,6 +9266,326 @@ function calcularResultados(inicio, fin){
   r.imagenTotal = r.imagenMateriales + r.imagenManoObra;
 
   return r;
+}
+
+/* ==================== Ayuda (guía de uso) ====================
+   Documentación viva DENTRO de la app en vez de un manual aparte que nadie
+   vuelve a abrir. No lee ni escribe ningún dato — es contenido fijo, escrito
+   a mano, con el paso a paso real de cada módulo. Se actualiza a mano cada
+   vez que un módulo cambia de verdad; no intenta generarse solo a partir del
+   código para no arriesgar quedar "técnicamente correcta" pero inútil para
+   quien de verdad la necesita leer. */
+function guiaPasos(pasos){
+  return '<ol class="guia-pasos">' + pasos.map(p => '<li>' + p + '</li>').join('') + '</ol>';
+}
+function guiaTip(titulo, items){
+  return '<div class="guia-tip"><b>' + titulo + '</b><ul>' + items.map(i => '<li>' + i + '</li>').join('') + '</ul></div>';
+}
+function guiaRoles(texto){
+  return '<p class="guia-roles">' + texto + '</p>';
+}
+
+const TEMAS_AYUDA = [
+  { id:'introduccion', titulo:'Cómo está organizada la herramienta',
+    resumen:'Antes de entrar a cada módulo: qué puede ver cada rol y por qué puedes seguir trabajando sin internet.',
+    contenido: function(){
+      return '<p style="font-size:13.5px; line-height:1.6">Esta guía no sustituye preguntar cuando algo no te quede claro, pero te ahorra tener que pedir que te enseñen otra vez lo mismo. Cada tema de la lista es un módulo (o una parte de la administración) con su paso a paso y sus atajos menos obvios.</p>'
+        + '<div class="bloque"><div class="bloque-cabeza"><div><h3>Trabaja sin internet</h3></div></div>'
+        +   '<p style="font-size:13.5px; line-height:1.6; margin:0">Todo lo que capturas se guarda primero en tu propio dispositivo. Si en ese momento no hay internet (o el servidor tarda), el cambio se queda esperando en una "cola" y se sube solo en cuanto vuelve la señal — no hace falta que hagas nada ni que te quedes en la pantalla. El indicador de "Guardado en la nube" / "Cambios pendientes", arriba, te dice si ya subió todo.</p>'
+        + '</div>'
+        + guiaTip('Por qué importa esto', [
+            'Un técnico en campo con mala señal puede seguir levantando reportes o registrando servicios sin perder nada.',
+            'Cerrar la pestaña con cambios pendientes no los pierde: se quedan guardados en el dispositivo y se reintentan la próxima vez que abras la app con internet.'
+          ])
+        + '<div class="bloque"><div class="bloque-cabeza"><div><h3>Quién puede ver y hacer qué</h3><p>Cada cuenta tiene un rol asignado desde Administración → Cuentas.</p></div></div>'
+        +   Object.keys(ROLES).map(r => '<div class="c-fila"><span><b>' + esc(ROLES[r].nombre) + '</b></span><span>' + esc(ROLES[r].desc) + '</span></div>').join('')
+        + '</div>'
+        + guiaRoles('Esta introducción aplica a todos los roles.');
+    } },
+
+  { id:'resultados', titulo:'Resultados',
+    resumen:'El tablero financiero: qué se ha facturado, qué falta y de dónde viene cada peso — sin capturar nada aquí.',
+    contenido:
+      guiaPasos([
+        'Entra al módulo <b>Resultados</b> desde el selector superior.',
+        'Elige el periodo arriba: <b>Mes actual</b>, <b>Año actual</b> o un <b>rango personalizado</b> de fechas.',
+        'Revisa las gráficas: ingreso mensual por fuente (Forpass, Pólizas, Cotizaciones), la utilidad bruta, y la composición del ingreso.',
+        'Haz clic sobre el nombre de una fuente en la leyenda para <b>ocultarla o mostrarla</b> en la gráfica — útil para aislar, por ejemplo, solo lo que viene de Pólizas.',
+        'Pasa el mouse sobre cualquier barra o punto para ver el detalle exacto de ese mes.'
+      ])
+      + guiaTip('Cómo se cuenta cada ingreso (para que los números cuadren con lo que esperas)', [
+          'Forpass: cuenta como ingreso el mes en que marcas la mensualidad como pagada, no el mes en que "debía" pagarse.',
+          'Pólizas: cuenta cuando capturas el cobro — excepto las pólizas "Cargo a: Interno" (facturadas a Plato Express), que reconocen el ingreso mes a mes según el calendario, porque nunca se le cobran a un cliente externo.',
+          'Cotizaciones: cuenta desde que la cotización queda "Aprobada" o, si ya se hizo el trabajo, desde que se marca "Realizado".',
+          'Los proyectos de Imagen/Aperturas se muestran aparte, en un recuadro informativo: a propósito NO se suman a la utilidad bruta.'
+        ])
+      + guiaRoles('Solo lectura. Lo ven todos los roles internos con acceso a más de un módulo (no reportero/técnico).') },
+
+  { id:'clientes', titulo:'Clientes',
+    resumen:'El expediente único de cada cliente: todo lo que tiene en Forpass, Pólizas, Cotizaciones, Reportes y Activos, en un solo lugar.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Clientes</b>: verás la lista completa con buscador.',
+        'Haz clic en un cliente para abrir su <b>resumen 360°</b>: tarjetas con sus totales de sitios, pólizas, cotizaciones y reportes.',
+        'Debajo, cada módulo tiene su propia mini-lista (hasta 8 renglones) con un enlace "ver todas" si tiene más.',
+        'Usa <b>Agregar cliente</b> para dar de alta uno nuevo, o el lápiz para editar sus datos generales.'
+      ])
+      + guiaTip('Función poco obvia: fusionar clientes duplicados', [
+          'Si el mismo cliente quedó capturado dos veces (por ejemplo "Whirlpool" y "Whirlpool Plastics"), un Admin puede usar <b>Fusionar con otro cliente</b>.',
+          'La fusión te deja elegir, sitio por sitio, a cuál de los dos clientes se queda cada uno — no mezcla todo a ciegas.',
+          'Se lleva consigo pólizas, cotizaciones, reportes, levantamientos y proyectos de imagen del cliente que se elimina.'
+        ])
+      + guiaRoles('Editar necesita permiso de edición (Owner/Admin/Analyst); fusionar es solo Admin/Owner. Oculto para técnico y reportero.') },
+
+  { id:'forpass', titulo:'Forpass (kioscos)',
+    resumen:'El corazón original de la app: los kioscos de credenciales instalados en cada sitio, su mensualidad y su estatus de pago.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Forpass</b>: la lista de clientes con sus KPIs de sitios atrasados, por pagar y por vencer.',
+        'Abre un cliente para ver sus sitios (kioscos), en tarjetas o en tabla.',
+        'Usa <b>Agregar sitio</b> para dar de alta un kiosco nuevo, con su mensualidad, fecha de inicio y meses de contrato.',
+        'Haz clic en el número de un mes dentro de la tarjeta del sitio para <b>marcarlo como pagado</b>.',
+        'Abre <b>Plan de pagos</b> para ver el calendario completo de ese sitio, mes por mes.',
+        'Asigna un <b>encargado</b> (Admin) a cada sitio, y filtra la lista por encargado o por sitio desde la barra de búsqueda.'
+      ])
+      + guiaTip('Atajos entre módulos que quizá no habías notado', [
+          'Cada tarjeta de sitio trae iconos para saltar directo a SU póliza, SUS cotizaciones, SUS reportes o SUS activos, sin tener que buscarlo de nuevo en otro módulo.',
+          'El onboarding y los viáticos se suman automáticamente al primer mes del contrato, no hay que capturarlos aparte.',
+          'Los sitios se distinguen entre pausados, dados de baja, y con contrato ya cubierto (liquidado) — cada uno con su propio color.'
+        ])
+      + guiaRoles('Editar necesita permiso de edición; eliminar y fusionar sitios, Admin/Owner. Oculto para técnico y reportero.') },
+
+  { id:'reportes', titulo:'Reportes',
+    resumen:'Los tickets de mantenimiento del día a día: algo se descompuso en un sitio y hay que atenderlo.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Reportes</b>: verás abiertos, en atención, urgentes y resueltos como KPIs arriba.',
+        'Usa <b>Nuevo reporte</b> para levantar un ticket: sitio, descripción del problema, urgencia y evidencia fotográfica (puedes usar la cámara desde el celular).',
+        'Asigna un técnico. El estatus avanza: <b>abierto → asignado → en proceso</b>.',
+        'Cuando el técnico termina, usa <b>Marcar resuelto</b>: se abre un reporte de atención donde se documenta qué se hizo.',
+        'Desde un reporte ya resuelto puedes <b>Reabrir</b> si el problema regresó, o <b>Cancelar</b> si ya no aplica.',
+        'Si el arreglo necesita una refacción o un costo adicional, usa <b>Generar cotización desde este reporte</b> — queda ligada para siempre a su reporte de origen.'
+      ])
+      + guiaTip('Quién vive aquí', [
+          'Reportes es el único módulo que ven los roles "Técnico" y "Reportero" — pensado para alguien que solo levanta o atiende tickets, sin necesidad de ver clientes, pólizas ni cotizaciones.',
+          'Un Técnico sí puede cambiar el estatus y subir evidencia; un Reportero puede levantar y seguir el ticket, pero no editar uno ya emitido.'
+        ])
+      + guiaRoles('Todos los roles internos lo ven. Gestionarlo: Owner/Admin/Analyst y Técnico.') },
+
+  { id:'levantamientos', titulo:'Levantamientos',
+    resumen:'El recorrido completo de un sitio: qué se revisó, qué se encontró, y qué tan bien está funcionando el equipo en general.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Levantamientos</b> y usa <b>Nuevo levantamiento</b> para empezar uno, ligado a un sitio.',
+        'Usa <b>Agregar hallazgo</b> por cada cosa que encuentres: márcalo como correctivo o preventivo, liga el equipo del catálogo si aplica, y sube foto de evidencia.',
+        'Marca cada hallazgo como <b>Resuelto</b> cuando se atienda (o Reabrir si vuelve a fallar).',
+        'Selecciona los hallazgos pendientes que quieras cotizar y elige <b>Generar cotización</b> — puedes armar una sola con todos o una por cada uno.',
+        'Usa <b>Generar PDF</b> para tener el levantamiento completo listo para imprimir o mandar al cliente.',
+        'Si el levantamiento revisó el equipo que debería cubrir una póliza, usa <b>Generar póliza desde este levantamiento</b> para arrancar el contrato ya con ese equipo precargado.'
+      ])
+      + guiaTip('El "Análisis de funcionamiento" no es un promedio simple', [
+          'Cada equipo del catálogo tiene un "peso" según qué tan crítico es para la operación de la cocina — un hallazgo grave en un equipo crítico pesa más que uno en un equipo secundario.',
+          'Los hallazgos de infraestructura (sin equipo ligado) no afectan este porcentaje, aunque sí se pueden cotizar igual.'
+        ])
+      + guiaRoles('Es de los módulos más abiertos: lo pueden usar prácticamente todos los roles, incluidos Técnico y Reportero.') },
+
+  { id:'polizas', titulo:'Pólizas',
+    resumen:'Los contratos formales de mantenimiento: qué equipo cubren, cada cuánto se revisa, y si cada servicio programado ya se hizo.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Pólizas</b>: la lista de contratos, con accesos directos a <b>Agenda</b> (calendario de todos los servicios programados) y <b>Lista de precios</b>.',
+        'Usa <b>Nueva cotización (póliza)</b> para armar un contrato nuevo: agrega el equipo cubierto desde la lista de precios y define la frecuencia de servicio.',
+        'Puedes <b>Importar desde Excel</b> si ya tienes el contrato armado en una hoja con el formato base.',
+        'En el calendario del contrato, haz clic en el mes correspondiente para <b>registrar el servicio como hecho</b>: quién lo hizo, número de serie, evidencia fotográfica, o si solo se atendieron algunas de varias unidades.',
+        'Haz clic en la casilla de cobro para <b>capturar el cobro</b> de ese mes: número de OC y si ya se facturó.',
+        'Si el precio de una partida quedó desactualizado respecto al precio de grupo del cliente, usa <b>Actualizar al de grupo</b>.',
+        'Genera el <b>PDF</b> del contrato para imprimir o enviar.'
+      ])
+      + guiaTip('Cosas que facilitan mucho la vida aquí', [
+          'Los contratos "Cargo a: Interno" (facturados a Plato Express, no al cliente final) se marcan visualmente en todos lados y no entran en la lógica de facturación a cliente.',
+          'Un Admin puede definir "Precios de grupo" por cliente: un precio/costo especial para ciertos equipos que se aplica solo al agregarlos a una póliza nueva de ese cliente, con aviso si una partida vieja quedó desactualizada.',
+          'En la Lista de precios, "Sugerir categorías" clasifica el equipo automáticamente por su nombre, e "Importar costos" carga de un jalón la hoja de costos ya compartida.',
+          'Si la frecuencia del contrato no cuadra con los meses marcados, la app lo avisa (⚠) y no deja cerrar el contrato como "activa" hasta corregirlo.'
+        ])
+      + guiaRoles('Técnico y Viewer lo ven de solo lectura. Corregir precios de un contrato ya cerrado (activa) es solo Admin/Owner.') },
+
+  { id:'cotizaciones', titulo:'Cotizaciones',
+    resumen:'El tablero de cotizaciones de trabajos puntuales: reparaciones, instalaciones o trabajo extra fuera de una póliza.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Cotizaciones</b>: verás el tablero completo, agrupado por etapa si hay muchas.',
+        'Usa <b>Nueva cotización</b>, o <b>Importar desde Excel</b> si vienes de un tablero externo.',
+        'Dentro de una cotización, alterna entre <b>Costo interno</b> y <b>Cotización cliente</b> para ver los mismos números desde los dos lados.',
+        'Sube el <b>respaldo de costo</b> (la cotización que te dio tu proveedor) como imagen o PDF.',
+        'Avanza la cotización por sus etapas según vaya progresando: trabajo con OC, pendiente de liberación, realizado, facturado, etc.',
+        'Usa <b>Vista previa</b> e <b>Imprimir</b> para generar el documento que se manda al cliente.',
+        'Revisa <b>Por persona</b> para ver cuánto ha cotizado, cuánto ha convertido en ingreso y su tasa de conversión, por cada vendedor.'
+      ])
+      + guiaTip('De dónde vino esta cotización', [
+          'Si la cotización nació de un Reporte, una Póliza (refacción solicitada) o un Levantamiento, lo verás señalado arriba con un enlace directo de regreso a su origen.',
+          'Una cotización "vencida" solo se marca así mientras sigue abierta/sin decidir — una ya aprobada o rechazada no se marca vencida aunque haya pasado la fecha.'
+        ])
+      + guiaRoles('Oculto para reportero. Técnico lo ve de solo lectura.') },
+
+  { id:'activos', titulo:'Activos',
+    resumen:'El inventario de equipo: tanto el instalado en clientes como las herramientas, vehículos y equipo propio de Forguard.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Activos</b> y usa <b>Nuevo activo</b> — elige si es de un cliente (con su sitio) o interno (con ubicación y quién lo trae asignado).',
+        'Puedes <b>Importar</b> o <b>Exportar</b> el catálogo completo en Excel.',
+        'Sube evidencia fotográfica y la <b>factura u orden de compra</b> (imagen o PDF) que respalda la compra.',
+        'Cambia el estatus según corresponda: en mantenimiento, activo, de baja, o perdido/robado.',
+        'Para activos internos, usa <b>Asignar</b> / <b>Reasignar</b> / <b>Devolver</b> para llevar un historial formal de quién lo trae y desde cuándo.',
+        'Usa <b>Registrar mantenimiento</b> o <b>Agregar nota</b> para ir dejando la bitácora del equipo.'
+      ])
+      + guiaTip('Dos cosas que casi nadie descubre solo', [
+          'Cada activo genera su propio <b>código de barras o QR</b> automáticamente — solo para control interno, nunca aparece en documentos de cliente.',
+          'La app avisa sola cuando una garantía está por vencer (30 días) o un mantenimiento está por cumplirse o ya se venció (7 días) — revisa los KPIs de la pantalla principal del módulo.'
+        ])
+      + guiaRoles('Gestionarlo: Owner/Admin/Analyst y también Técnico.') },
+
+  { id:'proveedores', titulo:'Proveedores',
+    resumen:'Lo que Forguard le debe a sus propios proveedores, y el catálogo de refacciones con su cierre mensual.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Proveedores</b>: por default ves el rastreo de <b>Gastos</b> (lo que se debe), con KPIs de por pagar, vencido y por vencer.',
+        'Usa <b>Catálogo de proveedores</b> para dar de alta uno nuevo o ver el detalle de todos sus gastos juntos.',
+        'Dentro de un proveedor o desde Gastos, usa <b>Nuevo gasto</b>: puede empezar como "Cotización" y luego <b>Convertir en factura por pagar</b>.',
+        'Registra <b>Agregar abono</b> cada vez que se hace un pago parcial — el saldo pendiente se recalcula solo.',
+        'Sube los documentos por tipo: cotización del proveedor, factura, comprobante de pago.',
+        'Si el gasto viene de una cotización que le hiciste a un cliente, ligalo para comparar lo que te cuesta contra lo que cotizaste.'
+      ])
+      + '<div class="bloque"><div class="bloque-cabeza"><div><h3>Refacciones: el catálogo de piezas por proveedor</h3><p>Vive dentro de Proveedores porque cada refacción siempre es de UN proveedor.</p></div></div>'
+      +   guiaPasos([
+            'Desde cualquier pantalla de Proveedores, entra a <b>Refacciones</b>.',
+            'Usa <b>Nueva refacción</b> para dar de alta una pieza a mano, o <b>Importar de Excel</b> para cargar de un jalón un catálogo completo (hoja tipo "INV. GENERAL") — los proveedores que no existan todavía se dan de alta solos.',
+            'Entra al detalle de una refacción y usa <b>Registrar entrada</b> (compra) o <b>Registrar salida</b> (consumo) para mover su existencia, que siempre se calcula sola, nunca se captura a mano.',
+            'Usa <b>Cierre mensual</b> para ver, mes por mes, la existencia con la que arrancó, lo que entró, lo que salió y con la que cerró cada pieza — puedes capturar entradas/salidas directo desde esa misma tabla.',
+            'Usa <b>Descargar Excel</b> dentro del cierre mensual para archivar el reporte de ese mes.'
+          ])
+      + '</div>'
+      + guiaTip('Por qué la existencia nunca se "captura"', [
+          'La existencia de cada refacción se calcula siempre a partir de sus movimientos (existencia inicial + entradas − salidas). Nunca se guarda como un número aparte, así que no hay forma de que se desalinee del historial real.',
+          'Puedes moverte entre meses con las flechas del cierre mensual para consultar cualquier mes anterior, no solo el actual.'
+        ])
+      + guiaRoles('Gestionarlo: Owner/Admin/Analyst. Eliminar, Admin/Owner.') },
+
+  { id:'organigrama', titulo:'Organigrama',
+    resumen:'El directorio de personal de la empresa, con su jerarquía visual de quién le reporta a quién.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Organigrama</b>: puedes verlo como cuadrícula buscable o como árbol.',
+        'Usa <b>Nueva persona</b> para dar de alta a alguien, con su foto institucional (se recorta igual que el logo de un cliente).',
+        'Define a quién le <b>reporta</b> cada persona, y su estatus (activo/baja).'
+      ])
+      + guiaTip('Detalle que evita un problema real', [
+          'La app no te deja poner como jefe de alguien a uno de sus propios subordinados — el desplegable de "reporta a" los filtra solos para que nunca se forme un ciclo.',
+          'Si das de baja a alguien que tenía gente a su cargo, esa gente se recorre automáticamente un nivel arriba en vez de quedarse "huérfana".'
+        ])
+      + guiaRoles('Gestionarlo: Owner/Admin/Analyst. Visible también para técnico y reportero.') },
+
+  { id:'imagen', titulo:'Imagen / Aperturas',
+    resumen:'Proyectos de apertura, remodelación o cambio de imagen de un sitio: presupuesto, avance y fotos.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Imagen / Aperturas</b> y usa <b>Nuevo proyecto</b>, o <b>Importar desde Excel</b> si ya tienes el presupuesto en una hoja.',
+        'Revisa el <b>Cronograma</b> (vista tipo Gantt) para ver todos los proyectos por fecha objetivo — con aviso si alguno va atrasado.',
+        'Sube <b>Imágenes</b> del proyecto: renders, planos/layout y fotos de avance, cada una etiquetada por tipo.',
+        'Usa <b>Generar PDF</b> para tener el proyecto documentado.'
+      ])
+      + guiaTip('Cómo se refleja en Resultados', [
+          'El costo se separa solo en materiales vs. mano de obra para el desglose financiero.',
+          'La duración en sitio se calcula sola a partir de las fechas de entrada y salida.',
+          'A propósito, estos proyectos NO se suman a la utilidad bruta del módulo Resultados — se muestran aparte, como referencia.'
+        ])
+      + guiaRoles('Es el único módulo que NO se le enseña a quien no tiene permiso de edición, ni siquiera en modo solo lectura. Owner/Admin/Analyst.') },
+
+  { id:'admin', titulo:'Administración',
+    resumen:'Cuentas del equipo, solicitudes de acceso de clientes, respaldo de toda la base, y catálogos configurables.',
+    contenido:
+      guiaPasos([
+        'Entra a <b>Administración</b> (ícono de tu cuenta, arriba a la derecha).',
+        'En <b>Cuentas</b>: da de alta al equipo, asigna su rol desde el desplegable, bloquea/reactiva o elimina una cuenta.',
+        'En <b>Solicitudes de acceso de clientes</b>: cuando un cliente pide su acceso desde la pantalla de login, aparece aquí pendiente — usa <b>Vincular y aprobar</b> para ligarlo a su cliente real, o <b>Rechazar</b>.',
+        'En <b>Cuentas de clientes</b>: administra los accesos de clientes ya aprobados.',
+        'En <b>Historial de cambios</b>: consulta quién hizo qué y cuándo, en toda la app.',
+        'En <b>Segmentos</b>: edita las sugerencias de "zona" que se ofrecen al capturar un sitio.',
+        'En <b>Parámetros de clientes / de sitios</b>: agrega campos personalizados (sin tocar código) que van a aparecer en el formulario y como chips en las tarjetas.',
+        'Desde la pantalla de Clientes, usa <b>Descargar Excel</b>, <b>Respaldo JSON</b> y <b>Restaurar</b> para bajar o restaurar toda la base de un jalón.'
+      ])
+      + guiaTip('Cuidado con esto', [
+          'Solo un Owner puede tocar la cuenta de otro Owner — un Admin no puede degradar ni eliminar a un Owner.',
+          'Restaurar un respaldo JSON reemplaza TODA la base de datos: úsalo solo cuando de verdad quieras regresar a un punto anterior.'
+        ])
+      + guiaRoles('Exclusivo de Owner y Admin.') },
+
+  { id:'portal', titulo:'Portal de clientes',
+    resumen:'Lo que ve un cliente cuando entra con su propia cuenta: nunca el tablero completo, solo lo suyo.',
+    contenido:
+      guiaPasos([
+        'Un cliente pide su acceso desde <b>Solicita tu acceso</b> en la pantalla de login.',
+        'Un Admin lo aprueba desde Administración → Solicitudes de acceso de clientes, ligándolo a su cliente real.',
+        'Ya dentro, el cliente ve tres pestañas: <b>Mi póliza</b> (el equipo cubierto y el precio mensual), <b>Mis cotizaciones</b> (con el mismo desglose que ve tu equipo, pero solo el lado de cliente) y <b>Mis reportes</b> (incluyendo la evidencia fotográfica de cada visita).'
+      ])
+      + guiaTip('Para tenerlo presente', [
+          'Todo lo que ve un cliente es de solo lectura: no puede editar ni capturar nada.',
+          'Un cliente jamás ve el tablero interno ni a otros clientes — su sesión se bifurca a esta pantalla aparte desde el arranque de la app.'
+        ])
+      + guiaRoles('Exclusivo del rol Cliente (cuenta externa).') }
+];
+
+function temaAyudaPorId(id){ return TEMAS_AYUDA.find(t => t.id === id); }
+
+function vistaAyuda(){
+  let h = '';
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Ayuda</h2>'
+     +   '<p>Guía de uso paso a paso de cada módulo — para sacarle todo el jugo a la herramienta.</p>'
+     + '</div></div>';
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaAyuda" placeholder="Buscar un tema…" value="' + esc(estado.busca) + '">'
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = TEMAS_AYUDA.filter(t => !q || (t.titulo + ' ' + t.resumen).toLowerCase().includes(q));
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún tema coincide con la búsqueda.</p></div>';
+    return h;
+  }
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + lista.map((t,i)=>
+      '<div class="tarjeta tarjeta-clic" data-tema-ayuda="' + esc(t.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+    +   '<div class="t-cabeza">'
+    +     '<div class="t-avatar">' + esc(iniciales(t.titulo)) + '</div>'
+    +     '<div style="flex:1; min-width:0">'
+    +       '<div class="t-nombre">' + esc(t.titulo) + '</div>'
+    +       '<div class="t-sub">' + esc(t.resumen) + '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="t-pie"><span class="espacio"></span><button type="button" class="btn btn-suave btn-mini" data-tema-ayuda="' + esc(t.id) + '">Ver guía →</button></div>'
+    + '</div>'
+  ).join('') + '</div>';
+
+  return h;
+}
+
+function vistaAyudaTema(){
+  const tema = temaAyudaPorId(estado.temaAyudaId);
+  if(!tema){ estado.vista = 'ayuda'; return vistaAyuda(); }
+
+  let h = '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-ayuda">' + ICONO.atras + 'Regresar a Ayuda</button></div>';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(tema.titulo) + '</h2>'
+     +   '<p>' + esc(tema.resumen) + '</p>'
+     + '</div></div>';
+
+  h += typeof tema.contenido === 'function' ? tema.contenido() : tema.contenido;
+
+  return h;
 }
 
 function vistaResultados(){
@@ -15449,6 +15797,7 @@ function render(){
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
+    : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
 
   const be = $('buscaEquipo');
@@ -15508,6 +15857,8 @@ function render(){
   }
   const mcRf = $('mesCierreRefacciones');
   if(mcRf) mcRf.addEventListener('change', ()=>{ if(mcRf.value){ estado.mesCierreRefacciones = mcRf.value; render(); } });
+  const bpAy = $('buscaAyuda');
+  if(bpAy) bpAy.addEventListener('input', ()=>{ estado.busca = bpAy.value; renderConservandoFoco(bpAy, 'buscaAyuda'); });
   /* Subir evidencia directo desde el detalle del activo, sin abrir el modal
      completo de edición — mismo criterio que aeR (Reportes) arriba. */
   const aeA = $('archivoEvidenciaActivo');
@@ -15737,6 +16088,7 @@ function pintarCabecera(){
                  : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'proveedores' ? 'Proveedores'
                  : estado.modulo === 'organigrama' ? 'Organigrama'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
+                 : estado.modulo === 'ayuda' ? 'Ayuda'
                  : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
   inicio.disabled = enPortada;
@@ -20541,6 +20893,7 @@ $('vista').addEventListener('click', ev=>{
     }
     else if(a === 'importar-refacciones-excel'){ if(exigirGestionProveedores()) $('archivoRefaccionesExcel').click(); }
     else if(a === 'ir-cierre-refacciones') irACierreMensualRefacciones();
+    else if(a === 'ir-ayuda') irAAyuda();
     else if(a === 'mes-cierre-refacciones-anterior' || a === 'mes-cierre-refacciones-siguiente'){
       const [anio, mes] = estado.mesCierreRefacciones.split('-').map(Number);
       const delta = a === 'mes-cierre-refacciones-anterior' ? -1 : 1;
@@ -20945,6 +21298,9 @@ $('vista').addEventListener('click', ev=>{
   const tarRf = t.closest('[data-refaccion]');
   if(tarRf){ entrarRefaccion(tarRf.dataset.refaccion); return; }
 
+  const tarTA = t.closest('[data-tema-ayuda]');
+  if(tarTA){ entrarTemaAyuda(tarTA.dataset.temaAyuda); return; }
+
   /* El organigrama no tiene una vista de detalle aparte: la tarjeta/nodo
      abre directo el modal de edición, igual que "editar" en cualquier otro
      módulo — por eso pasa por exigirGestionPersonal() en vez de un simple
@@ -21062,6 +21418,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarPv){ ev.preventDefault(); entrarProveedor(tarPv.dataset.proveedor); return; }
   const tarRf = ev.target.closest('[data-refaccion]');
   if(tarRf){ ev.preventDefault(); entrarRefaccion(tarRf.dataset.refaccion); return; }
+  const tarTA = ev.target.closest('[data-tema-ayuda]');
+  if(tarTA){ ev.preventDefault(); entrarTemaAyuda(tarTA.dataset.temaAyuda); return; }
   const tarPer = ev.target.closest('[data-persona]');
   if(tarPer){ ev.preventDefault(); if(exigirGestionPersonal()) modalPersona(tarPer.dataset.persona); return; }
   const tarL = ev.target.closest('[data-levantamiento]');
