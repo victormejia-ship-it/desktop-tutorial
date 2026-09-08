@@ -7140,6 +7140,19 @@ function calcularPoliza(p){
   const utilidadCent = precioAnualCent - costoAnualCent;
   const utilidadAnual = deCentavos(utilidadCent);
   const margenPct = precioAnualCent ? (utilidadCent / precioAnualCent * 100) : 0;
+
+  /* Precio "completo": el mismo cálculo de arriba pero SIN separar lo que es
+     "Responsabilidad del cliente" — o sea, lo que se cobraría si Forguard
+     absorbiera también esos equipos. Es un dato de referencia (¿cuánto
+     podríamos vender si el cliente nos cede todo el alcance?), nunca lo que
+     de verdad se cobra: precioAnual arriba sigue siendo el único número real. */
+  const separadoAnualCent = aCentavos(separadoAnual);
+  const costoAnualCompletoCent = aCentavos(costos.reduce((t,n)=> t + n, 0));
+  const baseCompletaCent = esInterno ? costoAnualCompletoCent : (subtotalCent + separadoAnualCent);
+  const descuentoCompletoCent = descuento ? Math.round(baseCompletaCent * descuento / 100) : 0;
+  const precioAnualCompletoCent = baseCompletaCent - descuentoCompletoCent;
+  const precioAnualCompleto = deCentavos(precioAnualCompletoCent);
+  const precioMensualCompleto = deCentavos(Math.floor(precioAnualCompletoCent / MESES_POLIZA));
   /* Mismo criterio que precioMensual: nominal, entre 12 fijo — no se recalcula
      del calendario real para no tener dos "costos mensuales" distintos. */
   const costoMensualCent = Math.floor(costoAnualCent / MESES_POLIZA);
@@ -7223,6 +7236,7 @@ function calcularPoliza(p){
 
   return { hoy, fin, precioAnual, precioAnualCent, precioMensual, totales,
            subtotal, subtotalCent, separadoAnual, separadoCant, descuento, descuentoCent,
+           precioAnualCompleto, precioMensualCompleto,
            /* esInterno/base/etiquetaBase: sobre qué número se aplicó el %
               (costo anual si es 'interno', subtotal de venta si es
               'cliente') — lo necesita cualquier pantalla que quiera mostrar
@@ -15213,6 +15227,8 @@ function vistaPoliza(){
          ? '<p class="pista" style="margin-top:10px">' + c.separadoCant + ' ' + plural(c.separadoCant,'equipo','equipos')
            + ' — ' + esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA.cliente).toLowerCase() + ' — por ' + dineroCent(c.separadoAnual)
            + ' al año: no está incluido en el Precio anual ni en el Costo anual de arriba.</p>'
+         + '<p class="pista" style="margin-top:4px">Si el cliente nos cediera también esos equipos, el precio anual completo '
+           + 'sería de <b>' + dineroCent(c.precioAnualCompleto) + '</b> (' + dineroCent(c.precioMensualCompleto) + ' al mes).</p>'
          : '')
      + '</div>';
 
