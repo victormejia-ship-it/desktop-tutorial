@@ -7089,17 +7089,28 @@ function calcularPoliza(p){
   const fin = sumarMeses(p.fechaInicio, MESES_POLIZA);
 
   const totales = p.partidas.map(totalRenglon);
-  /* El SUBTOTAL es la suma de los renglones a precio de venta, sin tocar. */
-  const subtotal = totales.reduce((t,n)=> t + n, 0);
+  const costos = p.partidas.map(costoTotalRenglon);
+
+  /* Lo que es "Responsabilidad del cliente" (ver ALCANCE_PARTIDA_POLIZA) se
+     documenta como equipo cotizado —para que quede clarísimo qué se revisó
+     y de quién es— pero NO es trabajo que Forguard cobre ni un costo que
+     Forguard absorba: ni su precio entra al precio de venta del contrato,
+     ni su costo entra al costo que se compara contra ese precio. Se separa
+     de las dos sumas y se guarda aparte (separadoAnual) para poder avisarlo
+     en pantalla y en el documento, en vez de desaparecer sin explicación. */
+  const enAlcance = p.partidas.map(x => x.alcance !== 'cliente');
+  /* El SUBTOTAL es la suma de los renglones a precio de venta QUE SÍ CUENTAN. */
+  const subtotal = totales.reduce((t,n,i)=> t + (enAlcance[i] ? n : 0), 0);
   const subtotalCent = aCentavos(subtotal);
+  const separadoAnual = totales.reduce((t,n,i)=> t + (enAlcance[i] ? 0 : n), 0);
+  const separadoCant = enAlcance.filter(x => !x).length;
 
   /* Costo real de dar el servicio. Se calcula AQUÍ ARRIBA, antes del precio,
      porque una póliza 'interno' se cobra sobre esto — ver abajo — y no sobre
      el precio de venta. Sigue siendo SIN descuento/aumento: eso es una
      decisión comercial y no cambia lo que de verdad cuesta operar la
      póliza. */
-  const costos = p.partidas.map(costoTotalRenglon);
-  const costoAnual = costos.reduce((t,n)=> t + n, 0);
+  const costoAnual = costos.reduce((t,n,i)=> t + (enAlcance[i] ? n : 0), 0);
   const costoAnualCent = aCentavos(costoAnual);
 
   /* La BASE sobre la que se aplica el % de la póliza (descuento o aumento,
@@ -7211,7 +7222,7 @@ function calcularPoliza(p){
   const activa = p.estatus === 'activa' && vigente;
 
   return { hoy, fin, precioAnual, precioAnualCent, precioMensual, totales,
-           subtotal, subtotalCent, descuento, descuentoCent,
+           subtotal, subtotalCent, separadoAnual, separadoCant, descuento, descuentoCent,
            /* esInterno/base/etiquetaBase: sobre qué número se aplicó el %
               (costo anual si es 'interno', subtotal de venta si es
               'cliente') — lo necesita cualquier pantalla que quiera mostrar
@@ -7498,9 +7509,15 @@ function armarPayloadPoliza(p){
                signoDescuento: c.esAumento ? '+' : '−',
                descuento: c.descuento ? c.descuentoAbs + '%' : '',
                montoDescuento: c.descuento ? dineroCent(c.montoDescuentoAbs) : '',
+               /* Lo que quedó fuera del precio por ser responsabilidad del
+                  cliente (ver ALCANCE_PARTIDA_POLIZA) — nunca se suma a
+                  "anual" ni a "mensual" de arriba. Vacío si no aplica, para
+                  que la plantilla decida si pinta el aviso. */
+               separadoCant: c.separadoCant || 0,
+               separado: c.separadoCant ? dineroCent(c.separadoAnual) : '',
                crudo:   { anual: c.precioAnual, mensual: c.precioMensual,
                           subtotal: c.base, descuento: c.descuento,
-                          montoDescuento: c.montoDescuentoAbs } },
+                          montoDescuento: c.montoDescuentoAbs, separado: c.separadoAnual } },
 
     /* Lo que el vendedor/analyst haya anotado en "Notas" del formulario de la
        póliza (condiciones, accesos, contacto en sitio…). Se imprime como su
@@ -9484,11 +9501,11 @@ const TEMAS_AYUDA = [
         '4 KPIs: Pólizas activas, En espera de confirmar, Servicios este mes, Servicios atrasados (los dos últimos clickeables).',
         'Botones de cabecera: <b>Agenda</b> (calendario de todos los contratos juntos), <b>Lista de precios</b>, <b>Importar JSON</b>, <b>Importar desde Excel</b> y <b>Nueva cotización</b>.',
         'Usa <b>Nueva cotización</b> para armar un contrato: Cliente, Sitio (con alta al vuelo), Fecha, Facturación (Anual/Mensual), Cargo a (Cliente/Interno), Vendedor, y los equipos cotizados —cada uno con precio, costo, servicios al año, mes de arranque y <b>Alcance</b>—, tomados del buscador de catálogo.',
-        'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato.',
+        'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato. Un equipo "Responsabilidad del cliente" NO se suma al Precio Anual ni al Costo Anual del contrato: su monto se separa aparte, así nunca se le cobra al cliente algo que no es trabajo de Forguard.',
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
         'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
-        'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — si algún equipo quedó marcado "Responsabilidad del cliente", el documento lo deja anotado en sus notas de cierre.'
+        'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'La <b>Agenda</b> agrupa TODOS los contratos por mes → sitio → equipo, con bloques de Atrasados / Toca ahora / Parciales / Programados — para no tener que revisar contrato por contrato.',
@@ -15191,6 +15208,11 @@ function vistaPoliza(){
      +   (sinCosto
          ? '<p class="pista" style="margin-top:10px; color:var(--alerta)">' + sinCosto + ' ' + plural(sinCosto,'renglón','renglones')
            + ' sin costo capturado: el margen de arriba sale de más hasta que se llene.</p>'
+         : '')
+     +   (c.separadoCant
+         ? '<p class="pista" style="margin-top:10px">' + c.separadoCant + ' ' + plural(c.separadoCant,'equipo','equipos')
+           + ' — ' + esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA.cliente).toLowerCase() + ' — por ' + dineroCent(c.separadoAnual)
+           + ' al año: no está incluido en el Precio anual ni en el Costo anual de arriba.</p>'
          : '')
      + '</div>';
 

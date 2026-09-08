@@ -241,6 +241,14 @@
      #000000, exactamente igual que el concepto de su fila. El gris venía de la
      plantilla vieja y hacía que el renglón se leyera como secundario. */
   .ix{text-align:center;}   /* el ancho lo manda el colgroup medido */
+  /* Renglón "responsabilidad del cliente": un tinte de fondo en la FILA, no
+     texto — no puede desbordar la celda ni mover el paso de 21.53 pt.
+     print-color-adjust:exact (arriba) obliga a que se imprima igual que se
+     ve en pantalla, no solo en el PDF "Guardar como" del navegador. Mismo
+     ámbar que --alerta-suave en la app, para que quien conozca el tablero
+     reconozca el color igual aquí. */
+  table.grid:not(.desc) tbody tr.fuera-alcance{background:#FDF4E5;}
+  table.grid:not(.desc) tbody tr.fuera-alcance td.ix{font-weight:700;}
 
   /* ---- Totales ---- */
   .totals{margin-top:16px;width:100%;}
@@ -523,24 +531,34 @@ function pagePoliza(){
   const hojas = partirEnHojas(POLIZA.renglones, FILAS_POR_HOJA);
   return hojas.map((grupo, h) => {
     const ultima = h === hojas.length - 1;
-    const filas = grupo.map(r=>`<tr>
-      <td class="ix">${r.n}</td>
+    /* Alcance por renglón (Forguard / responsabilidad del cliente): se marca
+       DENTRO de la fila sin arriesgar su alto medido —"paso entre filas
+       MEDIDO: 21.53 pt" más abajo—. Dos recursos que no mueven ni una letra
+       de tamaño ni agregan una línea:
+         · el "†" pegado al número de fila, en la misma celda y el mismo
+           cuerpo que el número — la columna # tiene sobra de sobra (22.6 pt
+           para cuando mucho 3 dígitos) a diferencia de Concepto, que va al
+           límite.
+         · el fondo de la fila entera, vía CSS en el <tr> — no es texto, así
+           que no puede desbordar nada, y print-color-adjust:exact (ver más
+           arriba) ya garantiza que se imprima igual que se ve en pantalla.
+       Total y Total Mtto se apagan a rayita: son precio de venta, y un
+       renglón "responsabilidad del cliente" no tiene — ver "eso se separa"
+       en calcularPoliza(). */
+    const filas = grupo.map(r=>{
+      const fuera = r.alcance === 'cliente';
+      return `<tr${fuera ? ' class="fuera-alcance"' : ''}>
+      <td class="ix">${r.n}${fuera ? '†' : ''}</td>
       <td class="cpt">${esc(r.concepto)}${r.marca?`<span class="marca"> — ${esc(r.marca)}</span>`:""}</td>
       <td class="c">${esc(r.cantidad)}</td>
       <td class="c">${esc(r.precioUnitario)}</td>
-      <td class="c">${esc(r.total)}</td>
+      <td class="c">${fuera ? '—' : esc(r.total)}</td>
       <td class="c">${esc(r.frecuencia)}</td>
-      <td class="c">${esc(r.totalMtto)}</td>
-    </tr>`).join("");
+      <td class="c">${fuera ? '—' : esc(r.totalMtto)}</td>
+    </tr>`;
+    }).join("");
     /* El cierre solo en la última: en una intermedia sobraría, y en la primera
-       diría un total que todavía no se ha terminado de listar.
-
-       El deslinde de alcance por renglón (Forguard / responsabilidad del
-       cliente) NO se mete como columna ni se pega al concepto: la tabla de
-       arriba está medida al 0.01 pt (ver el comentario de "paso entre filas
-       MEDIDO: 21.53 pt" más arriba) y cualquier texto de más arriesga
-       reventar ese paso y correr la paginación entera. Se documenta aquí, en
-       la nota de cierre, que es la única zona de la hoja sin ese candado. */
+       diría un total que todavía no se ha terminado de listar. */
     const fueraDeAlcance = POLIZA.renglones.filter(r => r.alcance === 'cliente');
     const cierre = ultima ? `
         <table class="totals">
@@ -554,7 +572,7 @@ function pagePoliza(){
           <li>${esc(POLIZA.pie.iva)}</li>
           <li>Vigencia: del ${esc(POLIZA.fechas.vigenciaInicio)} al ${esc(POLIZA.fechas.vigenciaFin)}.</li>
           <li>La póliza se contrata y se presta por un periodo anual de doce (12) meses, independientemente de que la facturación se realice de forma anual o mensual.</li>
-          ${fueraDeAlcance.length ? `<li>Quedan fuera del alcance de este mantenimiento preventivo, por ser responsabilidad del cliente: ${fueraDeAlcance.map(r => `#${r.n} ${esc(r.concepto)}`).join(', ')}.</li>` : ''}
+          ${fueraDeAlcance.length ? `<li>† Responsabilidad del cliente, fuera del alcance de este mantenimiento preventivo — no incluido en el Precio Anual ni en el Precio Mensual de arriba: ${fueraDeAlcance.map(r => `#${r.n} ${esc(r.concepto)}`).join(', ')}.</li>` : ''}
         </ul>` : '';
     return `<section class="page">
     <div class="sheet">
