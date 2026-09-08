@@ -15158,6 +15158,14 @@ function vistaPoliza(){
   h += '<div class="kpis">'
      + tarjetaKpi('Precio anual', dineroCent(c.precioAnual), p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos'))
      + tarjetaKpi('Precio mensual', dineroCent(c.precioMensual), 'Anual ÷ ' + MESES_POLIZA)
+     /* Tarjeta extra, solo si hay algo que absorber: así el número más
+        buscado —"¿y si nos quedamos con todo?"— se ve de inmediato junto
+        a Precio anual/mensual, en vez de tener que bajar hasta Análisis de
+        margen para encontrarlo. */
+     +   (c.separadoCant
+         ? tarjetaKpi('Precio completo posible', dineroCent(c.precioAnualCompleto),
+             'Con ' + c.separadoCant + ' ' + plural(c.separadoCant,'equipo','equipos') + ' del cliente incluido' + (c.separadoCant === 1 ? '' : 's'), 'k-ok')
+         : '')
      + tarjetaKpi('Servicios', c.hechos + ' de ' + c.programados,
          c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Sin atrasos', c.atrasados ? 'k-error' : '')
      + tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
@@ -15226,11 +15234,9 @@ function vistaPoliza(){
      +   (c.separadoCant
          ? '<p class="pista" style="margin-top:10px">' + c.separadoCant + ' ' + plural(c.separadoCant,'equipo','equipos')
            + ' — ' + esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA.cliente).toLowerCase() + ' — por ' + dineroCent(c.separadoAnual)
-           + ' al año: no está incluido en el Precio anual ni en el Costo anual de arriba.</p>'
-         + '<div class="aviso" style="margin-top:12px; margin-bottom:0">' + ICONO.info
-           + '<div><b>Precio completo si el cliente nos cediera también esos equipos:</b><br>'
-           + '<span style="font-size:19px; font-weight:700; color:var(--navy)">' + dineroCent(c.precioAnualCompleto) + '</span>'
-           + ' al año <span class="pista" style="display:inline">(' + dineroCent(c.precioMensualCompleto) + ' al mes)</span></div></div>'
+           + ' al año: no está incluido en el Precio anual ni en el Costo anual de arriba. '
+           + 'Con eso incluido, el precio anual completo sería de ' + dineroCent(c.precioAnualCompleto)
+           + ' — ver la tarjeta <b>Precio completo posible</b> arriba.</p>'
          : '')
      + '</div>';
 
