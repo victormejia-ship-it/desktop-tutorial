@@ -22761,6 +22761,20 @@ $('selectorModulo').addEventListener('click', ev=>{
   if(b) irAModulo(b.dataset.modulo);
 });
 
+/* Con trackpad, deslizar dos dedos manda deltaX real y .modulos se mueve
+   solo -es un <nav> con overflow-x:auto-. Con un mouse normal la rueda solo
+   manda deltaY vertical, y ahí no hay nada que desplazar verticalmente: sin
+   esto, la fila de módulos (Resultados…Activos…) era imposible de mover con
+   mouse cuando no cabían todos en pantalla. Se delega en document porque
+   .modulos también existe, sin id, en el portal de cliente. */
+document.addEventListener('wheel', ev=>{
+  const nav = ev.target.closest('.modulos');
+  if(!nav || nav.scrollWidth <= nav.clientWidth) return;
+  if(Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return; /* ya es gesto horizontal nativo */
+  ev.preventDefault();
+  nav.scrollLeft += ev.deltaY;
+}, { passive:false });
+
 $('btnPerfil').addEventListener('click', ()=> modalPerfil());
 
 $('btnAdmin').addEventListener('click', ()=>{
