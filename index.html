@@ -1484,6 +1484,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
 <input type="file" id="archivoCotizacionesExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 <input type="file" id="archivoPolizaExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 <input type="file" id="archivoActivosExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
+<input type="file" id="archivoRefaccionesExcel" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
 
 <script>
 /* =========================================================================
@@ -1997,7 +1998,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[] };
 
 function cargar(){
   try{
@@ -2028,7 +2029,8 @@ function cargar(){
         activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
         personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
         proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
-        gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor) };
+        gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
+        refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2125,7 +2127,8 @@ async function restaurarSnapshotIndexedDB(){
       activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
       personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
       proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
-      gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor) };
+      gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
+      refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -2720,7 +2723,7 @@ function limpiarSesionYDatos(){
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -2917,6 +2920,22 @@ async function listarNube(coleccion, porPagina){
   }while(pagina);
   return salida;
 }
+/* Igual que listarNube, pero SIN PODER tumbar el arranque si a la colección
+   le faltan reglas publicadas en la consola de Firestore (git push despliega
+   el código solo; las reglas se pegan y publican a mano aparte, así que
+   siempre hay una ventana donde el código ya pide una colección nueva y las
+   reglas todavía no están). Un 403 ahí, dentro de un Promise.all normal,
+   tumba TODA la carga para TODOS los usuarios con "ya no tienes acceso" —
+   pasó de verdad con /proveedores y /gastosProveedor (8-sep-2026). Usar esto
+   para cualquier colección que se agregue después a bajarDeLaNube(). */
+async function listarNubeSuave(coleccion, porPagina){
+  try{
+    return await listarNube(coleccion, porPagina);
+  }catch(e){
+    console.warn('No se pudo leer "' + coleccion + '"; se usa lo que ya había en local:', String(e.message || e));
+    return null;
+  }
+}
 /* Para el portal de clientes: trae SOLO los documentos donde `campo == valor`
    (p.ej. clienteId == el suyo). No sirve el "listar todo" de arriba — además
    de traer datos ajenos, las reglas de Firestore que comparan
@@ -3108,12 +3127,13 @@ async function bajarDeLaNube(){
      solo para no perder nada que ya se hubiera subido antes de la fusión con
      Cotizaciones (28-ago-2026, ver migrarServiciosExtrasACotizaciones) — es
      de solo lectura, ya no se le vuelve a escribir. */
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
     listarNube('levantamientos', 60), listarNube('proyectosImagen', 60),
     listarNube('serviciosExtras', 60), listarNube('activos', 60), listarNube('personal', 200),
-    listarNube('proveedores', 100), listarNube('gastosProveedor', 100)
+    listarNubeSuave('proveedores', 100), listarNubeSuave('gastosProveedor', 100),
+    listarNubeSuave('refacciones', 100)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -3132,7 +3152,9 @@ async function bajarDeLaNube(){
             reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento),
             proyectosImagen: im.map(normalizarProyectoImagen), activos: ac.map(normalizarActivo),
             personal: pe.map(normalizarPersona),
-            proveedores: pv.map(normalizarProveedor), gastosProveedor: gp.map(normalizarGastoProveedor) };
+            proveedores: (pv === null ? datos.proveedores : pv.map(normalizarProveedor)),
+            gastosProveedor: (gp === null ? datos.gastosProveedor : gp.map(normalizarGastoProveedor)),
+            refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)) };
   guardarLocal();
   return 'ok';
 }
@@ -3919,6 +3941,92 @@ function guardarGastoProveedor(g, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'gastosProveedor', id:g.id, obj:g });
   anotar(accion || 'editó', 'gasto de proveedor', (g.proveedorNombre || 'Proveedor') + ' — ' + (g.concepto || 'sin concepto'), detalle);
+}
+
+/* ==================== Refacciones (catálogo de piezas por proveedor) ====================
+   Qué pieza vende cada proveedor, a cómo, y su existencia — más el ir y venir
+   de entradas (compras) y salidas (consumo) que la mueven. Vive dentro de
+   Proveedores porque cada refacción es siempre de UN proveedor, igual que un
+   gasto. */
+const TIPO_MOVIMIENTO_REFACCION = ['entrada', 'salida'];
+const ETIQUETA_TIPO_MOVIMIENTO_REFACCION = { entrada:'Entrada', salida:'Salida' };
+
+function refaccionPorId(id){ return datos.refacciones.find(r => r.id === id); }
+function refaccionesDeProveedor(proveedorId){ return datos.refacciones.filter(r => r.proveedorId === proveedorId); }
+
+/* Un movimiento de inventario: entrada (llegó de compra) o salida (se
+   consumió). La cantidad siempre en positivo — el signo lo pone `tipo`, no
+   el número, para no andar leyendo negativos por todos lados. */
+function normalizarMovimientoRefaccion(m){
+  const tipo = TIPO_MOVIMIENTO_REFACCION.includes(m && m.tipo) ? m.tipo : 'entrada';
+  return {
+    id: (m && m.id) || nuevoId(),
+    tipo,
+    cantidad: Math.max(0, Math.round(Number(m && m.cantidad) || 0)),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(m && m.fecha) ? m.fecha : hoyISO(),
+    /* Solo tiene sentido en una entrada: lo que de verdad costó ESA compra,
+       que puede ser distinto del costo de referencia del catálogo si el
+       precio del proveedor cambió. En una salida se deja vacío. */
+    costoUnitario: tipo === 'entrada' ? Math.max(0, Math.round((Number(m && m.costoUnitario) || 0) * 100) / 100) : 0,
+    /* Solo en entrada: liga opcional al gasto de proveedor (factura) que la
+       trajo, para no volver a teclear folio/fecha si ya se capturó allá. */
+    gastoProveedorId: tipo === 'entrada' ? (m && m.gastoProveedorId ? String(m.gastoProveedorId) : '').trim() : '',
+    /* Solo en salida: a qué sitio, cliente o uso se destinó la pieza. */
+    destino: tipo === 'salida' ? (m && m.destino ? String(m.destino) : '').trim() : '',
+    notas: (m && m.notas ? String(m.notas) : '').trim(),
+    quien: (m && m.quien ? String(m.quien) : '').trim()
+  };
+}
+
+function normalizarRefaccion(r){
+  return {
+    id: (r && r.id) || nuevoId(),
+    /* Clave del proveedor para esta pieza — no es un folio propio de
+       Forguard, es el código con el que EL PROVEEDOR la identifica. */
+    codigo: (r && r.codigo ? String(r.codigo) : '').trim(),
+    descripcion: aOracion((r && r.descripcion ? String(r.descripcion) : '').trim()),
+    /* Unidad de medida (PZA, KG, LT…): es un código corto, no prosa —igual
+       que modelo/serie, se deja tal cual se capture, en mayúsculas. */
+    unidad: (r && r.unidad ? String(r.unidad) : 'PZA').trim().toUpperCase().slice(0, 10),
+    /* Costo de REFERENCIA (el más reciente conocido) — cada entrada puede
+       traer el suyo propio si ese día costó distinto, ver
+       normalizarMovimientoRefaccion. */
+    costo: Math.max(0, Math.round((Number(r && r.costo) || 0) * 100) / 100),
+    proveedorId: (r && r.proveedorId ? String(r.proveedorId) : '').trim(),
+    /* Copiado al guardar, mismo criterio que proveedorNombre en un gasto. */
+    proveedorNombre: (r && r.proveedorNombre ? String(r.proveedorNombre) : '').trim(),
+    departamento: aOracion((r && r.departamento ? String(r.departamento) : '').trim()),
+    /* Punto de partida del conteo (normalmente 0; un import puede traer el
+       inventario físico que ya existía en ese momento). La existencia de
+       HOY nunca se guarda: se deriva de esto + movimientos — ver
+       calcularRefaccion(). */
+    existenciaInicial: Math.max(0, Math.round(Number(r && r.existenciaInicial) || 0)),
+    movimientos: (Array.isArray(r && r.movimientos) ? r.movimientos : []).map(normalizarMovimientoRefaccion),
+    /* Una refacción que el proveedor dejó de vender se apaga, no se borra:
+       los movimientos ya registrados siguen apuntando a su id. */
+    activo: r.activo !== false,
+    notas: (r && r.notas ? String(r.notas) : '').trim()
+  };
+}
+
+/* Existencia, entradas y salidas totales — un solo lugar para que el
+   catálogo, el detalle y cualquier reporte digan siempre lo mismo. Mismo
+   criterio que calcularPoliza()/calcularGastoProveedor(): se deriva,
+   nunca se guarda. */
+function calcularRefaccion(r){
+  let entradas = 0, salidas = 0;
+  r.movimientos.forEach(m=>{
+    if(m.tipo === 'entrada') entradas += m.cantidad;
+    else if(m.tipo === 'salida') salidas += m.cantidad;
+  });
+  const existencia = r.existenciaInicial + entradas - salidas;
+  return { entradas, salidas, existencia };
+}
+
+function guardarRefaccion(r, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'refacciones', id:r.id, obj:r });
+  anotar(accion || 'editó', 'refacción', (r.proveedorNombre ? r.proveedorNombre + ' — ' : '') + (r.descripcion || r.codigo || 'sin descripción'), detalle);
 }
 
 function normalizarTecnicoAsignado(t){
@@ -5912,6 +6020,167 @@ async function importarActivosDesdeExcel(archivo){
     });
 }
 
+/* ===================== Importar Refacciones desde Excel =====================
+   Mismo lector sin librerías (leerLibroXlsx) que Activos/Cotizaciones/Pólizas,
+   apuntado a una hoja tipo "INV. GENERAL": un catálogo de piezas con su
+   proveedor, costo y existencia — el formato real que ya se usaba antes de
+   esta app (ver INVENTARIO_REFACCIONES...xlsx). Trae tres columnas candidatas
+   a "existencia actual" (inicial/física/final del periodo del reporte); se
+   prefiere la más reciente de las que sí vengan capturadas. */
+const ALIAS_COLUMNA_REFACCION_XLSX = {
+  codigo: ['CODIGO', 'CÓDIGO'],
+  proveedor: ['PROVEEDOR'],
+  descripcion: ['DESCRIPCION DE EQUIPO', 'DESCRIPCION', 'DESCRIPCIÓN', 'DESCRIPCION DEL EQUIPO', 'DESCRIPCIÓN DEL EQUIPO', 'PRODUCTO'],
+  unidad: ['UD', 'UNIDAD'],
+  costo: ['COSTO'],
+  existenciaFinal: ['INVENTARIO FINAL'],
+  existenciaFisica: ['INVENTARIO FISICO', 'INVENTARIO FÍSICO'],
+  existenciaInicial: ['INVENTARIO INICIAL'],
+  departamento: ['DEPARTAMENTO']
+};
+
+function mapaColumnasRefaccionXlsx(filaEncabezado){
+  const mapa = {};
+  (filaEncabezado || []).forEach((valor, col)=>{
+    const norm = normalizarTextoEncabezadoXlsx(valor);
+    if(!norm) return;
+    for(const campo in ALIAS_COLUMNA_REFACCION_XLSX){
+      if(mapa[campo] !== undefined) continue;
+      if(ALIAS_COLUMNA_REFACCION_XLSX[campo].some(alias => normalizarTextoEncabezadoXlsx(alias) === norm)) mapa[campo] = col;
+    }
+  });
+  return mapa;
+}
+
+/* Busca, en las primeras filas de la hoja, la que sirve de encabezado — la
+   que trae reconocibles "Proveedor" y "Descripción" — para tolerar hojas con
+   un título arriba (como CARATULA en el archivo real, que se salta sola por
+   no traer esas dos columnas). */
+function extraerRefaccionesXlsx(hoja){
+  const filas = hoja.filas || [];
+  for(let f = 0; f < Math.min(filas.length, 5); f++){
+    const mapa = mapaColumnasRefaccionXlsx(filas[f]);
+    if(mapa.proveedor !== undefined && mapa.descripcion !== undefined) return { mapa, filas: filas.slice(f + 1) };
+  }
+  return null;
+}
+
+/* Mismo criterio que vincularOCrearSitioActivoXlsx: si el proveedor ya existe
+   (por nombre) se reusa; si no, se da de alta automáticamente tal cual viene
+   escrito en el Excel — es lo que se pidió explícitamente para esta
+   importación. */
+function vincularOCrearProveedorXlsx(nombreProveedor, cache){
+  const llave = normalizarTextoEncabezadoXlsx(nombreProveedor);
+  if(cache.has(llave)) return cache.get(llave);
+  let prov = datos.proveedores.find(p => normalizarTextoEncabezadoXlsx(p.nombre) === llave);
+  if(!prov){
+    prov = normalizarProveedor({ id: nuevoId(), nombre: nombreProveedor });
+    datos.proveedores.push(prov);
+  }
+  cache.set(llave, prov);
+  return prov;
+}
+
+function filaXlsxARefaccion(fila, mapa, cache){
+  const val = campo => mapa[campo] !== undefined ? fila[mapa[campo]] : undefined;
+  const textoDe = campo => (val(campo) === null || val(campo) === undefined ? '' : String(val(campo)).trim());
+  const descripcion = textoDe('descripcion');
+  const nombreProveedor = textoDe('proveedor');
+  if(!descripcion || !nombreProveedor) return null;
+
+  const prov = vincularOCrearProveedorXlsx(nombreProveedor, cache);
+  const existencia = ['existenciaFinal', 'existenciaFisica', 'existenciaInicial']
+    .map(campo => val(campo)).find(v => v !== null && v !== undefined && String(v).trim() !== '');
+
+  return normalizarRefaccion({
+    id: nuevoId(), codigo: textoDe('codigo'), descripcion,
+    unidad: textoDe('unidad') || 'PZA', costo: Number(val('costo')) || 0,
+    proveedorId: prov.id, proveedorNombre: prov.nombre,
+    departamento: textoDe('departamento'),
+    existenciaInicial: Number(existencia) || 0
+  });
+}
+
+/* Igual criterio que llaveActivoImportadoXlsx: proveedor+código si trae
+   código (lo normal en este archivo), o proveedor+descripción si no. */
+function llaveRefaccionImportadaXlsx(r){
+  return r.codigo
+    ? 'C:' + r.proveedorId + '|' + normalizarTextoEncabezadoXlsx(r.codigo)
+    : 'D:' + r.proveedorId + '|' + normalizarTextoEncabezadoXlsx(r.descripcion);
+}
+
+async function importarRefaccionesDesdeExcel(archivo){
+  let hojas;
+  try{ hojas = await leerLibroXlsx(archivo); }
+  catch(e){ aviso('No se pudo leer el archivo: ' + e.message, true); return; }
+
+  let extraido = null;
+  for(const hoja of hojas){ extraido = extraerRefaccionesXlsx(hoja); if(extraido) break; }
+  if(!extraido){
+    aviso('No se reconoció un catálogo de refacciones en el archivo — faltan las columnas "Proveedor" y "Descripción" en el encabezado.', true);
+    return;
+  }
+
+  const proveedoresAntes = new Set(datos.proveedores.map(p => p.id));
+  const cache = new Map();
+  const candidatos = [];
+  let vacias = 0;
+  extraido.filas.forEach(fila=>{
+    if(!fila.some(v => v !== null && v !== undefined && String(v).trim() !== '')){ vacias++; return; }
+    const rf = filaXlsxARefaccion(fila, extraido.mapa, cache);
+    if(rf) candidatos.push(rf);
+  });
+
+  if(!candidatos.length){ aviso('No se encontró ninguna refacción capturada en el archivo.', true); return; }
+
+  const yaExisten = new Set(datos.refacciones.map(llaveRefaccionImportadaXlsx));
+  const nuevas = [], duplicadas = [];
+  candidatos.forEach(rf=>{
+    const llave = llaveRefaccionImportadaXlsx(rf);
+    if(yaExisten.has(llave)) duplicadas.push(rf);
+    else { yaExisten.add(llave); nuevas.push(rf); }
+  });
+
+  /* Proveedores que vincularOCrearProveedorXlsx dio de alta durante ESTA
+     lectura (no estaban en datos.proveedores antes de empezar) — hay que
+     subirlos a la nube junto con las refacciones nuevas. Un proveedor recién
+     creado nunca puede salir "duplicado" (su id es nuevo, no hay nada previo
+     en datos.refacciones que lo referencie), así que si terminó sin ninguna
+     refacción nueva es porque ninguna de sus filas se pudo leer — no hace
+     falta filtrar aparte. */
+  const proveedoresCreados = Array.from(cache.values()).filter(p => !proveedoresAntes.has(p.id));
+
+  if(!nuevas.length){
+    aviso('Las ' + candidatos.length + ' ' + plural(candidatos.length,'refacción','refacciones') + ' del archivo ya estaban dadas de alta (mismo proveedor y código).', true);
+    return;
+  }
+
+  confirmar('Importar refacciones desde Excel',
+      'Se van a dar de alta <b>' + nuevas.length + '</b> ' + plural(nuevas.length,'refacción nueva','refacciones nuevas') + '.'
+    + (duplicadas.length ? '<br>' + duplicadas.length + ' ' + plural(duplicadas.length,'fila se omitió','filas se omitieron') + ' por ya existir (mismo proveedor y código).' : '')
+    + (vacias ? '<br>' + vacias + ' ' + plural(vacias,'fila vacía','filas vacías') + ' se ignoraron.' : '')
+    + (proveedoresCreados.length ? '<br><br>' + proveedoresCreados.length + ' ' + plural(proveedoresCreados.length,'proveedor se dará','proveedores se darán') + ' de alta automáticamente: '
+        + proveedoresCreados.map(p => esc(p.nombre)).join(', ') + '.' : ''),
+    'Sí, importar', ()=>{
+      nuevas.forEach(rf => datos.refacciones.push(rf));
+      guardarLocal();
+      anotar('importó', 'refacciones', nuevas.length + ' desde Excel');
+      const LOTE = 150;
+      (async()=>{
+        for(let i = 0; i < proveedoresCreados.length; i += LOTE){
+          proveedoresCreados.slice(i, i + LOTE).forEach(p => encolar({ tipo:'poner', coleccion:'proveedores', id:p.id, obj:p }));
+          await new Promise(res => setTimeout(res, 0));
+        }
+        for(let i = 0; i < nuevas.length; i += LOTE){
+          nuevas.slice(i, i + LOTE).forEach(rf => encolar({ tipo:'poner', coleccion:'refacciones', id:rf.id, obj:rf }));
+          await new Promise(res => setTimeout(res, 0));
+        }
+      })();
+      irARefacciones('todos');
+      aviso(nuevas.length + ' ' + plural(nuevas.length,'refacción importada','refacciones importadas') + '.');
+    });
+}
+
 /* Cuánto pesan, en bytes de cadena dataURL, los respaldos de costo ya
    guardados en una cotización — para saber si aún hay cupo antes de sumar
    uno más (ver RESPALDO_PRESUPUESTO_TOTAL). */
@@ -7447,12 +7716,15 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
-                 levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null,
+                 levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null, refaccionId:null,
                  /* Qué estatus de gasto se está viendo en el rastreo de Proveedores
                     ('todos', o una de ESTATUS_GASTO_PROVEEDOR) — misma naturaleza
                     que `filtro` de arriba, nada más aparte para no pisarse con el
                     de Activos/Reportes. */
                  filtroGastoProveedor:'todos',
+                 /* Igual que filtroGastoProveedor pero para el catálogo de
+                    refacciones: 'todos' o el id de un proveedor puntual. */
+                 filtroProveedorRefaccion:'todos',
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  /* Qué fuentes de ingreso están "apagadas" en las gráficas de
@@ -7471,7 +7743,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
                  vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas', vistaProveedores:'tarjetas',
-                 vistaGastosProveedor:'tarjetas',
+                 vistaGastosProveedor:'tarjetas', vistaRefacciones:'tarjetas',
                  /* Orden de la lista de pólizas: por qué columna y en qué
                     sentido. Misma naturaleza que vistaPolizas de arriba —
                     preferencia de pantalla, no dato — así que aplica igual en
@@ -7583,7 +7855,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -7721,6 +7993,21 @@ function entrarProveedor(id){
   if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'proveedor'; estado.proveedorId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irARefacciones(proveedorPresetId){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'refacciones'; estado.refaccionId = null;
+  estado.busca = ''; estado.filtroProveedorRefaccion = proveedorPresetId || 'todos';
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarRefaccion(id){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'refaccion'; estado.refaccionId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -11276,6 +11563,7 @@ function vistaGastosProveedor(){
      +   ' · ' + numero(datos.proveedores.length) + ' ' + plural(datos.proveedores.length,'proveedor','proveedores') + '</p>'
      + '</div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-proveedores">' + ICONO.edificio + 'Catálogo de proveedores</button>'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-refacciones">' + ICONO.codigoBarras + 'Refacciones</button>'
      +   (puedeGestionarProveedores()
           ? '<button type="button" class="btn btn-primario" data-accion="nuevo-gasto-proveedor">' + ICONO.mas + 'Nuevo gasto</button>'
           : '')
@@ -11448,6 +11736,7 @@ function vistaProveedores(){
      +   '<h2>Catálogo de proveedores</h2>'
      +   '<p>' + numero(datos.proveedores.length) + ' ' + plural(datos.proveedores.length,'proveedor','proveedores') + '</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-refacciones">' + ICONO.codigoBarras + 'Refacciones</button>'
      +   (puedeGestionarProveedores()
           ? '<button type="button" class="btn btn-primario" data-accion="nuevo-proveedor">' + ICONO.mas + 'Nuevo proveedor</button>'
           : '')
@@ -11550,6 +11839,11 @@ function vistaProveedorDetalle(){
      +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(p.notas || 'Sin notas.') + '</p>'
      + '</div>';
 
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Refacciones de este proveedor</h3>'
+     +   '<p>' + numero(refaccionesDeProveedor(p.id).length) + ' ' + plural(refaccionesDeProveedor(p.id).length,'refacción','refacciones') + ' en catálogo</p></div>'
+     +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-refacciones" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.codigoBarras + 'Ver refacciones →</button></div>'
+     + '</div></div>';
+
   h += '<div class="bloque-cabeza" style="margin-bottom:10px"><div><h3>Gastos de este proveedor</h3></div>'
      +   (puedeGestionarProveedores()
           ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="nuevo-gasto-proveedor" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.mas + 'Nuevo gasto</button></div>'
@@ -11567,6 +11861,342 @@ function vistaProveedorDetalle(){
   h += '</div>';
 
   return h;
+}
+
+function botonRegresarRefacciones(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-refacciones">'
+       + ICONO.atras + 'Regresar a refacciones</button></div>';
+}
+
+/* Mismo criterio que resumirGastosProveedor: un solo lugar que suma lo que
+   las tarjetas y los KPIs necesitan, para que catálogo global y detalle por
+   proveedor siempre digan lo mismo. */
+function resumenRefacciones(lista){
+  let piezas = 0, valor = 0, agotadas = 0;
+  lista.forEach(r=>{
+    const c = calcularRefaccion(r);
+    piezas += c.existencia;
+    valor += c.existencia * r.costo;
+    if(c.existencia <= 0) agotadas++;
+  });
+  return { piezas, valor, agotadas };
+}
+
+function tarjetaRefaccion(r, i){
+  const c = calcularRefaccion(r);
+  const agotada = c.existencia <= 0;
+  let chips = agotada ? '<span class="insignia i-error">Agotada</span>' : '<span class="insignia i-ok">' + numero(c.existencia) + ' en existencia</span>';
+  if(!r.activo) chips += '<span class="insignia i-neutro">Inactiva</span>';
+
+  return '<div class="tarjeta tarjeta-clic' + (agotada ? ' t-error' : '') + '" data-refaccion="' + esc(r.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+       +   '<div class="t-cabeza">'
+       +     '<div class="t-avatar">' + esc(iniciales(r.descripcion || r.codigo || 'Refacción')) + '</div>'
+       +     '<div style="flex:1; min-width:0">'
+       +       '<div class="t-nombre">' + esc(r.descripcion || 'Sin descripción') + '</div>'
+       +       '<div class="t-sub">' + esc(r.codigo || 'Sin código') + ' · ' + esc(r.proveedorNombre || 'Sin proveedor') + '</div>'
+       +     '</div>'
+       +   '</div>'
+       +   '<div class="t-chips">' + chips + '</div>'
+       +   '<div class="t-datos">'
+       +     '<div class="t-dato"><div class="d-label">Costo</div><div class="d-valor">' + dineroCent(r.costo) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Valor en existencia</div><div class="d-valor">' + dinero(c.existencia * r.costo) + '</div></div>'
+       +   '</div>'
+       +   '<div class="t-pie"><span class="pista">' + esc(r.unidad) + (r.departamento ? ' · ' + esc(r.departamento) : '') + '</span><span class="espacio"></span>'
+       +     '<button type="button" class="btn btn-suave btn-mini" data-refaccion="' + esc(r.id) + '">Ver detalle →</button>'
+       +   '</div>'
+       + '</div>';
+}
+
+function tablaRefacciones(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:1000px"><thead><tr>'
+       +   '<th>Código</th><th>Descripción</th><th>Proveedor</th><th>Unidad</th><th>Costo</th><th>Existencia</th><th>Valor</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(r=>{
+           const c = calcularRefaccion(r);
+           return '<tr class="fila-clic" data-refaccion="' + esc(r.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(r.codigo || '—') + '</td>'
+                +   '<td>' + esc(r.descripcion || '—') + (r.activo ? '' : ' <span class="pista">(inactiva)</span>') + '</td>'
+                +   '<td>' + esc(r.proveedorNombre || '—') + '</td>'
+                +   '<td>' + esc(r.unidad) + '</td>'
+                +   '<td>' + dineroCent(r.costo) + '</td>'
+                +   '<td' + (c.existencia <= 0 ? ' style="color:var(--error)"' : '') + '>' + numero(c.existencia) + '</td>'
+                +   '<td>' + dinero(c.existencia * r.costo) + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
+/* Catálogo global de refacciones — de todos los proveedores juntos, con
+   filtro para acotar a uno solo (así llega quien entra desde "Ver
+   refacciones →" del detalle de un proveedor). */
+function vistaRefacciones(){
+  let h = botonRegresarProveedores();
+  const proveedoresOrd = datos.proveedores.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Refacciones</h2>'
+     +   '<p>' + numero(datos.refacciones.length) + ' ' + plural(datos.refacciones.length,'refacción','refacciones') + ' en catálogo</p>'
+     + '</div><div class="acciones">'
+     +   (puedeGestionarProveedores()
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-refacciones-excel">' + ICONO.excel + 'Importar de Excel</button>'
+          + '<button type="button" class="btn btn-primario" data-accion="nueva-refaccion">' + ICONO.mas + 'Nueva refacción</button>'
+          : '')
+     + '</div></div>';
+
+  if(!datos.refacciones.length){
+    h += vistaVacia('codigoBarras', 'Todavía no hay refacciones en el catálogo',
+          'Da de alta las piezas que surte cada proveedor, con su costo y existencia, o impórtalas de un Excel.',
+          puedeGestionarProveedores() ? 'nueva-refaccion' : '', 'Nueva refacción');
+    return h;
+  }
+
+  const r = resumenRefacciones(datos.refacciones);
+  h += '<div class="kpis">'
+     + tarjetaKpi('Piezas en existencia', numero(r.piezas), numero(datos.refacciones.length) + ' ' + plural(datos.refacciones.length,'código','códigos'))
+     + tarjetaKpi('Valor del inventario', dinero(r.valor), 'Existencia × costo de cada pieza')
+     + tarjetaKpi('Agotadas', numero(r.agotadas), r.agotadas ? 'Sin existencia disponible' : 'Todo con existencia', r.agotadas ? 'k-alerta' : '')
+     + '</div>';
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaRefaccion" placeholder="Buscar por código, descripción o proveedor…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroProveedorRefaccion">'
+     +     '<option value="todos"' + (estado.filtroProveedorRefaccion === 'todos' ? ' selected' : '') + '>Todos los proveedores</option>'
+     +     proveedoresOrd.map(p => '<option value="' + esc(p.id) + '"' + (estado.filtroProveedorRefaccion === p.id ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('')
+     +   '</select>'
+     +   controlAlternaVista('vistaRefacciones')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.refacciones.filter(r=>{
+    if(estado.filtroProveedorRefaccion !== 'todos' && r.proveedorId !== estado.filtroProveedorRefaccion) return false;
+    if(q){
+      const campos = [r.codigo, r.descripcion, r.proveedorNombre, r.departamento];
+      if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
+    }
+    return true;
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ninguna refacción coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenados = lista.slice().sort((a,b)=> (a.descripcion || a.codigo || '').localeCompare(b.descripcion || b.codigo || '','es'));
+  if(estado.vistaRefacciones === 'tabla') return h + tablaRefacciones(ordenados);
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((r,i)=> tarjetaRefaccion(r,i)).join('') + '</div>';
+  return h;
+}
+
+/* Detalle de una refacción: existencia derivada y su historial completo de
+   movimientos (entradas y salidas), más recientes primero. */
+function vistaRefaccion(){
+  const r = refaccionPorId(estado.refaccionId);
+  if(!r){ estado.vista = 'refacciones'; return vistaRefacciones(); }
+  const c = calcularRefaccion(r);
+  const puede = puedeGestionarProveedores();
+  const agotada = c.existencia <= 0;
+
+  let h = botonRegresarRefacciones();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(r.descripcion || 'Refacción') + '</h2>'
+     +   '<p>' + esc(r.codigo || 'Sin código') + ' · ' + esc(r.proveedorNombre || 'Sin proveedor') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   (agotada ? '<span class="insignia i-error">Agotada</span>' : '<span class="insignia i-ok">Con existencia</span>')
+     +   (r.activo ? '' : '<span class="insignia i-neutro">Inactiva</span>')
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Existencia', numero(c.existencia), r.unidad, agotada ? 'k-alerta' : '')
+     + tarjetaKpi('Costo unitario', dineroCent(r.costo), '')
+     + tarjetaKpi('Valor en existencia', dinero(c.existencia * r.costo), '')
+     + tarjetaKpi('Movimientos', numero(r.movimientos.length), c.entradas + ' entradas · ' + c.salidas + ' salidas')
+     + '</div>';
+
+  if(r.departamento || r.notas){
+    h += '<div class="bloque">'
+       +   (r.departamento ? '<div class="bloque-cabeza"><div><h3>Departamento</h3></div></div><p class="pista" style="margin:0 0 10px">' + esc(r.departamento) + '</p>' : '')
+       +   '<div class="bloque-cabeza"><div><h3>Notas</h3></div></div>'
+       +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(r.notas || 'Sin notas.') + '</p>'
+       + '</div>';
+  }
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Movimientos</h3><p>Entradas (compras) y salidas (consumo) que mueven la existencia.</p></div>'
+     +   (puede
+          ? '<div class="acciones">'
+          +   '<button type="button" class="btn btn-suave btn-mini" data-accion="registrar-entrada-refaccion">' + ICONO.mas + 'Registrar entrada</button>'
+          +   '<button type="button" class="btn btn-suave btn-mini" data-accion="registrar-salida-refaccion">' + ICONO.mas + 'Registrar salida</button>'
+          + '</div>'
+          : '')
+     + '</div>'
+     +   (r.movimientos.length
+          ? '<div class="lista-seguimiento">' + r.movimientos.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha)).map(m=>
+              '<div class="seguimiento-item">'
+              +   '<span class="insignia i-' + (m.tipo === 'entrada' ? 'ok' : 'neutro') + '">' + esc(ETIQUETA_TIPO_MOVIMIENTO_REFACCION[m.tipo]) + '</span> '
+              +   '<b>' + (m.tipo === 'entrada' ? '+' : '−') + numero(m.cantidad) + '</b> '
+              +   '<span class="pista">' + fmtFecha(m.fecha)
+              +     (m.tipo === 'entrada' && m.costoUnitario ? ' · ' + dineroCent(m.costoUnitario) + ' c/u' : '')
+              +     (m.tipo === 'salida' && m.destino ? ' · ' + esc(m.destino) : '')
+              +     (m.quien ? ' · ' + esc(m.quien) : '')
+              +     (m.notas ? ' · ' + esc(m.notas) : '')
+              +   '</span>'
+              +   (puede ? '<button type="button" class="btn btn-suave btn-mini" style="margin-left:8px" data-accion="quitar-movimiento-refaccion" data-movimiento="' + esc(m.id) + '">' + ICONO.basura + '</button>' : '')
+              + '</div>'
+            ).join('') + '</div>'
+          : '<p class="pista" style="margin:0">Todavía no hay movimientos registrados.</p>')
+     + '</div>';
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-refaccion">' + ICONO.lapiz + 'Editar</button>';
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-refaccion">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: refacción ---------------------------- */
+function modalRefaccion(id, proveedorPresetId){
+  const r = id ? refaccionPorId(id) : null;
+
+  if(!datos.proveedores.length){
+    aviso('Primero da de alta un proveedor: la refacción cuelga de uno.', true);
+    return;
+  }
+
+  const proveedoresOrd = datos.proveedores.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const proveedorSel = r ? r.proveedorId : (proveedorPresetId || '');
+
+  const cuerpo =
+      '<div class="campo"><label>Proveedor *</label><select id="rfProveedor">'
+    +   (!proveedorSel ? '<option value="">— Elige uno —</option>' : '')
+    +   proveedoresOrd.map(p => '<option value="' + esc(p.id) + '"' + (p.id === proveedorSel ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Código</label>'
+    +     '<input type="text" id="rfCodigo" placeholder="Ej. MAL090" value="' + esc(r ? r.codigo : '') + '"></div>'
+    +   '<div class="campo"><label>Unidad</label>'
+    +     '<input type="text" id="rfUnidad" placeholder="PZA" value="' + esc(r ? r.unidad : 'PZA') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Descripción *</label>'
+    +   '<input type="text" id="rfDescripcion" placeholder="Ej. Aceite 3 en 1" value="' + esc(r ? r.descripcion : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Costo *</label>'
+    +     '<input type="number" id="rfCosto" min="0" step="0.01" value="' + (r && r.costo ? r.costo : '') + '"></div>'
+    +   '<div class="campo"><label>Existencia inicial</label>'
+    +     '<input type="number" id="rfExistenciaInicial" min="0" step="1" value="' + (r ? r.existenciaInicial : 0) + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Departamento (opcional)</label>'
+    +   '<input type="text" id="rfDepartamento" placeholder="Ej. Mantenimiento" value="' + esc(r ? r.departamento : '') + '"></div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="rfNotas" placeholder="Cualquier detalle útil…">' + esc(r ? r.notas : '') + '</textarea></div>'
+    + (r ? '<label class="casilla"><input type="checkbox" id="rfActiva"' + (r.activo ? ' checked' : '') + '> Refacción activa</label>' : '')
+    + (r ? '<div class="pista">La existencia inicial es el punto de partida antes de los movimientos ya registrados; cambiarla ajusta la existencia actual.</div>' : '');
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (r ? 'Guardar cambios' : 'Registrar refacción') + '</button>';
+
+  abrirModal(r ? 'Editar refacción' : 'Nueva refacción', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const proveedorId = $('rfProveedor').value;
+    if(!proveedorId){ aviso('Elige un proveedor.', true); return; }
+    const descripcion = $('rfDescripcion').value.trim();
+    if(!descripcion){ $('rfDescripcion').setAttribute('aria-invalid','true'); $('rfDescripcion').focus(); aviso('La refacción necesita una descripción.', true); return; }
+    const costo = Number($('rfCosto').value) || 0;
+    if(costo <= 0){ $('rfCosto').setAttribute('aria-invalid','true'); aviso('Captura un costo mayor a cero.', true); return; }
+    const prov = proveedorPorId(proveedorId);
+
+    const datosComunes = {
+      proveedorId, proveedorNombre: prov ? prov.nombre : '',
+      codigo: $('rfCodigo').value.trim(), descripcion, unidad: $('rfUnidad').value.trim() || 'PZA',
+      costo, existenciaInicial: Number($('rfExistenciaInicial').value) || 0,
+      departamento: $('rfDepartamento').value.trim(), notas: $('rfNotas').value.trim()
+    };
+    if(r) datosComunes.activo = $('rfActiva') ? $('rfActiva').checked : true;
+
+    let reg;
+    if(r){
+      Object.assign(r, datosComunes);
+      reg = normalizarRefaccion(r);
+      Object.assign(r, reg);
+    }else{
+      reg = normalizarRefaccion(Object.assign({ id:nuevoId() }, datosComunes));
+      datos.refacciones.push(reg);
+    }
+    guardarRefaccion(reg, r ? 'editó' : 'registró');
+    cerrarModal();
+    entrarRefaccion(reg.id);
+    aviso(r ? 'Refacción actualizada.' : 'Refacción registrada.');
+  };
+}
+
+/* --------------------- Modal: movimiento (entrada/salida) --------------------- */
+function modalMovimientoRefaccion(refaccionId, tipo){
+  const r = refaccionPorId(refaccionId);
+  if(!r) return;
+  if(!TIPO_MOVIMIENTO_REFACCION.includes(tipo)) return;
+  const c = calcularRefaccion(r);
+  const esEntrada = tipo === 'entrada';
+  const gastosDelProveedor = gastosDeProveedor(r.proveedorId).slice().sort((a,b)=> (b.fecha || '').localeCompare(a.fecha || ''));
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Existencia actual: <b>' + numero(c.existencia) + ' ' + esc(r.unidad) + '</b>.</p>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Cantidad *</label>'
+    +     '<input type="number" id="mvCantidad" min="1" step="1" value=""></div>'
+    +   '<div class="campo"><label>Fecha *</label>'
+    +     '<input type="date" id="mvFecha" value="' + hoyISO() + '"></div>'
+    + '</div>'
+    + (esEntrada
+       ? '<div class="fila2">'
+       +   '<div class="campo"><label>Costo unitario</label>'
+       +     '<input type="number" id="mvCosto" min="0" step="0.01" value="' + (r.costo || '') + '"></div>'
+       +   '<div class="campo"><label>Gasto/factura ligada (opcional)</label><select id="mvGasto">'
+       +     '<option value="">— Ninguno —</option>'
+       +     gastosDelProveedor.map(g => '<option value="' + esc(g.id) + '">' + esc(g.folio || g.concepto || 'Sin folio') + ' — ' + fmtFecha(g.fecha) + '</option>').join('')
+       +   '</select></div>'
+       + '</div>'
+       : '<div class="campo"><label>Destino (opcional)</label>'
+       +   '<input type="text" id="mvDestino" placeholder="Sitio, equipo o quién se la llevó"></div>')
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Quién lo registra (opcional)</label>'
+    +     '<input type="text" id="mvQuien" value="' + esc(sesion.nombre || '') + '"></div>'
+    +   '<div class="campo"><label>Notas (opcional)</label>'
+    +     '<input type="text" id="mvNotas" placeholder="Cualquier detalle útil…"></div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Registrar ' + (esEntrada ? 'entrada' : 'salida') + '</button>';
+
+  abrirModal(esEntrada ? 'Registrar entrada' : 'Registrar salida', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const cantidad = Math.round(Number($('mvCantidad').value) || 0);
+    if(cantidad <= 0){ $('mvCantidad').setAttribute('aria-invalid','true'); aviso('Captura una cantidad mayor a cero.', true); return; }
+    if(!esEntrada && cantidad > c.existencia){
+      aviso('No hay existencia suficiente: solo quedan ' + numero(c.existencia) + ' ' + r.unidad + '.', true);
+      return;
+    }
+
+    const mov = normalizarMovimientoRefaccion({
+      tipo, cantidad, fecha: $('mvFecha').value || hoyISO(),
+      costoUnitario: esEntrada ? (Number($('mvCosto').value) || 0) : 0,
+      gastoProveedorId: esEntrada ? $('mvGasto').value : '',
+      destino: esEntrada ? '' : $('mvDestino').value.trim(),
+      quien: $('mvQuien').value.trim(), notas: $('mvNotas').value.trim()
+    });
+    r.movimientos.push(mov);
+    guardarRefaccion(r, esEntrada ? 'registró una entrada de' : 'registró una salida de',
+      numero(cantidad) + ' ' + r.unidad + (esEntrada ? ' de ' : ' de ') + (r.descripcion || r.codigo || 'refacción'));
+    cerrarModal();
+    render();
+    aviso(esEntrada ? 'Entrada registrada.' : 'Salida registrada.');
+  };
 }
 
 /* ---------------------------- Modal: proveedor ---------------------------- */
@@ -14641,7 +15271,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -14661,6 +15291,8 @@ function render(){
     : estado.modulo === 'proveedores'  ? (estado.vista === 'gasto-proveedor' ? vistaGastoProveedor()
                                     : estado.vista === 'proveedor' ? vistaProveedorDetalle()
                                     : estado.vista === 'proveedores' ? vistaProveedores()
+                                    : estado.vista === 'refaccion' ? vistaRefaccion()
+                                    : estado.vista === 'refacciones' ? vistaRefacciones()
                                     : vistaGastosProveedor())
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
@@ -14716,6 +15348,13 @@ function render(){
   }
   const bpPv = $('buscaProveedor');
   if(bpPv) bpPv.addEventListener('input', ()=>{ estado.busca = bpPv.value; renderConservandoFoco(bpPv, 'buscaProveedor'); });
+  const bpRf = $('buscaRefaccion');
+  if(bpRf){
+    bpRf.addEventListener('input', ()=>{ estado.busca = bpRf.value; renderConservandoFoco(bpRf, 'buscaRefaccion'); });
+    const fpRf = $('filtroProveedorRefaccion');
+    fpRf.value = estado.filtroProveedorRefaccion;
+    fpRf.addEventListener('change', ()=>{ estado.filtroProveedorRefaccion = fpRf.value; render(); });
+  }
   /* Subir evidencia directo desde el detalle del activo, sin abrir el modal
      completo de edición — mismo criterio que aeR (Reportes) arriba. */
   const aeA = $('archivoEvidenciaActivo');
@@ -19720,6 +20359,34 @@ $('vista').addEventListener('click', ev=>{
       guardarGastoProveedor(gp, 'quitó un documento de', gp.proveedorNombre || 'un gasto');
       render(); aviso('Documento eliminado.');
     }
+    else if(a === 'ir-refacciones') irARefacciones(acc.dataset.proveedorPreset || 'todos');
+    else if(a === 'nueva-refaccion'){ if(exigirGestionProveedores()) modalRefaccion(null, estado.filtroProveedorRefaccion !== 'todos' ? estado.filtroProveedorRefaccion : null); }
+    else if(a === 'editar-refaccion'){ if(exigirGestionProveedores()) modalRefaccion(estado.refaccionId); }
+    else if(a === 'borrar-refaccion'){
+      if(!exigirAdmin('eliminar una refacción')) return;
+      const rf = refaccionPorId(estado.refaccionId);
+      if(!rf) return;
+      confirmar('Eliminar refacción',
+        'Se va a eliminar <b>' + esc(rf.descripcion || rf.codigo || 'esta refacción') + '</b> y todo su historial de movimientos. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.refacciones = datos.refacciones.filter(x => x.id !== rf.id);
+          borrarRegistro('refacciones', rf.id);
+          anotar('eliminó', 'refacción', rf.descripcion || rf.codigo || 'sin descripción');
+          irARefacciones('todos');
+          aviso('Refacción eliminada.');
+        });
+    }
+    else if(a === 'registrar-entrada-refaccion'){ if(exigirGestionProveedores()) modalMovimientoRefaccion(estado.refaccionId, 'entrada'); }
+    else if(a === 'registrar-salida-refaccion'){ if(exigirGestionProveedores()) modalMovimientoRefaccion(estado.refaccionId, 'salida'); }
+    else if(a === 'quitar-movimiento-refaccion'){
+      if(!exigirGestionProveedores()) return;
+      const rf = refaccionPorId(estado.refaccionId);
+      if(!rf) return;
+      rf.movimientos = rf.movimientos.filter(x => x.id !== acc.dataset.movimiento);
+      guardarRefaccion(rf, 'quitó un movimiento de', rf.descripcion || rf.codigo || 'una refacción');
+      render(); aviso('Movimiento eliminado.');
+    }
+    else if(a === 'importar-refacciones-excel'){ if(exigirGestionProveedores()) $('archivoRefaccionesExcel').click(); }
     else if(a === 'nueva-persona'){ if(exigirGestionPersonal()) modalPersona(null); }
     else if(a === 'ir-levantamientos') irALevantamientos();
     else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
@@ -20111,6 +20778,9 @@ $('vista').addEventListener('click', ev=>{
   const tarPv = t.closest('[data-proveedor]');
   if(tarPv){ entrarProveedor(tarPv.dataset.proveedor); return; }
 
+  const tarRf = t.closest('[data-refaccion]');
+  if(tarRf){ entrarRefaccion(tarRf.dataset.refaccion); return; }
+
   /* El organigrama no tiene una vista de detalle aparte: la tarjeta/nodo
      abre directo el modal de edición, igual que "editar" en cualquier otro
      módulo — por eso pasa por exigirGestionPersonal() en vez de un simple
@@ -20226,6 +20896,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarGp){ ev.preventDefault(); entrarGastoProveedor(tarGp.dataset.gastoProveedor); return; }
   const tarPv = ev.target.closest('[data-proveedor]');
   if(tarPv){ ev.preventDefault(); entrarProveedor(tarPv.dataset.proveedor); return; }
+  const tarRf = ev.target.closest('[data-refaccion]');
+  if(tarRf){ ev.preventDefault(); entrarRefaccion(tarRf.dataset.refaccion); return; }
   const tarPer = ev.target.closest('[data-persona]');
   if(tarPer){ ev.preventDefault(); if(exigirGestionPersonal()) modalPersona(tarPer.dataset.persona); return; }
   const tarL = ev.target.closest('[data-levantamiento]');
@@ -20310,8 +20982,9 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   activos: (Array.isArray(d.activos) ? d.activos : datos.activos).map(normalizarActivo),
                   personal: (Array.isArray(d.personal) ? d.personal : datos.personal).map(normalizarPersona),
                   proveedores: (Array.isArray(d.proveedores) ? d.proveedores : datos.proveedores).map(normalizarProveedor),
-                  gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : datos.gastosProveedor).map(normalizarGastoProveedor) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
+                  gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : datos.gastosProveedor).map(normalizarGastoProveedor),
+                  refacciones: (Array.isArray(d.refacciones) ? d.refacciones : datos.refacciones).map(normalizarRefaccion) };
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
@@ -20374,6 +21047,14 @@ $('archivoActivosExcel').addEventListener('change', async ev=>{
   if(!archivo) return;
   if(!exigirGestionActivos()) return;
   await importarActivosDesdeExcel(archivo);
+});
+
+$('archivoRefaccionesExcel').addEventListener('change', async ev=>{
+  const archivo = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!archivo) return;
+  if(!exigirGestionProveedores()) return;
+  await importarRefaccionesDesdeExcel(archivo);
 });
 
 /* ======================= GENERADOR DE ARCHIVO XLSX =======================
@@ -21104,7 +21785,7 @@ function salirSilencioso(tambienLosDatos){
   if(tambienLosDatos){
     datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
     sincronizado = false;
   }
 }

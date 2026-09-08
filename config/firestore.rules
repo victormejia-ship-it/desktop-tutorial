@@ -339,6 +339,11 @@ service cloud.firestore {
       allow create, update: if puedeEditar();
       allow delete: if esAdmin();
     }
+    match /refacciones/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create, update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
 
     /* --- Organigrama (directorio de personal) ---
        Décimo módulo: el directorio del personal de la empresa, tenga o no
