@@ -4023,6 +4023,48 @@ function calcularRefaccion(r){
   return { entradas, salidas, existencia };
 }
 
+/* Mismo derivado que calcularRefaccion(), acotado a UN mes ('AAAA-MM') — para
+   el cierre mensual: existencia con la que arrancó el mes, lo que entró y
+   salió durante él, y con la que cerró. Nunca se guarda un "cierre" aparte:
+   como toda la app, se recalcula de los movimientos cada vez, así que jamás
+   se puede desalinear del catálogo. Las entradas valen a su costo de compra
+   (costoUnitario, que puede variar mes a mes); las salidas al costo actual
+   de la refacción, por no cargar con un costo histórico por movimiento. */
+function calcularRefaccionEnMes(r, mes){
+  let antesEntradas = 0, antesSalidas = 0, entradas = 0, salidas = 0, valorEntradas = 0, valorSalidas = 0;
+  r.movimientos.forEach(m=>{
+    const mesMov = m.fecha.slice(0,7);
+    if(mesMov < mes){
+      if(m.tipo === 'entrada') antesEntradas += m.cantidad; else antesSalidas += m.cantidad;
+    }else if(mesMov === mes){
+      if(m.tipo === 'entrada'){ entradas += m.cantidad; valorEntradas += m.cantidad * m.costoUnitario; }
+      else { salidas += m.cantidad; valorSalidas += m.cantidad * r.costo; }
+    }
+  });
+  const existenciaInicio = r.existenciaInicial + antesEntradas - antesSalidas;
+  const existenciaFin = existenciaInicio + entradas - salidas;
+  return { existenciaInicio, entradas, salidas, existenciaFin, valorEntradas, valorSalidas };
+}
+
+/* "AAAA-MM" (el mes actual si no se le pasa nada) → una fecha real DENTRO de
+   ese mes, para sugerir en el formulario de entrada/salida cuando se captura
+   desde el cierre: hoy si es el mes en curso, el último día del mes si es
+   uno ya cerrado (capturar algo de agosto con fecha de hoy en septiembre
+   correría ese movimiento al mes equivocado en el propio cierre). */
+function fechaDentroDeMes(mes){
+  const actual = hoyISO().slice(0,7);
+  if(!mes || mes === actual) return hoyISO();
+  const [a, m] = mes.split('-').map(Number);
+  const ultimoDia = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  return mes + '-' + String(ultimoDia).padStart(2,'0');
+}
+
+function etiquetaMes(mes){
+  const [a, m] = (mes || '').split('-').map(Number);
+  if(!a || !m) return '';
+  return MES_LARGO[m-1][0].toUpperCase() + MES_LARGO[m-1].slice(1) + ' ' + a;
+}
+
 function guardarRefaccion(r, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'refacciones', id:r.id, obj:r });
@@ -7725,6 +7767,9 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                  /* Igual que filtroGastoProveedor pero para el catálogo de
                     refacciones: 'todos' o el id de un proveedor puntual. */
                  filtroProveedorRefaccion:'todos',
+                 /* Qué mes se ve en el cierre mensual de refacciones
+                    ('AAAA-MM'). Empieza en el mes en curso. */
+                 mesCierreRefacciones: hoyISO().slice(0,7),
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  /* Qué fuentes de ingreso están "apagadas" en las gráficas de
@@ -8008,6 +8053,14 @@ function entrarRefaccion(id){
   if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'refaccion'; estado.refaccionId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irACierreMensualRefacciones(){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'cierre-refacciones'; estado.refaccionId = null;
+  estado.busca = '';
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -11938,6 +11991,7 @@ function vistaRefacciones(){
      +   '<h2>Refacciones</h2>'
      +   '<p>' + numero(datos.refacciones.length) + ' ' + plural(datos.refacciones.length,'refacción','refacciones') + ' en catálogo</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-cierre-refacciones">' + ICONO.calendario + 'Cierre mensual</button>'
      +   (puedeGestionarProveedores()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-refacciones-excel">' + ICONO.excel + 'Importar de Excel</button>'
           + '<button type="button" class="btn btn-primario" data-accion="nueva-refaccion">' + ICONO.mas + 'Nueva refacción</button>'
@@ -11986,6 +12040,102 @@ function vistaRefacciones(){
   if(estado.vistaRefacciones === 'tabla') return h + tablaRefacciones(ordenados);
 
   h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((r,i)=> tarjetaRefaccion(r,i)).join('') + '</div>';
+  return h;
+}
+
+/* Cierre mensual: existencia con la que arrancó el mes, lo que entró y salió
+   durante él y con la que cerró, refacción por refacción — para capturar el
+   movimiento del mes de un jalón (sin entrar una por una al detalle) y tener
+   un inventario mes a mes tan completo como el que ya se llevaba en Excel.
+   Nada de esto se guarda aparte: se recalcula de los movimientos con
+   calcularRefaccionEnMes(), así que jamás se puede desalinear del catálogo. */
+function vistaCierreMensualRefacciones(){
+  let h = botonRegresarRefacciones();
+  const proveedoresOrd = datos.proveedores.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const mes = estado.mesCierreRefacciones;
+  const puede = puedeGestionarProveedores();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Cierre mensual de refacciones</h2>'
+     +   '<p>' + esc(etiquetaMes(mes)) + '</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="descargar-excel-cierre-refacciones">' + ICONO.excel + 'Descargar Excel</button>'
+     + '</div></div>';
+
+  if(!datos.refacciones.length){
+    h += vistaVacia('codigoBarras', 'Todavía no hay refacciones en el catálogo',
+          'Da de alta las piezas que surte cada proveedor para empezar a llevar su cierre mensual.',
+          puede ? 'nueva-refaccion' : '', 'Nueva refacción');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="mes-cierre-refacciones-anterior" title="Mes anterior">' + ICONO.atras + '</button>'
+     +   '<input type="month" id="mesCierreRefacciones" value="' + esc(mes) + '" style="flex:0 0 170px; min-width:0">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="mes-cierre-refacciones-siguiente" title="Mes siguiente">'
+     +     '<span style="display:inline-block; transform:scaleX(-1)">' + ICONO.atras + '</span></button>'
+     +   '<input type="search" id="buscaRefaccion" placeholder="Buscar por código, descripción o proveedor…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroProveedorRefaccion">'
+     +     '<option value="todos"' + (estado.filtroProveedorRefaccion === 'todos' ? ' selected' : '') + '>Todos los proveedores</option>'
+     +     proveedoresOrd.map(p => '<option value="' + esc(p.id) + '"' + (estado.filtroProveedorRefaccion === p.id ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('')
+     +   '</select>'
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.refacciones.filter(r=>{
+    if(estado.filtroProveedorRefaccion !== 'todos' && r.proveedorId !== estado.filtroProveedorRefaccion) return false;
+    if(q){
+      const campos = [r.codigo, r.descripcion, r.proveedorNombre, r.departamento];
+      if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
+    }
+    return true;
+  });
+
+  const conMes = lista.map(r => Object.assign({ refaccion:r }, calcularRefaccionEnMes(r, mes)));
+  const totales = conMes.reduce((acc,x)=>({
+    entradas: acc.entradas + x.entradas, salidas: acc.salidas + x.salidas,
+    valorEntradas: acc.valorEntradas + x.valorEntradas, valorSalidas: acc.valorSalidas + x.valorSalidas,
+    valorFinal: acc.valorFinal + x.existenciaFin * x.refaccion.costo
+  }), { entradas:0, salidas:0, valorEntradas:0, valorSalidas:0, valorFinal:0 });
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Entradas del mes', numero(totales.entradas) + ' pzas', dinero(totales.valorEntradas))
+     + tarjetaKpi('Salidas del mes', numero(totales.salidas) + ' pzas', dinero(totales.valorSalidas))
+     + tarjetaKpi('Valor del inventario al cierre', dinero(totales.valorFinal), etiquetaMes(mes))
+     + '</div>';
+
+  if(!conMes.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ninguna refacción coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenados = conMes.slice().sort((a,b)=> (a.refaccion.descripcion || a.refaccion.codigo || '').localeCompare(b.refaccion.descripcion || b.refaccion.codigo || '','es'));
+  const fechaSugerida = fechaDentroDeMes(mes);
+
+  h += '<div class="rodillo"><table class="tabla" style="min-width:1100px"><thead><tr>'
+     +   '<th>Código</th><th>Descripción</th><th>Proveedor</th><th>Existencia inicial</th><th>Entradas</th><th>Salidas</th><th>Existencia final</th>'
+     +   (puede ? '<th>Capturar</th>' : '')
+     + '</tr></thead><tbody>'
+     + ordenados.map(x=>{
+         const r = x.refaccion;
+         return '<tr>'
+              +   '<td>' + esc(r.codigo || '—') + '</td>'
+              +   '<td>' + esc(r.descripcion || '—') + '</td>'
+              +   '<td>' + esc(r.proveedorNombre || '—') + '</td>'
+              +   '<td>' + numero(x.existenciaInicio) + '</td>'
+              +   '<td style="color:var(--ok)">' + (x.entradas ? '+' + numero(x.entradas) : '—') + '</td>'
+              +   '<td style="color:var(--error)">' + (x.salidas ? '−' + numero(x.salidas) : '—') + '</td>'
+              +   '<td' + (x.existenciaFin <= 0 ? ' style="color:var(--error)"' : '') + '><b>' + numero(x.existenciaFin) + '</b></td>'
+              +   (puede
+                   ? '<td><div class="acciones">'
+                     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="registrar-entrada-refaccion-rapida" data-refaccion="' + esc(r.id) + '" data-fecha-sugerida="' + esc(fechaSugerida) + '">+ Entrada</button>'
+                     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="registrar-salida-refaccion-rapida" data-refaccion="' + esc(r.id) + '" data-fecha-sugerida="' + esc(fechaSugerida) + '">+ Salida</button>'
+                     + '</div></td>'
+                   : '')
+              + '</tr>';
+       }).join('')
+     + '</tbody></table></div>';
+
   return h;
 }
 
@@ -12136,7 +12286,7 @@ function modalRefaccion(id, proveedorPresetId){
 }
 
 /* --------------------- Modal: movimiento (entrada/salida) --------------------- */
-function modalMovimientoRefaccion(refaccionId, tipo){
+function modalMovimientoRefaccion(refaccionId, tipo, fechaSugerida){
   const r = refaccionPorId(refaccionId);
   if(!r) return;
   if(!TIPO_MOVIMIENTO_REFACCION.includes(tipo)) return;
@@ -12150,7 +12300,7 @@ function modalMovimientoRefaccion(refaccionId, tipo){
     +   '<div class="campo"><label>Cantidad *</label>'
     +     '<input type="number" id="mvCantidad" min="1" step="1" value=""></div>'
     +   '<div class="campo"><label>Fecha *</label>'
-    +     '<input type="date" id="mvFecha" value="' + hoyISO() + '"></div>'
+    +     '<input type="date" id="mvFecha" value="' + esc(fechaSugerida || hoyISO()) + '"></div>'
     + '</div>'
     + (esEntrada
        ? '<div class="fila2">'
@@ -15292,6 +15442,7 @@ function render(){
                                     : estado.vista === 'proveedor' ? vistaProveedorDetalle()
                                     : estado.vista === 'proveedores' ? vistaProveedores()
                                     : estado.vista === 'refaccion' ? vistaRefaccion()
+                                    : estado.vista === 'cierre-refacciones' ? vistaCierreMensualRefacciones()
                                     : estado.vista === 'refacciones' ? vistaRefacciones()
                                     : vistaGastosProveedor())
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
@@ -15355,6 +15506,8 @@ function render(){
     fpRf.value = estado.filtroProveedorRefaccion;
     fpRf.addEventListener('change', ()=>{ estado.filtroProveedorRefaccion = fpRf.value; render(); });
   }
+  const mcRf = $('mesCierreRefacciones');
+  if(mcRf) mcRf.addEventListener('change', ()=>{ if(mcRf.value){ estado.mesCierreRefacciones = mcRf.value; render(); } });
   /* Subir evidencia directo desde el detalle del activo, sin abrir el modal
      completo de edición — mismo criterio que aeR (Reportes) arriba. */
   const aeA = $('archivoEvidenciaActivo');
@@ -20387,6 +20540,17 @@ $('vista').addEventListener('click', ev=>{
       render(); aviso('Movimiento eliminado.');
     }
     else if(a === 'importar-refacciones-excel'){ if(exigirGestionProveedores()) $('archivoRefaccionesExcel').click(); }
+    else if(a === 'ir-cierre-refacciones') irACierreMensualRefacciones();
+    else if(a === 'mes-cierre-refacciones-anterior' || a === 'mes-cierre-refacciones-siguiente'){
+      const [anio, mes] = estado.mesCierreRefacciones.split('-').map(Number);
+      const delta = a === 'mes-cierre-refacciones-anterior' ? -1 : 1;
+      const d = new Date(Date.UTC(anio, mes - 1 + delta, 1));
+      estado.mesCierreRefacciones = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2,'0');
+      render();
+    }
+    else if(a === 'registrar-entrada-refaccion-rapida'){ if(exigirGestionProveedores()) modalMovimientoRefaccion(acc.dataset.refaccion, 'entrada', acc.dataset.fechaSugerida); }
+    else if(a === 'registrar-salida-refaccion-rapida'){ if(exigirGestionProveedores()) modalMovimientoRefaccion(acc.dataset.refaccion, 'salida', acc.dataset.fechaSugerida); }
+    else if(a === 'descargar-excel-cierre-refacciones') descargarExcelCierreRefacciones();
     else if(a === 'nueva-persona'){ if(exigirGestionPersonal()) modalPersona(null); }
     else if(a === 'ir-levantamientos') irALevantamientos();
     else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
@@ -21499,6 +21663,81 @@ function descargarExcelActivos(){
 
   descargar(armarZip(archivos), 'Activos_' + selloFecha() + '.xlsx');
   aviso('Excel descargado con ' + lista.length + ' ' + plural(lista.length,'activo','activos') + '.');
+}
+
+/* ===================== Excel del cierre mensual de Refacciones ===================== */
+const ENC_CIERRE_REFACCIONES_XLSX = ['Código','Descripción','Proveedor','Unidad',
+  'Existencia inicial','Entradas','Salidas','Existencia final','Costo unitario ($)','Valor final ($)'];
+const ANCHOS_CIERRE_REFACCIONES_XLSX = [14,32,20,10,16,12,12,16,17,15];
+
+function construirHojaCierreRefacciones(mes, lista){
+  const ultimaCol = letraCol(ENC_CIERRE_REFACCIONES_XLSX.length);
+  const ultima = Math.max(2, 1 + lista.length);
+
+  let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<dimension ref="A1:' + ultimaCol + ultima + '"/>'
+    + '<sheetViews><sheetView showGridLines="0" tabSelected="1" workbookViewId="0">'
+    + '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + '<cols>' + ANCHOS_CIERRE_REFACCIONES_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
+    + '<sheetData>';
+
+  xml += filaXml(1, ENC_CIERRE_REFACCIONES_XLSX.map(h => cT(h, 3)));
+
+  lista.forEach((x, k)=>{
+    const n = 2 + k, r = x.refaccion;
+    xml += filaXml(n, [
+      cT(r.codigo, 4), cT(r.descripcion, 4), cT(r.proveedorNombre, 4), cT(r.unidad, 5),
+      cN(x.existenciaInicio, 5), cN(x.entradas, 5), cN(x.salidas, 5), cN(x.existenciaFin, 5),
+      cN(r.costo, 7), cN(x.existenciaFin * r.costo, 7)
+    ]);
+  });
+
+  xml += '</sheetData>'
+    + '<autoFilter ref="A1:' + ultimaCol + ultima + '"/>'
+    + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+    + '</worksheet>';
+  return xml;
+}
+
+function descargarExcelCierreRefacciones(){
+  const mes = estado.mesCierreRefacciones;
+  const lista = datos.refacciones.slice()
+    .sort((a,b)=> (a.descripcion || a.codigo || '').localeCompare(b.descripcion || b.codigo || '','es'))
+    .map(r => Object.assign({ refaccion:r }, calcularRefaccionEnMes(r, mes)));
+  if(!lista.length){ aviso('No hay refacciones que exportar todavía.', true); return; }
+
+  const nombreHoja = 'Cierre ' + etiquetaMes(mes);
+  const archivos = [
+    { nombre:'[Content_Types].xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      + '</Types>') },
+    { nombre:'_rels/.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/workbook.xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+      + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<sheets><sheet name="' + escXml(nombreHoja).slice(0,31) + '" sheetId="1" r:id="rId1"/></sheets>'
+      + '<calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>') },
+    { nombre:'xl/_rels/workbook.xml.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+      + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/styles.xml', datos: aBytes(XLSX_ESTILOS) },
+    { nombre:'xl/worksheets/sheet1.xml', datos: aBytes(construirHojaCierreRefacciones(mes, lista)) }
+  ];
+
+  descargar(armarZip(archivos), 'Cierre_Refacciones_' + mes + '.xlsx');
+  aviso('Excel del cierre de ' + etiquetaMes(mes) + ' descargado con ' + lista.length + ' ' + plural(lista.length,'refacción','refacciones') + '.');
 }
 
 /* ======================== PANTALLA DE ACCESO ========================
