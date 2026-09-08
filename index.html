@@ -9284,6 +9284,13 @@ function guiaTip(titulo, items){
 function guiaRoles(texto){
   return '<p class="guia-roles">' + texto + '</p>';
 }
+/* Envuelve una sección del tema ("Lo básico" / "Uso intermedio" / "Funciones
+   avanzadas") en el mismo molde .bloque que ya usa el resto de la app —
+   así un tema largo se lee por partes en vez de como un solo bloque de texto
+   interminable. */
+function guiaSeccion(titulo, cuerpo){
+  return '<div class="bloque"><div class="bloque-cabeza"><div><h3>' + titulo + '</h3></div></div>' + cuerpo + '</div>';
+}
 
 const TEMAS_AYUDA = [
   { id:'introduccion', titulo:'Cómo está organizada la herramienta',
@@ -9306,232 +9313,367 @@ const TEMAS_AYUDA = [
   { id:'resultados', titulo:'Resultados',
     resumen:'El tablero financiero: qué se ha facturado, qué falta y de dónde viene cada peso — sin capturar nada aquí.',
     contenido:
-      guiaPasos([
-        'Entra al módulo <b>Resultados</b> desde el selector superior.',
-        'Elige el periodo arriba: <b>Mes actual</b>, <b>Año actual</b> o un <b>rango personalizado</b> de fechas.',
-        'Revisa las gráficas: ingreso mensual por fuente (Forpass, Pólizas, Cotizaciones), la utilidad bruta, y la composición del ingreso.',
-        'Haz clic sobre el nombre de una fuente en la leyenda para <b>ocultarla o mostrarla</b> en la gráfica — útil para aislar, por ejemplo, solo lo que viene de Pólizas.',
-        'Pasa el mouse sobre cualquier barra o punto para ver el detalle exacto de ese mes.'
-      ])
-      + guiaTip('Cómo se cuenta cada ingreso (para que los números cuadren con lo que esperas)', [
-          'Forpass: cuenta como ingreso el mes en que marcas la mensualidad como pagada, no el mes en que "debía" pagarse.',
-          'Pólizas: cuenta cuando capturas el cobro — excepto las pólizas "Cargo a: Interno" (facturadas a Plato Express), que reconocen el ingreso mes a mes según el calendario, porque nunca se le cobran a un cliente externo.',
-          'Cotizaciones: cuenta desde que la cotización queda "Aprobada" o, si ya se hizo el trabajo, desde que se marca "Realizado".',
-          'Los proyectos de Imagen/Aperturas se muestran aparte, en un recuadro informativo: a propósito NO se suman a la utilidad bruta.'
-        ])
-      + guiaRoles('Solo lectura. Lo ven todos los roles internos con acceso a más de un módulo (no reportero/técnico).') },
+      guiaSeccion('Lo básico', guiaPasos([
+        'Elige el periodo arriba: <b>Mes actual</b>, <b>Año actual</b> o un <b>rango personalizado</b> (dos fechas).',
+        'Tres KPIs de cabecera: <b>Ingresos totales</b>, <b>Costo capturado</b> y <b>Utilidad bruta</b> (con su % de margen).',
+        'Debajo, la tabla completa del estado de resultados: cada renglón de ingreso (Forpass, Pólizas, Cotizaciones, y "Pólizas negociadas no cobradas" si aplica) y cada renglón de costo, con su conteo entre paréntesis, hasta el total de utilidad bruta del periodo.',
+        'Si hay proyectos de Imagen/Aperturas en el periodo, aparecen en un recuadro aparte (materiales, mano de obra y total) — es informativo, no se suma a la utilidad.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'La gráfica de <b>Ingresos y utilidad — últimos 12 meses</b> es fija (no cambia con el selector de periodo): barras apiladas por fuente más la línea de utilidad.',
+        'Haz clic en el nombre de una fuente en la leyenda para <b>ocultarla o aislarla</b> — se refleja también en la gráfica de composición.',
+        'La gráfica de <b>composición del ingreso</b> muestra qué porcentaje viene de cada fuente en el periodo elegido.',
+        'La gráfica de <b>margen bruto — últimos 12 meses</b> siempre muestra el margen de toda la empresa, sin que la afecte el filtro de la leyenda.',
+        'Pasa el mouse sobre cualquier barra o punto de cualquier gráfica para ver el detalle exacto de ese mes.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Cómo se cuenta cada ingreso (para que los números cuadren con lo que esperas)', [
+            'Forpass: cuenta el mes en que marcas la mensualidad como pagada — nunca el mes en que "debía" pagarse. No tiene costo asociado: nunca resta margen, solo suma ingreso.',
+            'Pólizas de cliente normales: cuentan cuando capturas el cobro (1 vez al año si es facturación anual, 12 si es mensual).',
+            'Pólizas "Cargo a: Interno" (facturadas a Plato Express): en cuanto el contrato queda "Activa", el ingreso se reconoce SOLO según su propio calendario de facturación — nunca hace falta capturarle un cobro. Aparece en un renglón aparte ("negociadas no cobradas") para no mezclarlo con dinero que de verdad ya entró en efectivo.',
+            'El costo de las pólizas se reconoce cuando el servicio queda programado/hecho ese mes — no cuando se factura; por eso un mes puede mostrar costo de póliza sin ingreso de póliza, o viceversa.',
+            'Cotizaciones: cuentan desde "Aprobada", o —para el tablero de 13 etapas— desde "Realizado" en adelante, nunca antes (trabajo con OC/pendiente de liberación/compartida no cuentan, pueden cancelarse).',
+            'Los proyectos de Imagen/Aperturas se muestran aparte, en un recuadro informativo: a propósito NO se suman a la utilidad bruta ni a "Costo capturado".'
+          ])
+        + guiaTip('Otros detalles que casi nadie nota', [
+            'Todo se recalcula al vuelo cada vez que entras o cambias el periodo — nada de esto se guarda, así que nunca puede quedar desactualizado.',
+            'No hay botón de exportar Resultados a Excel/PDF: es un tablero de consulta, el Excel general vive en Clientes/Forpass.',
+            'Un equipo del catálogo de Pólizas dejado en $0 de costo entiende que "no cuesta nada" y silenciosamente infla el margen — vale la pena revisar la Lista de precios si algo se ve raro.'
+          ])) },
 
   { id:'clientes', titulo:'Clientes',
     resumen:'El expediente único de cada cliente: todo lo que tiene en Forpass, Pólizas, Cotizaciones, Reportes y Activos, en un solo lugar.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Clientes</b>: verás la lista completa con buscador.',
-        'Haz clic en un cliente para abrir su <b>resumen 360°</b>: tarjetas con sus totales de sitios, pólizas, cotizaciones y reportes.',
-        'Debajo, cada módulo tiene su propia mini-lista (hasta 8 renglones) con un enlace "ver todas" si tiene más.',
-        'Usa <b>Agregar cliente</b> para dar de alta uno nuevo, o el lápiz para editar sus datos generales.'
-      ])
-      + guiaTip('Función poco obvia: fusionar clientes duplicados', [
-          'Si el mismo cliente quedó capturado dos veces (por ejemplo "Whirlpool" y "Whirlpool Plastics"), un Admin puede usar <b>Fusionar con otro cliente</b>.',
-          'La fusión te deja elegir, sitio por sitio, a cuál de los dos clientes se queda cada uno — no mezcla todo a ciegas.',
-          'Se lleva consigo pólizas, cotizaciones, reportes, levantamientos y proyectos de imagen del cliente que se elimina.'
+      guiaSeccion('Lo básico', guiaPasos([
+        'Usa <b>Agregar cliente</b>: Logo (opcional, con recorte y zoom), Nombre*, Contacto, Notas, casilla "Incluye Forpass", más cualquier campo personalizado que haya definido Administración.',
+        'Busca con <b>Buscar cliente…</b> por nombre.',
+        'Haz clic en un cliente para abrir su <b>resumen 360°</b>: 4 KPIs (Sitios Forpass, Pólizas, Cotizaciones, Reportes) y, debajo, un bloque por módulo con hasta 8 renglones y un enlace "ver todas/todos" si tiene más — cada renglón te lleva directo a su módulo.',
+        'Usa el lápiz para <b>Editar cliente</b>; eliminarlo es exclusivo de Admin/Owner y también borra todos sus sitios.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'Un Admin puede definir <b>Precios de grupo</b> por cliente: precio y costo especiales para equipos puntuales del catálogo, que se aplican solos al agregarlos a una póliza nueva de ese cliente.',
+        '<b>Descargar Excel</b> (de un cliente o de todos) exporta Forpass — hojas "Control Forpass" y "Pagos con OC".',
+        'Desde este módulo (Admin/Owner), <b>Respaldo JSON</b> y <b>Restaurar</b> mueven TODA la base de un jalón — se pusieron aquí a propósito porque son acciones de toda la base, no solo de Forpass.',
+        'Cada renglón de los bloques del resumen 360° salta directo al registro correspondiente en su propio módulo.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', guiaPasos([
+          'Usa <b>Fusionar con otro cliente</b> (Admin/Owner) cuando el mismo cliente quedó capturado dos veces: se te muestra una comparación de totales, se sugiere cuál conservar, y sitio por sitio eliges a cuál cliente se va cada uno (incluso a un tercer cliente) — puedes además fusionarlo con un sitio ya existente en el destino en vez de duplicarlo. Todo lo demás (pólizas, cotizaciones, reportes, levantamientos, proyectos de imagen, activos) se mueve en bloque al cliente que se conserva. No se puede deshacer.',
+          'Los campos personalizados (Admin → Segmentos y parámetros) se guardan por id, no por el texto de la etiqueta — así que renombrar una etiqueta después no pierde los valores ya capturados.'
         ])
-      + guiaRoles('Editar necesita permiso de edición (Owner/Admin/Analyst); fusionar es solo Admin/Owner. Oculto para técnico y reportero.') },
+        + guiaTip('Detalles que casi nadie nota', [
+            'La casilla "Incluye Forpass" tiene un tercer estado interno para clientes viejos capturados antes de que existiera — se "gradúa" solo la primera vez que alguien abre y guarda su formulario.',
+            'Un cliente con sitios capturados solo aparece en Forpass si AL MENOS uno de ellos sigue activo — si los pausas todos, el cliente sigue existiendo (lo sigues viendo en Clientes) pero desaparece de la lista de Forpass hasta que reactives alguno.',
+            'El logo se reduce y comprime solo al subirlo (máximo ~120 KB guardado) para no inflar la base de datos.'
+          ])) },
 
   { id:'forpass', titulo:'Forpass (kioscos)',
     resumen:'El corazón original de la app: los kioscos de credenciales instalados en cada sitio, su mensualidad y su estatus de pago.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Forpass</b>: la lista de clientes con sus KPIs de sitios atrasados, por pagar y por vencer.',
-        'Abre un cliente para ver sus sitios (kioscos), en tarjetas o en tabla.',
-        'Usa <b>Agregar sitio</b> para dar de alta un kiosco nuevo, con su mensualidad, fecha de inicio y meses de contrato.',
-        'Haz clic en el número de un mes dentro de la tarjeta del sitio para <b>marcarlo como pagado</b>.',
-        'Abre <b>Plan de pagos</b> para ver el calendario completo de ese sitio, mes por mes.',
-        'Asigna un <b>encargado</b> (Admin) a cada sitio, y filtra la lista por encargado o por sitio desde la barra de búsqueda.'
-      ])
-      + guiaTip('Atajos entre módulos que quizá no habías notado', [
-          'Cada tarjeta de sitio trae iconos para saltar directo a SU póliza, SUS cotizaciones, SUS reportes o SUS activos, sin tener que buscarlo de nuevo en otro módulo.',
-          'El onboarding y los viáticos se suman automáticamente al primer mes del contrato, no hay que capturarlos aparte.',
-          'Los sitios se distinguen entre pausados, dados de baja, y con contrato ya cubierto (liquidado) — cada uno con su propio color.'
+      guiaSeccion('Lo básico', guiaPasos([
+        'La pantalla de <b>Forpass</b> trae 5 KPIs: Forpass activos, Mensualidad total (MRR), Sitios atrasados, Por pagar (7 días) y Vigencias por vencer — los tres últimos son clickeables y filtran la lista.',
+        'Busca por cliente o nombre de sitio; filtra "Solo con atrasos" o "Solo con Forpass activos"; alterna tarjetas/tabla.',
+        'Usa <b>Agregar sitio</b> dentro de un cliente: Nombre*, Cliente, Zona (con sugerencias guardadas y color), Forpass instalados (módulos)*, Estado (Activo/Pausado/Baja), Tipo de contratación* (Software+Hardware o Solo Software), Mensualidad*, si incluyó onboarding y/o viáticos (con su monto), Fecha de inicio*, Meses de contrato* y cuántas mensualidades ya vienen pagadas.',
+        'En la tarjeta de cada sitio, haz clic en el número de un mes para <b>marcarlo como pagado</b> — se abre un formulario con Quién captura, Número de OC* y si ya se facturó.',
+        'Abre <b>Plan de pagos</b> para ver el calendario completo de ese sitio, mes por mes, con su estatus (Pagada/Facturada/Vencida/Pendiente).'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'Usa el icono de <b>Contactos</b> en la tarjeta del sitio para llevar "quién manda la OC": nombre, puesto, correo y teléfono de cada persona, con enlaces directos para llamar o escribir.',
+        'Un Admin asigna el <b>encargado</b> de cada sitio; cualquiera puede después filtrar la lista de sitios por encargado (incluido "Sin asignar").',
+        'Si te equivocaste al capturar un pago, ábrelo de nuevo y usa <b>Deshacer captura</b> para regresarlo a pendiente.',
+        'Cada tarjeta de sitio trae accesos directos a SU póliza, SUS cotizaciones, SUS reportes y SUS activos, si existen, sin tener que volver a buscarlos.',
+        'Los KPIs clickeables abren tablas de apoyo: <b>Vigencias por vencer</b> (ya vencidas + las que terminan en 45 días, con el MRR en juego) y <b>Cobranza</b> (atrasados ordenados por adeudo, o por-pagar-esta-semana ordenados por días restantes).'
+      ]))
+      + guiaSeccion('Funciones avanzadas', guiaPasos([
+          'Usa <b>Fusionar</b> (Admin) en un sitio individual cuando es un duplicado del mismo cliente (ej. "Componentes" vs. "JD Componentes") — puedes fusionarlo con un sitio ya existente en vez de dejarlo duplicado.',
+          'El estatus del sitio (Atrasado / Pausado / Baja / Contrato cubierto / Por pagar / Al día) se calcula siempre en este orden de prioridad — nunca se captura a mano.'
         ])
-      + guiaRoles('Editar necesita permiso de edición; eliminar y fusionar sitios, Admin/Owner. Oculto para técnico y reportero.') },
+        + guiaTip('Reglas que no son obvias a simple vista', [
+            'El onboarding y los viáticos se cobran UNA sola vez, siempre en la mensualidad 1 — nunca se reparten ni se repiten.',
+            'Un sitio marcado "Activo" pero cuya vigencia ya terminó NO cuenta como Forpass activo en los KPIs, aunque siga apareciendo en la lista.',
+            'Escribir una Zona que ya existe en otro sitio copia su color automáticamente — a menos que ya hayas tocado la paleta de colores tú mismo en ese formulario.',
+            'Eliminar un sitio o un cliente, y las dos fusiones, son exclusivas de Admin/Owner porque destruyen historial de pagos de forma irreversible; asignar un encargado también es solo Admin, aunque no borra nada, porque es una decisión de gente, no de captura diaria.'
+          ])) },
 
   { id:'reportes', titulo:'Reportes',
     resumen:'Los tickets de mantenimiento del día a día: algo se descompuso en un sitio y hay que atenderlo.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Reportes</b>: verás abiertos, en atención, urgentes y resueltos como KPIs arriba.',
-        'Usa <b>Nuevo reporte</b> para levantar un ticket: sitio, descripción del problema, urgencia y evidencia fotográfica (puedes usar la cámara desde el celular).',
-        'Asigna un técnico. El estatus avanza: <b>abierto → asignado → en proceso</b>.',
-        'Cuando el técnico termina, usa <b>Marcar resuelto</b>: se abre un reporte de atención donde se documenta qué se hizo.',
-        'Desde un reporte ya resuelto puedes <b>Reabrir</b> si el problema regresó, o <b>Cancelar</b> si ya no aplica.',
-        'Si el arreglo necesita una refacción o un costo adicional, usa <b>Generar cotización desde este reporte</b> — queda ligada para siempre a su reporte de origen.'
-      ])
-      + guiaTip('Quién vive aquí', [
-          'Reportes es el único módulo que ven los roles "Técnico" y "Reportero" — pensado para alguien que solo levanta o atiende tickets, sin necesidad de ver clientes, pólizas ni cotizaciones.',
-          'Un Técnico sí puede cambiar el estatus y subir evidencia; un Reportero puede levantar y seguir el ticket, pero no editar uno ya emitido.'
+      guiaSeccion('Lo básico', guiaPasos([
+        'Usa <b>Nuevo reporte</b> para levantar un ticket: elige Cliente y Sitio (o dalos de alta al vuelo con el botón "Nuevo" junto a cada uno, sin salir del formulario), el Equipo del catálogo si aplica (o "Otro" con un nombre libre), un Título, la Descripción del problema, la Prioridad (baja/media/alta/urgente) y hasta 6 fotos de evidencia.',
+        'El folio se genera solo (<b>TK-DDMMAA-####</b>).',
+        'En la lista, filtra por estatus (Abierto/Asignado/En proceso/Resuelto/Cerrado/Cancelado, o "Solo urgentes") y busca por folio, sitio, cliente o técnico. Alterna entre tarjetas y tabla.',
+        'Los 4 KPIs de arriba (Abiertos, En atención, Urgentes, Resueltos) te dan el pulso del día sin entrar a ningún ticket.',
+        'Editar y eliminar: cualquiera con permiso de gestión puede editar los datos; eliminar un reporte completo es exclusivo de Admin/Owner.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'Usa <b>Asignar</b> para ponerle uno o varios técnicos — si hay cuentas en la nube, eliges de una lista con checkboxes; si no, escribes nombres separados por comas. Asignar el primer técnico pasa el estatus de "abierto" a "asignado" solo.',
+        'Usa <b>Marcar en proceso</b> cuando ya se está atendiendo.',
+        'Para cerrar el ciclo usa <b>Marcar resuelto</b>: se abre un formulario propio que EXIGE dos cosas — un texto de "Reporte de atención" (qué se encontró y qué se hizo) y al menos una foto de evidencia. No hay forma de saltarse este paso desde ningún otro botón.',
+        'Desde "Resuelto" puedes <b>Reabrir</b> (regresa a "en proceso") o <b>Cerrar reporte</b> (estatus final).',
+        'Puedes <b>Cancelar</b> un reporte que ya no aplica, y luego <b>Reabrir</b>lo si hiciera falta.',
+        'Sube o quita fotos de evidencia sueltas en cualquier momento desde el detalle, sin pasar por el formulario de resolución.',
+        'Todo queda en el <b>Seguimiento</b> del reporte: quién hizo qué y cuándo, automático, sin que nadie lo escriba a mano.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', guiaPasos([
+          'Si el arreglo necesita una refacción o un costo adicional, usa <b>Generar cotización desde este reporte</b> — nace precargada con el equipo/título como concepto, y el reporte guarda la liga para siempre (aparece como "Ver cotización [folio] →").',
+          'Reabrir un reporte cerrado/cancelado es "inteligente": si ya tenía técnicos asignados regresa a "asignado", si nunca tuvo ninguno regresa a "abierto" — no siempre al mismo lugar.',
+          'Un reporte urgente y sin resolver se pinta en rojo SIEMPRE, sin importar en qué estatus visual esté — para que nunca se pierda de vista en la lista.'
         ])
-      + guiaRoles('Todos los roles internos lo ven. Gestionarlo: Owner/Admin/Analyst y Técnico.') },
+        + guiaTip('Quién vive aquí y qué puede tocar', [
+            'CUALQUIER cuenta con sesión puede levantar un reporte nuevo, incluido Viewer — es a propósito más abierto que el resto de la app.',
+            'Editar uno ya emitido, cambiar su estatus, asignar técnicos o subir/quitar evidencia necesita permiso de gestión: Owner/Admin/Analyst, o el rol Técnico.',
+            'El rol Reportero puede levantar tickets y seguir su estatus, pero NO editar uno ya emitido — es la diferencia central entre "Reportero" y "Técnico".',
+            'Eliminar un reporte completo es exclusivo de Owner/Admin, sin excepción para Técnico.',
+            'Reportes y Levantamientos son los únicos módulos que ve el rol Reportero; Técnico además ve Pólizas/Cotizaciones/Activos de solo lectura.'
+          ]))
+      + guiaRoles('Todos los roles internos lo ven y pueden levantar tickets. Gestionar uno ya emitido: Owner/Admin/Analyst y Técnico. Eliminar: Owner/Admin.') },
 
   { id:'levantamientos', titulo:'Levantamientos',
     resumen:'El recorrido completo de un sitio: qué se revisó, qué se encontró, y qué tan bien está funcionando el equipo en general.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Levantamientos</b> y usa <b>Nuevo levantamiento</b> para empezar uno, ligado a un sitio.',
-        'Usa <b>Agregar hallazgo</b> por cada cosa que encuentres: márcalo como correctivo o preventivo, liga el equipo del catálogo si aplica, y sube foto de evidencia.',
-        'Marca cada hallazgo como <b>Resuelto</b> cuando se atienda (o Reabrir si vuelve a fallar).',
-        'Selecciona los hallazgos pendientes que quieras cotizar y elige <b>Generar cotización</b> — puedes armar una sola con todos o una por cada uno.',
-        'Usa <b>Generar PDF</b> para tener el levantamiento completo listo para imprimir o mandar al cliente.',
-        'Si el levantamiento revisó el equipo que debería cubrir una póliza, usa <b>Generar póliza desde este levantamiento</b> para arrancar el contrato ya con ese equipo precargado.'
-      ])
-      + guiaTip('El "Análisis de funcionamiento" no es un promedio simple', [
-          'Cada equipo del catálogo tiene un "peso" según qué tan crítico es para la operación de la cocina — un hallazgo grave en un equipo crítico pesa más que uno en un equipo secundario.',
-          'Los hallazgos de infraestructura (sin equipo ligado) no afectan este porcentaje, aunque sí se pueden cotizar igual.'
+      guiaSeccion('Lo básico', guiaPasos([
+        'Usa <b>Nuevo levantamiento</b>: Cliente y Sitio (con alta al vuelo si hacen falta), Fecha de la visita y quién <b>Realizó</b> el recorrido (se autosugiere tu nombre) y Notas generales. Folio automático <b>LV-DDMMAA-##</b>.',
+        'Al guardar entras directo al detalle para empezar a <b>Agregar hallazgo</b> por cada cosa que encuentres.',
+        'Cada hallazgo captura: Ubicación/área, Equipo del catálogo (u "Otro" con nombre libre), Qué se encontró (obligatorio), Tipo de acción (correctivo/preventivo), Prioridad, Acción sugerida, Nota de resolución, hasta 4 fotos, y una casilla "¿Hay que cotizar algo?" con su propio texto.',
+        'Al capturar varios hallazgos seguidos, usa <b>Guardar y agregar otro</b> para no cerrar el formulario cada vez.',
+        'Marca cada hallazgo como <b>Resuelto</b> cuando se atienda, o <b>Reabrir</b> si vuelve a fallar — es un interruptor simple, sin formulario aparte.',
+        'Filtra la lista por "Con pendientes", "Cerrados" o "Con urgentes", y busca por folio/sitio/cliente. Un levantamiento se marca "Cerrado" solo cuando TODOS sus hallazgos quedan resueltos — nunca lo cierras tú a mano.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'El bloque <b>Cotizaciones por generar</b> aparece solo cuando hay hallazgos marcados "hay que cotizar" y sin cotización todavía: selecciona los que quieras con los checkboxes y elige <b>Una sola cotización con los seleccionados</b> o <b>Una cotización por cada seleccionado</b>, luego <b>Generar</b>.',
+        'Una vez que un hallazgo ya tiene su cotización ligada, su casilla de "cotizar" se bloquea (para no duplicar la solicitud) y aparece <b>Ver cotización [folio] →</b>.',
+        'Usa <b>Generar PDF</b> para el documento completo del levantamiento — no necesita permiso de edición, cualquiera que lo vea lo puede generar.',
+        'Si el sitio no tiene ya una póliza en curso, usa <b>Generar póliza desde este levantamiento</b>: arma un renglón por cada equipo distinto con hallazgo ligado a catálogo, con precio/costo/frecuencia ya sugeridos.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', guiaPasos([
+          'Quitar un hallazgo que ya generó una cotización NO borra esa cotización — se avisa al confirmar, queda huérfana a propósito en vez de perder la solicitud.',
+          'Un hallazgo sin texto en "¿Qué se encontró?" se descarta solo, sin avisar: es una fila que alguien abrió y no llenó.'
         ])
-      + guiaRoles('Es de los módulos más abiertos: lo pueden usar prácticamente todos los roles, incluidos Técnico y Reportero.') },
+        + guiaTip('El "Análisis de funcionamiento" no es un promedio simple', [
+            'Solo cuentan los hallazgos ligados a un equipo del catálogo — los de infraestructura (sin equipo) no afectan el %, aunque sí se pueden cotizar igual.',
+            'Por cada equipo se toma su PEOR hallazgo, no un promedio: uno preventivo o ya resuelto siempre vale lo mismo que "sin hallazgos"; uno correctivo pendiente pesa más entre más urgente sea su prioridad.',
+            'Cada equipo del catálogo tiene un peso (de Muy baja a Crítica) según qué tan crítico es para la cocina — un hallazgo grave en un equipo crítico pesa mucho más que uno en un equipo secundario.',
+            'El resultado se muestra como "puntos posibles / puntos actuales" por equipo, nunca como un % suelto por equipo — para no confundirlo con el % de todo el sitio.'
+          ])
+        + guiaTip('Quién puede usarlo', [
+            'Es de los módulos más abiertos de la app: CUALQUIER cuenta con sesión (incluido Viewer, Reportero y Técnico) puede crear el levantamiento y gestionar sus hallazgos — es un registro de campo, no un documento de precios.',
+            'La única acción reservada a Admin/Owner es eliminar el levantamiento completo.',
+            '"Generar póliza desde este levantamiento" sí necesita permiso de edición (Owner/Admin/Analyst) porque arma precios — ahí sí se le esconde el botón a Viewer/Técnico/Reportero.'
+          ]))
+      + guiaRoles('Casi todos los roles lo usan completo. Eliminar el levantamiento: Owner/Admin. Generar póliza desde él: Owner/Admin/Analyst.') },
 
   { id:'polizas', titulo:'Pólizas',
     resumen:'Los contratos formales de mantenimiento: qué equipo cubren, cada cuánto se revisa, y si cada servicio programado ya se hizo.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Pólizas</b>: la lista de contratos, con accesos directos a <b>Agenda</b> (calendario de todos los servicios programados) y <b>Lista de precios</b>.',
-        'Usa <b>Nueva cotización (póliza)</b> para armar un contrato nuevo: agrega el equipo cubierto desde la lista de precios y define la frecuencia de servicio.',
-        'Puedes <b>Importar desde Excel</b> si ya tienes el contrato armado en una hoja con el formato base.',
-        'En el calendario del contrato, haz clic en el mes correspondiente para <b>registrar el servicio como hecho</b>: quién lo hizo, número de serie, evidencia fotográfica, o si solo se atendieron algunas de varias unidades.',
-        'Haz clic en la casilla de cobro para <b>capturar el cobro</b> de ese mes: número de OC y si ya se facturó.',
-        'Si el precio de una partida quedó desactualizado respecto al precio de grupo del cliente, usa <b>Actualizar al de grupo</b>.',
-        'Genera el <b>PDF</b> del contrato para imprimir o enviar.'
-      ])
-      + guiaTip('Cosas que facilitan mucho la vida aquí', [
-          'Los contratos "Cargo a: Interno" (facturados a Plato Express, no al cliente final) se marcan visualmente en todos lados y no entran en la lógica de facturación a cliente.',
-          'Un Admin puede definir "Precios de grupo" por cliente: un precio/costo especial para ciertos equipos que se aplica solo al agregarlos a una póliza nueva de ese cliente, con aviso si una partida vieja quedó desactualizada.',
-          'En la Lista de precios, "Sugerir categorías" clasifica el equipo automáticamente por su nombre, e "Importar costos" carga de un jalón la hoja de costos ya compartida.',
-          'Si la frecuencia del contrato no cuadra con los meses marcados, la app lo avisa (⚠) y no deja cerrar el contrato como "activa" hasta corregirlo.'
-        ])
-      + guiaRoles('Técnico y Viewer lo ven de solo lectura. Corregir precios de un contrato ya cerrado (activa) es solo Admin/Owner.') },
+      guiaSeccion('Lo básico', guiaPasos([
+        '4 KPIs: Pólizas activas, En espera de confirmar, Servicios este mes, Servicios atrasados (los dos últimos clickeables).',
+        'Botones de cabecera: <b>Agenda</b> (calendario de todos los contratos juntos), <b>Lista de precios</b>, <b>Importar JSON</b>, <b>Importar desde Excel</b> y <b>Nueva cotización</b>.',
+        'Usa <b>Nueva cotización</b> para armar un contrato: Cliente, Sitio (con alta al vuelo), Fecha, Facturación (Anual/Mensual), Cargo a (Cliente/Interno), Vendedor, y los equipos cotizados —cada uno con precio, costo, servicios al año y mes de arranque—, tomados del buscador de catálogo.',
+        'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
+        'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción.',
+        'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
+        'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa).'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'La <b>Agenda</b> agrupa TODOS los contratos por mes → sitio → equipo, con bloques de Atrasados / Toca ahora / Parciales / Programados — para no tener que revisar contrato por contrato.',
+        'Un Admin define <b>Precios de grupo</b> por cliente (precio y costo especiales para ciertos equipos), activables con la casilla "Usar precios de grupo" al armar una póliza nueva de ese cliente; si un renglón viejo se desalinea, aparece <b>Actualizar al de grupo</b>.',
+        'La <b>Lista de precios</b> es el catálogo compartido de equipos: costo de insumos + mano de obra, margen calculado en vivo, servicios/año, categoría (decide el mes de arranque) y peso (usado en el % de funcionamiento de Levantamientos). Botones "Sugerir categorías" (clasifica solo por nombre) e "Importar costos" (carga la hoja de costos compartida de un jalón).',
+        'Usa <b>Recalcular calendario</b> dentro del calendario de un contrato para mover al mes que les toca hoy los equipos con categoría asignada, sin tocar los renglones capturados "a mano".',
+        'Puedes <b>Deshacer registro</b> de un servicio o <b>Deshacer captura</b> de un cobro si te equivocaste.',
+        '<b>Duplicar</b> un renglón, capturar números de serie por unidad cuando la cantidad es mayor a 1, y generar código de barras/QR por renglón (control interno).',
+        '<b>Importar desde Excel</b> reconoce la tabla de equipos de la hoja "BASE" y abre el formulario ya prellenado para que lo revises antes de guardar — nunca guarda solo.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Cargo a: Interno y ajustes de precio', [
+            'Un contrato "Cargo a: Interno" (facturado a Plato Express) usa el % de descuento/aumento sobre el COSTO anual, no sobre el precio de venta — porque nunca se le cobra ese precio de lista a nadie externo; en cobranza no pide OC, se marca directo como realizado/facturado.',
+            'El tipo de ajuste (Descuento resta / Aumento suma) es independiente del "Cargo a" — puedes subirle precio a un cliente o bajarle costo a uno interno si hiciera falta.'
+          ])
+        + guiaTip('Reglas que casi nadie descubre solo', [
+            'Si la frecuencia de un equipo no cuadra con los meses marcados, la app avisa (⚠) y NO deja cerrar el contrato como "Activa" hasta corregirlo — aunque sí se puede guardar así mientras sigue en borrador.',
+            'Una póliza ya "Activa" congela sus renglones/vigencia/facturación/descuento para todos menos Admin/Owner — a un Analyst se le desactivan esos campos en el formulario para que nunca choque con esa regla.',
+            'Marcar "¿Necesita alguna refacción?" al registrar un servicio genera SOLA una cotización borrador ligada a ese contrato, mes y equipo — la casilla queda bloqueada después para no duplicar la solicitud.',
+            'Un renglón identificado como "Segurista" (por su nombre) no genera trabajo pendiente ni se marca como servicio — pero su dinero sí se sigue sumando al contrato.',
+            'Si quitas un equipo del calendario pero ya tenía un servicio registrado, ese registro no se borra: se queda marcado "fuera de calendario".'
+          ])) },
 
   { id:'cotizaciones', titulo:'Cotizaciones',
     resumen:'El tablero de cotizaciones de trabajos puntuales: reparaciones, instalaciones o trabajo extra fuera de una póliza.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Cotizaciones</b>: verás el tablero completo, agrupado por etapa si hay muchas.',
-        'Usa <b>Nueva cotización</b>, o <b>Importar desde Excel</b> si vienes de un tablero externo.',
-        'Dentro de una cotización, alterna entre <b>Costo interno</b> y <b>Cotización cliente</b> para ver los mismos números desde los dos lados.',
-        'Sube el <b>respaldo de costo</b> (la cotización que te dio tu proveedor) como imagen o PDF.',
-        'Avanza la cotización por sus etapas según vaya progresando: trabajo con OC, pendiente de liberación, realizado, facturado, etc.',
-        'Usa <b>Vista previa</b> e <b>Imprimir</b> para generar el documento que se manda al cliente.',
-        'Revisa <b>Por persona</b> para ver cuánto ha cotizado, cuánto ha convertido en ingreso y su tasa de conversión, por cada vendedor.'
-      ])
-      + guiaTip('De dónde vino esta cotización', [
-          'Si la cotización nació de un Reporte, una Póliza (refacción solicitada) o un Levantamiento, lo verás señalado arriba con un enlace directo de regreso a su origen.',
-          'Una cotización "vencida" solo se marca así mientras sigue abierta/sin decidir — una ya aprobada o rechazada no se marca vencida aunque haya pasado la fecha.'
-        ])
-      + guiaRoles('Oculto para reportero. Técnico lo ve de solo lectura.') },
+      guiaSeccion('Lo básico', guiaPasos([
+        'KPIs: Cotizaciones, Cotizado al cliente, Borradores, Vencidas. Busca por folio/sitio/cliente; filtra por cualquiera de los 18 estatus o "Vencidas".',
+        'Usa <b>Nueva cotización</b>: Sitio (con alta al vuelo), Estatus, Fecha, Realizó, Tipo de mantenimiento, Cargo a (Cliente/Comedor), Vigencia en días, margen sobre costo %, y los conceptos (sección, cantidad, unidad, concepto, costo unitario, precio al cliente —automático o manual—).',
+        'Puedes agregar "Instalación/mano de obra" con su propio % y monto fijo.',
+        'Dentro de una cotización, alterna entre <b>Costo interno</b> y <b>Cotización cliente</b> para ver los mismos renglones desde los dos lados (subtotal, IVA 16%, total).',
+        'Sube el <b>respaldo de costo</b> (lo que te cotizó tu proveedor) como imagen o PDF — solo visible del lado "Costo interno", nunca en el documento del cliente.',
+        'Usa <b>Vista previa</b> e <b>Imprimir</b> para el documento que se manda al cliente.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'Además de los 5 estatus básicos (Borrador/Enviada/Aprobada/Rechazada/Cancelada), hay un <b>tablero de 13 etapas</b> (heredado de un tablero externo de Monday.com): Trabajos con OC, Trabajo interno, Pendientes por liberación, Servicios Pendientes, Solicitud a cliente (Comercial/Soporte), Compartida al cliente, Realizados, Realizados/Cargo a Comedor, Proceso de facturación, Cancelado, Facturado, Expirado.',
+        'Usa <b>Importar desde Excel</b> para cargar de un jalón el export de ese tablero — detecta duplicados y avisa cuántos renglones no reconoció.',
+        'La tabla <b>Por persona</b> (si hay más de un vendedor) muestra Cotizaciones, Cotizado, Ingreso y % de Conversión por cada quien.',
+        'Si la lista es muy grande (más de 200 resultados sin filtrar), se agrupa por etapa en resúmenes clickeables en vez de listar todo de golpe.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('De dónde vino esta cotización', [
+            'Si nació de un <b>Reporte</b> ("Generar cotización desde este reporte"), de una <b>Póliza</b> (al marcar "necesita refacción" en un servicio) o de uno o varios hallazgos de un <b>Levantamiento</b>, aparece señalado arriba con un enlace directo de regreso a su origen exacto.',
+            'Cuenta como ingreso real en Resultados desde "Aprobada", o desde "Realizado" en adelante en el tablero de 13 etapas — no hace falta esperar a que se facture.',
+            'Una cotización "vencida" solo se marca así mientras sigue abierta/sin decidir (borrador, enviada, o las primeras 7 etapas del tablero) — una ya aprobada, rechazada, realizada o facturada nunca se marca vencida aunque haya pasado su fecha.'
+          ])
+        + guiaTip('Detalles no obvios', [
+            'El precio al cliente por renglón es automático (costo × margen) salvo que captures uno manual — igual que en el Excel original, donde algunas filas traían el precio tecleado aparte.',
+            'La fórmula de instalación/mano de obra es fija: 20% del subtotal de conceptos + $750, nunca se prorratea entre renglones.',
+            'Reportero no ve este módulo en absoluto; Técnico lo ve de solo lectura (puede consultarlo pero no crear ni editar).'
+          ])) },
 
   { id:'activos', titulo:'Activos',
     resumen:'El inventario de equipo: tanto el instalado en clientes como las herramientas, vehículos y equipo propio de Forguard.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Activos</b> y usa <b>Nuevo activo</b> — elige si es de un cliente (con su sitio) o interno (con ubicación y quién lo trae asignado).',
-        'Puedes <b>Importar</b> o <b>Exportar</b> el catálogo completo en Excel.',
-        'Sube evidencia fotográfica y la <b>factura u orden de compra</b> (imagen o PDF) que respalda la compra.',
-        'Cambia el estatus según corresponda: en mantenimiento, activo, de baja, o perdido/robado.',
-        'Para activos internos, usa <b>Asignar</b> / <b>Reasignar</b> / <b>Devolver</b> para llevar un historial formal de quién lo trae y desde cuándo.',
-        'Usa <b>Registrar mantenimiento</b> o <b>Agregar nota</b> para ir dejando la bitácora del equipo.'
-      ])
-      + guiaTip('Dos cosas que casi nadie descubre solo', [
-          'Cada activo genera su propio <b>código de barras o QR</b> automáticamente — solo para control interno, nunca aparece en documentos de cliente.',
-          'La app avisa sola cuando una garantía está por vencer (30 días) o un mantenimiento está por cumplirse o ya se venció (7 días) — revisa los KPIs de la pantalla principal del módulo.'
+      guiaSeccion('Lo básico', guiaPasos([
+        '4 KPIs: Total, Valor del inventario, Mantenimiento pendiente (clickeable), Garantías por vencer (clickeable).',
+        'Usa <b>Nuevo activo</b>: Tipo (Equipo en cliente / Activo interno), Cliente+Sitio o Ubicación+Asignado a según el tipo, Categoría, Nombre*, Marca, Modelo, Serie, Estatus, Condición, Proveedor, Fecha y Costo de compra, Garantía hasta, Frecuencia de mantenimiento (días), Próximo mantenimiento, Notas, Código (barras o QR, con botón "Generar"), y hasta 6 fotos.',
+        'Busca por folio/nombre/marca/serie/sitio/cliente; filtra por tipo, por cada estatus, por categoría, o por "Mantenimiento pendiente"/"Garantía por vencer".',
+        'En el detalle: sube más evidencia, sube la <b>Factura/Orden de compra</b> (imagen o PDF), y cambia el estatus (Enviar a mantenimiento / Regresar a operación / Dar de baja / Marcar perdido-robado).'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'Para activos internos, usa <b>Asignar</b>/<b>Reasignar</b>/<b>Devolver</b> — queda un historial completo de quién lo trae y desde cuándo.',
+        'Usa <b>Registrar mantenimiento</b> (con costo opcional) o <b>Agregar nota</b> para ir dejando la bitácora del equipo; ambas alimentan el mismo historial.',
+        'Usa <b>Descargar Excel</b> (disponible para cualquiera) o <b>Importar desde Excel</b> (solo gestión) — mismas columnas en los dos sentidos, para poder editar en Excel y reimportar en ciclo redondo; los clientes/sitios que mencione el archivo y no existan se dan de alta solos.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', guiaPasos([
+          'El código de barras (Code128) o QR se genera y dibuja completo en tu navegador, sin ninguna librería ni conexión a internet — "Para control interno: no aparece en documentos de cliente".',
+          'Al registrar un mantenimiento con frecuencia capturada, el "Próximo mantenimiento" se reprograma desde HOY, no desde la fecha vencida — así uno atrasado no dispara varias fechas "perdidas" seguidas.'
         ])
-      + guiaRoles('Gestionarlo: Owner/Admin/Analyst y también Técnico.') },
+        + guiaTip('Umbrales exactos de alerta', [
+            'Garantía por vencer: 30 días o menos.',
+            'Mantenimiento: alerta si faltan 7 días o menos, error (rojo) si ya venció.'
+          ])
+        + guiaTip('Permisos, un caso especial', [
+            'Es el único de estos módulos donde el rol Técnico puede dar de alta, editar, subir evidencia y anotar mantenimiento sin ser Analyst — el resto (Owner/Admin/Analyst) también puede, por supuesto.',
+            'Eliminar un activo sigue siendo exclusivo de Admin/Owner, sin excepción para Técnico.'
+          ])) },
 
   { id:'proveedores', titulo:'Proveedores',
     resumen:'Lo que Forguard le debe a sus propios proveedores, y el catálogo de refacciones con su cierre mensual.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Proveedores</b>: por default ves el rastreo de <b>Gastos</b> (lo que se debe), con KPIs de por pagar, vencido y por vencer.',
-        'Usa <b>Catálogo de proveedores</b> para dar de alta uno nuevo o ver el detalle de todos sus gastos juntos.',
-        'Dentro de un proveedor o desde Gastos, usa <b>Nuevo gasto</b>: puede empezar como "Cotización" y luego <b>Convertir en factura por pagar</b>.',
-        'Registra <b>Agregar abono</b> cada vez que se hace un pago parcial — el saldo pendiente se recalcula solo.',
-        'Sube los documentos por tipo: cotización del proveedor, factura, comprobante de pago.',
-        'Si el gasto viene de una cotización que le hiciste a un cliente, ligalo para comparar lo que te cuesta contra lo que cotizaste.'
-      ])
-      + '<div class="bloque"><div class="bloque-cabeza"><div><h3>Refacciones: el catálogo de piezas por proveedor</h3><p>Vive dentro de Proveedores porque cada refacción siempre es de UN proveedor.</p></div></div>'
-      +   guiaPasos([
-            'Desde cualquier pantalla de Proveedores, entra a <b>Refacciones</b>.',
-            'Usa <b>Nueva refacción</b> para dar de alta una pieza a mano, o <b>Importar de Excel</b> para cargar de un jalón un catálogo completo (hoja tipo "INV. GENERAL") — los proveedores que no existan todavía se dan de alta solos.',
-            'Entra al detalle de una refacción y usa <b>Registrar entrada</b> (compra) o <b>Registrar salida</b> (consumo) para mover su existencia, que siempre se calcula sola, nunca se captura a mano.',
-            'Usa <b>Cierre mensual</b> para ver, mes por mes, la existencia con la que arrancó, lo que entró, lo que salió y con la que cerró cada pieza — puedes capturar entradas/salidas directo desde esa misma tabla.',
-            'Usa <b>Descargar Excel</b> dentro del cierre mensual para archivar el reporte de ese mes.'
+      guiaSeccion('Lo básico — Gastos de proveedor', guiaPasos([
+        'KPIs: Por pagar, Vencido, Por vencer en 7 días, Pagado este mes. La lista se ordena sola por prioridad: Vencido → Por vencer → Por pagar → Cotización → Pagado → Cancelado.',
+        'Usa <b>Nuevo gasto</b>: Proveedor*, Concepto*, Folio (del proveedor), Monto*, Fecha*, Fecha límite de pago, Estatus (Cotización/Por pagar/Pagado/Cancelado), Cotización de cliente ligada (opcional, para comparar costo vs. lo cotizado), Notas.',
+        'Usa <b>Catálogo de proveedores</b> para dar de alta uno (Nombre*, Qué surte, Contacto, Teléfono, Correo, Notas, Activo/Inactivo) o ver todos sus gastos juntos.'
+      ]))
+      + guiaSeccion('Uso intermedio — Gastos de proveedor', guiaPasos([
+        'Un gasto nace como "Cotización" y se convierte con <b>Convertir en factura por pagar</b> — si no tiene fecha límite, se le propone automáticamente hoy + 30 días.',
+        'Usa <b>Agregar abono</b> por cada pago parcial (Monto, Fecha, Método, Referencia) — el saldo pendiente se recalcula solo; el gasto se marca "Pagado" en cuanto el saldo llega a cero.',
+        'Sube documentos por tipo: Cotización del proveedor, Factura, Comprobante de pago — cada uno con su propia etiqueta.'
+      ]))
+      + guiaSeccion('Lo básico — Refacciones (catálogo de piezas por proveedor)', guiaPasos([
+        'Desde cualquier pantalla de Proveedores, entra a <b>Refacciones</b>. KPIs: Piezas en existencia, Valor del inventario, Agotadas.',
+        'Usa <b>Nueva refacción</b>: Proveedor*, Código, Unidad (PZA por default), Descripción*, Costo*, Existencia inicial, Departamento, Notas.',
+        'Busca por código/descripción/proveedor y filtra por proveedor; alterna tarjetas/tabla.',
+        'En el detalle, usa <b>Registrar entrada</b> (Cantidad*, Fecha*, Costo unitario, Gasto/factura ligada opcional) o <b>Registrar salida</b> (Cantidad*, Fecha*, Destino) — quien captura y notas son comunes a ambas.'
+      ]))
+      + guiaSeccion('Uso intermedio — Refacciones y Cierre mensual', guiaPasos([
+        'Usa <b>Importar de Excel</b> para cargar de un jalón un catálogo tipo "INV. GENERAL" — reconoce Código/Proveedor/Descripción/Unidad/Costo/Existencia/Departamento por sus encabezados, y da de alta solos los proveedores que no existan todavía.',
+        'Usa <b>Cierre mensual</b>: navega mes a mes con las flechas, o elige el mes directo; verás existencia inicial, entradas, salidas y existencia final por pieza.',
+        'Desde la misma tabla del cierre puedes capturar <b>+ Entrada</b> / <b>+ Salida</b> sin entrar al detalle — la fecha sugerida cae siempre dentro del mes que estás viendo.',
+        'Usa <b>Descargar Excel</b> dentro del cierre para archivar el reporte de ese mes.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Por qué la existencia nunca se "captura"', [
+            'Se calcula siempre como existencia inicial + entradas − salidas, nunca se guarda como un número aparte — no hay forma de que se desalinee del historial real.',
+            'Una entrada guarda el costo real al que se compró ese lote; una salida siempre se valora al costo actual de la refacción (no hay costo histórico por salida).',
+            'Al pasar un gasto de "Cotización" a "Por pagar" sin fecha límite, se propone automáticamente hoy + 30 días — mismo umbral de "por vencer" (7 días) que usa Activos para mantenimiento.'
           ])
-      + '</div>'
-      + guiaTip('Por qué la existencia nunca se "captura"', [
-          'La existencia de cada refacción se calcula siempre a partir de sus movimientos (existencia inicial + entradas − salidas). Nunca se guarda como un número aparte, así que no hay forma de que se desalinee del historial real.',
-          'Puedes moverte entre meses con las flechas del cierre mensual para consultar cualquier mes anterior, no solo el actual.'
-        ])
-      + guiaRoles('Gestionarlo: Owner/Admin/Analyst. Eliminar, Admin/Owner.') },
+        + guiaTip('Detalles no obvios', [
+            'Un proveedor sin trabajo ya no se borra, se "apaga" (Inactivo) — sus gastos y refacciones viejas siguen apuntando a él.',
+            'Eliminar un proveedor no borra sus gastos (quedan sin proveedor ligado, avisándolo); eliminar un gasto sí borra en cascada sus abonos y documentos.',
+            'A diferencia de Activos, aquí NO hay excepción para el rol Técnico — gestionar cualquier parte de Proveedores/Refacciones exige Analyst o superior; eliminar, Admin/Owner.'
+          ])) },
 
   { id:'organigrama', titulo:'Organigrama',
     resumen:'El directorio de personal de la empresa, con su jerarquía visual de quién le reporta a quién.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Organigrama</b>: puedes verlo como cuadrícula buscable o como árbol.',
-        'Usa <b>Nueva persona</b> para dar de alta a alguien, con su foto institucional (se recorta igual que el logo de un cliente).',
-        'Define a quién le <b>reporta</b> cada persona, y su estatus (activo/baja).'
-      ])
-      + guiaTip('Detalle que evita un problema real', [
-          'La app no te deja poner como jefe de alguien a uno de sus propios subordinados — el desplegable de "reporta a" los filtra solos para que nunca se forme un ciclo.',
-          'Si das de baja a alguien que tenía gente a su cargo, esa gente se recorre automáticamente un nivel arriba en vez de quedarse "huérfana".'
+      guiaSeccion('Lo básico', guiaPasos([
+        'KPIs: Personal, Áreas, En la cima (sin jefe capturado), De baja.',
+        'Usa <b>Nueva persona</b>: Foto institucional (opcional, se recorta al centro sola), Nombre*, Puesto, Área/Departamento, Reporta a, Correo, Teléfono, Fecha de ingreso, Estatus (Activo/De baja), Notas.',
+        'Búscala por nombre, puesto, área o correo — al buscar, la vista cambia de árbol a tarjetas en cuadrícula.',
+        'Sin buscador activo, se ve como <b>árbol</b> jerárquico completo, agrupado desde quienes no tienen jefe capturado.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', guiaPasos([
+          'Una persona <b>de baja</b> no desaparece del árbol: se queda en su lugar, marcada, junto con quienes le reportan.',
+          'Eliminar a alguien es exclusivo de Admin/Owner (aunque editar solo pide Analyst+); si tenía gente a su cargo, el diálogo de confirmación te dice a quién se le va a reasignar.'
         ])
-      + guiaRoles('Gestionarlo: Owner/Admin/Analyst. Visible también para técnico y reportero.') },
+        + guiaTip('Por qué nunca se puede formar un ciclo', [
+            'El desplegable "Reporta a" excluye siempre a la propia persona y a todos sus subordinados (directos e indirectos) — no hay forma de elegir, por accidente, a alguien de su propia cadena hacia abajo.',
+            'Si das de baja o eliminas a alguien que tenía gente a su cargo, esa gente sube automáticamente un nivel (al jefe de quien se fue), en vez de quedarse "huérfana" sin nadie arriba.',
+            'Si por algún motivo el jefe capturado de alguien ya no existe, esa persona simplemente reaparece como su propia raíz en el árbol — nunca se "pierde" ni rompe el dibujo.'
+          ])) },
 
   { id:'imagen', titulo:'Imagen / Aperturas',
     resumen:'Proyectos de apertura, remodelación o cambio de imagen de un sitio: presupuesto, avance y fotos.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Imagen / Aperturas</b> y usa <b>Nuevo proyecto</b>, o <b>Importar desde Excel</b> si ya tienes el presupuesto en una hoja.',
-        'Revisa el <b>Cronograma</b> (vista tipo Gantt) para ver todos los proyectos por fecha objetivo — con aviso si alguno va atrasado.',
-        'Sube <b>Imágenes</b> del proyecto: renders, planos/layout y fotos de avance, cada una etiquetada por tipo.',
-        'Usa <b>Generar PDF</b> para tener el proyecto documentado.'
-      ])
-      + guiaTip('Cómo se refleja en Resultados', [
-          'El costo se separa solo en materiales vs. mano de obra para el desglose financiero.',
-          'La duración en sitio se calcula sola a partir de las fechas de entrada y salida.',
-          'A propósito, estos proyectos NO se suman a la utilidad bruta del módulo Resultados — se muestran aparte, como referencia.'
-        ])
-      + guiaRoles('Es el único módulo que NO se le enseña a quien no tiene permiso de edición, ni siquiera en modo solo lectura. Owner/Admin/Analyst.') },
+      guiaSeccion('Lo básico', guiaPasos([
+        'Usa <b>Nuevo proyecto</b>: Cliente (o nombre libre si es prospecto), Sitio (o ubicación libre), Nombre del proyecto*, Tipo (Apertura nueva/Remodelación/Cambio de imagen), Estatus (En diseño/En cotización/Aprobado/En obra/Terminado/Cancelado), Fecha de alta, Fecha de apertura, Entrada al sitio, Salida/fin de obra, Responsable, Notas.',
+        'Agrega los <b>Costos/conceptos</b> uno por uno (Proveedor, Concepto, Cantidad, Precio unitario) — el resumen de inversión total se arma solo.',
+        'Sube <b>Imágenes y planos</b> etiquetados por tipo: Render, Plano/layout o Foto (hasta 12 archivos, imagen o PDF).',
+        'Busca por folio/proyecto/sitio/cliente y filtra por estatus; alterna entre tarjetas, tabla y <b>Cronograma</b> (vista Gantt).',
+        'Usa <b>Generar PDF</b> para el documento del proyecto.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'Usa <b>Importar desde Excel</b> para prellenar un proyecto nuevo con el desglose de costos de una hoja (proveedor, concepto, cantidad, precio) — nunca guarda solo, siempre revisas y confirmas antes de crear.',
+        'El <b>Cronograma</b> dibuja cada proyecto como una barra en una línea de tiempo continua (no una columna por día), separando los atrasados arriba y los sin fecha capturada aparte.',
+        'Un PDF subido como plano se intenta convertir a imagen automáticamente (para verlo como miniatura); si no se puede, se guarda como documento con su nombre de archivo.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Cómo se refleja en Resultados', [
+            'El costo se separa en materiales vs. mano de obra por una regla de texto: un concepto con proveedor "Servicios" o "Servicios/IT" cuenta como mano de obra, cualquier otro (incluido vacío) cuenta como material.',
+            'La duración en sitio se calcula sola a partir de las fechas de entrada y salida (incluyendo ambos días).',
+            'A propósito, estos proyectos NO se suman a la utilidad bruta del módulo Resultados ni generan una cotización formal — son solo informativos; una cotización real para el cliente se arma aparte en el módulo Cotizaciones.'
+          ])
+        + guiaTip('El único módulo oculto del todo a quien no edita', [
+            'A diferencia de Levantamientos (que sigue visible de solo lectura), Imagen/Aperturas desaparece por completo del selector de módulos para cualquiera que no tenga permiso de edición — ni Viewer, ni Técnico, ni Reportero lo ven jamás.'
+          ])) },
 
   { id:'admin', titulo:'Administración',
     resumen:'Cuentas del equipo, solicitudes de acceso de clientes, respaldo de toda la base, y catálogos configurables.',
     contenido:
-      guiaPasos([
-        'Entra a <b>Administración</b> (ícono de tu cuenta, arriba a la derecha).',
-        'En <b>Cuentas</b>: da de alta al equipo, asigna su rol desde el desplegable, bloquea/reactiva o elimina una cuenta.',
-        'En <b>Solicitudes de acceso de clientes</b>: cuando un cliente pide su acceso desde la pantalla de login, aparece aquí pendiente — usa <b>Vincular y aprobar</b> para ligarlo a su cliente real, o <b>Rechazar</b>.',
-        'En <b>Cuentas de clientes</b>: administra los accesos de clientes ya aprobados.',
-        'En <b>Historial de cambios</b>: consulta quién hizo qué y cuándo, en toda la app.',
-        'En <b>Segmentos</b>: edita las sugerencias de "zona" que se ofrecen al capturar un sitio.',
-        'En <b>Parámetros de clientes / de sitios</b>: agrega campos personalizados (sin tocar código) que van a aparecer en el formulario y como chips en las tarjetas.',
-        'Desde la pantalla de Clientes, usa <b>Descargar Excel</b>, <b>Respaldo JSON</b> y <b>Restaurar</b> para bajar o restaurar toda la base de un jalón.'
-      ])
-      + guiaTip('Cuidado con esto', [
-          'Solo un Owner puede tocar la cuenta de otro Owner — un Admin no puede degradar ni eliminar a un Owner.',
-          'Restaurar un respaldo JSON reemplaza TODA la base de datos: úsalo solo cuando de verdad quieras regresar a un punto anterior.'
-        ])
-      + guiaRoles('Exclusivo de Owner y Admin.') },
+      guiaSeccion('Lo básico', guiaPasos([
+        'Entra a <b>Administración</b> desde el icono de tu cuenta. Es una sola pantalla larga con varios bloques, no pestañas.',
+        '<b>Cuentas</b>: usa <b>Crear cuenta</b> (Foto opcional, Correo*, Nombre, Teléfono, Permiso*, Contraseña temporal* ya sugerida) para dar de alta a alguien del equipo; cambia el permiso directo desde el desplegable de la tabla; usa el lápiz para editar nombre/teléfono/foto; <b>Bloquear</b> (reversible) o <b>Eliminar</b> (permanente, solo borra el perfil — el usuario de acceso sigue existiendo en Firebase) una cuenta.',
+        '<b>Solicitudes de acceso de clientes</b>: cuando alguien pide su acceso desde "Solicita tu acceso" en el login, aparece aquí — usa <b>Vincular y aprobar</b> (eligiendo o creando el cliente real al que corresponde) o <b>Rechazar</b>.',
+        '<b>Cuentas de clientes</b>: administra los accesos de clientes ya aprobados, con los mismos botones de bloquear/eliminar.',
+        '<b>Historial de cambios</b>: los últimos 150 movimientos de toda la app, más reciente arriba.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        '<b>Segmentos</b>: agrega o quita las sugerencias de "zona" que se ofrecen al capturar un sitio (no restringen nada, solo sugieren).',
+        '<b>Parámetros de clientes</b> y <b>Parámetros de sitios</b>: agrega campos personalizados (Texto/Número/Fecha/Sí-No) sin tocar código — aparecen solos en el formulario correspondiente y como chips en las tarjetas.',
+        'Desde la pantalla de Clientes: <b>Descargar Excel</b> (disponible para cualquiera), y solo para Admin/Owner, <b>Respaldo JSON</b> y <b>Restaurar</b> para mover toda la base de un jalón.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Protecciones de Owner', [
+            'Nadie puede cambiarse su propio permiso, ni bloquearse ni eliminarse a sí mismo.',
+            'Solo un Owner puede cambiar el permiso de otro Owner, bloquearlo o eliminarlo — un Admin no puede tocarlo.',
+            'Ni Admin ni nadie más que un Owner puede asignarle el rol Owner a alguien más.'
+          ])
+        + guiaTip('Qué incluye exactamente cada respaldo', [
+            'El "Respaldo JSON" que descargas incluye clientes, sitios, pólizas, catálogo, segmentos, parámetros, cotizaciones, reportes y levantamientos — NO incluye Activos, Organigrama, Proveedores/Refacciones, ni las cuentas del equipo ni el historial de cambios.',
+            'Restaurar un archivo SÍ puede traer de vuelta Activos/Organigrama/Proveedores/Refacciones si el archivo los trae — no son operaciones perfectamente simétricas.',
+            'Restaurar reemplaza la base completa y, si estás conectado a la nube, borra del servidor cualquier cliente/sitio/póliza/reporte/levantamiento que ya no venga en el archivo — no es un import aditivo, es una sincronización destructiva. Úsalo con cuidado.'
+          ])) },
 
   { id:'portal', titulo:'Portal de clientes',
     resumen:'Lo que ve un cliente cuando entra con su propia cuenta: nunca el tablero completo, solo lo suyo.',
     contenido:
-      guiaPasos([
-        'Un cliente pide su acceso desde <b>Solicita tu acceso</b> en la pantalla de login.',
-        'Un Admin lo aprueba desde Administración → Solicitudes de acceso de clientes, ligándolo a su cliente real.',
-        'Ya dentro, el cliente ve tres pestañas: <b>Mi póliza</b> (el equipo cubierto y el precio mensual), <b>Mis cotizaciones</b> (con el mismo desglose que ve tu equipo, pero solo el lado de cliente) y <b>Mis reportes</b> (incluyendo la evidencia fotográfica de cada visita).'
-      ])
-      + guiaTip('Para tenerlo presente', [
-          'Todo lo que ve un cliente es de solo lectura: no puede editar ni capturar nada.',
-          'Un cliente jamás ve el tablero interno ni a otros clientes — su sesión se bifurca a esta pantalla aparte desde el arranque de la app.'
-        ])
-      + guiaRoles('Exclusivo del rol Cliente (cuenta externa).') }
+      guiaSeccion('Lo básico', guiaPasos([
+        'Un cliente pide su acceso desde <b>Solicita tu acceso</b> en la pantalla de login: nombre de su empresa, su nombre, correo y contraseña.',
+        'Un Admin lo aprueba desde Administración → Solicitudes de acceso de clientes, ligándolo a su cliente real (o creando uno nuevo si hace falta).',
+        'Ya dentro, el cliente ve tres pestañas: <b>Mi póliza</b> (equipo cubierto, mensualidad, servicios hechos vs. programados, cobranza), <b>Mis cotizaciones</b> (mismo desglose que ve tu equipo, pero solo el lado de cliente) y <b>Mis reportes</b> (incluyendo la evidencia fotográfica de cada visita y qué se resolvió).',
+        'Todo es de solo lectura: no hay ningún botón para crear, editar o eliminar nada.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Cómo se protege la información de costos', [
+            'El portal nunca lee las colecciones internas de pólizas/cotizaciones — lee copias separadas y ya "limpiadas" que se generan solas cada vez que tu equipo guarda una póliza o cotización, sin costos, sin margen, sin respaldos de proveedor.',
+            'Una póliza "Cargo a: Interno" no genera copia para el cliente en absoluto (no tiene un "precio de venta" que mostrarle); una cotización todavía en borrador tampoco — hasta que avanza de estatus.',
+            'Un cliente jamás ve el selector de módulos, Organigrama, Imagen/Aperturas, Activos, Proveedores, ni el panel de Administración — su sesión entra a una pantalla completamente aparte desde el arranque de la app, no es una versión recortada del tablero interno.'
+          ])) }
 ];
 
 function temaAyudaPorId(id){ return TEMAS_AYUDA.find(t => t.id === id); }
