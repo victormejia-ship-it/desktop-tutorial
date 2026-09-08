@@ -1276,6 +1276,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
     <button type="button" class="mod" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
+    <button type="button" class="mod" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
     <button type="button" class="mod" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
     <button type="button" class="mod" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
   </nav>
@@ -1996,7 +1997,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[] };
 
 function cargar(){
   try{
@@ -2025,7 +2026,9 @@ function cargar(){
         levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
         proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
         activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
-        personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona) };
+        personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
+        proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
+        gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2120,7 +2123,9 @@ async function restaurarSnapshotIndexedDB(){
       levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : []).map(normalizarLevantamiento),
       proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
       activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
-      personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona) };
+      personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
+      proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
+      gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -2715,7 +2720,7 @@ function limpiarSesionYDatos(){
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -3103,11 +3108,12 @@ async function bajarDeLaNube(){
      solo para no perder nada que ya se hubiera subido antes de la fusión con
      Cotizaciones (28-ago-2026, ver migrarServiciosExtrasACotizaciones) — es
      de solo lectura, ya no se le vuelve a escribir. */
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
     listarNube('levantamientos', 60), listarNube('proyectosImagen', 60),
-    listarNube('serviciosExtras', 60), listarNube('activos', 60), listarNube('personal', 200)
+    listarNube('serviciosExtras', 60), listarNube('activos', 60), listarNube('personal', 200),
+    listarNube('proveedores', 100), listarNube('gastosProveedor', 100)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -3125,7 +3131,8 @@ async function bajarDeLaNube(){
             cotizaciones: co.map(normalizarCotizacion).concat(migrarServiciosExtrasACotizaciones(se)),
             reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento),
             proyectosImagen: im.map(normalizarProyectoImagen), activos: ac.map(normalizarActivo),
-            personal: pe.map(normalizarPersona) };
+            personal: pe.map(normalizarPersona),
+            proveedores: pv.map(normalizarProveedor), gastosProveedor: gp.map(normalizarGastoProveedor) };
   guardarLocal();
   return 'ok';
 }
@@ -3771,6 +3778,147 @@ function normalizarRespaldoCosto(r){
     subioNombre: (r && r.subioNombre ? String(r.subioNombre) : '').trim(),
     cuando: (r && r.cuando) || hoyISO()
   };
+}
+
+/* ==================== Proveedores ====================
+   Rastreo de gastos/pagos a proveedores: qué se les ha pagado, qué está por
+   pagar, y sus facturas y cotizaciones — pedido explícito para no perder el
+   hilo de a quién se le debe qué y para cuándo, igual que Pólizas lo hace
+   con la cobranza a clientes pero en el sentido contrario (lo que Forguard
+   paga, no lo que cobra). */
+const ESTATUS_GASTO_PROVEEDOR = ['cotizacion', 'por-pagar', 'pagado', 'cancelado'];
+const ETIQUETA_ESTATUS_GASTO_PROVEEDOR = {
+  cotizacion:'Cotización', 'por-pagar':'Por pagar', pagado:'Pagado', cancelado:'Cancelado'
+};
+/* Qué es cada documento adjunto — mismo archivo (imagen o PDF) que un
+   respaldo de costo de cotización, nada más con una etiqueta de qué tipo de
+   papel es, para poder separarlos en la pantalla del gasto. */
+const TIPO_DOC_GASTO_PROVEEDOR = ['cotizacion', 'factura', 'comprobante'];
+const ETIQUETA_TIPO_DOC_GASTO_PROVEEDOR = {
+  cotizacion:'Cotización del proveedor', factura:'Factura', comprobante:'Comprobante de pago'
+};
+/* Qué tipo de documento se está subiendo ahorita mismo — los tres botones de
+   "Documentos" en vistaGastoProveedor() comparten un solo <input type="file">
+   oculto, así que el botón que abrió el selector deja esto puesto antes de
+   dispararlo (ver data-accion="subir-documento-proveedor"). */
+let tipoDocumentoProveedorTmp = 'factura';
+
+function proveedorPorId(id){ return datos.proveedores.find(p => p.id === id); }
+function gastoProveedorPorId(id){ return datos.gastosProveedor.find(g => g.id === id); }
+function gastosDeProveedor(proveedorId){ return datos.gastosProveedor.filter(g => g.proveedorId === proveedorId); }
+
+function puedeGestionarProveedores(){ return puedeEditar(); }
+function exigirGestionProveedores(){
+  if(puedeGestionarProveedores()) return true;
+  aviso('Tu cuenta no puede dar de alta ni modificar proveedores ni sus gastos. Puedes consultar el catálogo.', true);
+  return false;
+}
+
+/* El catálogo: una vez dado de alta un proveedor, sus gastos se van
+   acumulando ahí — igual que un cliente y sus pólizas. */
+function normalizarProveedor(p){
+  return {
+    id: (p && p.id) || nuevoId(),
+    nombre: aOracion((p && p.nombre ? String(p.nombre) : '').trim()),
+    contacto: aOracion((p && p.contacto ? String(p.contacto) : '').trim()),
+    telefono: (p && p.telefono ? String(p.telefono) : '').trim(),
+    correo: (p && p.correo ? String(p.correo) : '').trim().toLowerCase(),
+    /* Texto libre, como categoria en Activos: la variedad de lo que surte un
+       proveedor (refacciones, insumos, servicio especializado...) no cabe en
+       un catálogo cerrado. */
+    queSurte: aOracion((p && p.queSurte ? String(p.queSurte) : '').trim()),
+    notas: (p && p.notas ? String(p.notas) : '').trim(),
+    /* Un proveedor con el que ya no se trabaja se apaga, no se borra: sus
+       gastos viejos siguen apuntando a su id. */
+    activo: p.activo !== false
+  };
+}
+
+/* Un abono es un pago PARCIAL de un gasto — una factura de $50,000 pagada en
+   dos exhibiciones dos abonos, no un gasto duplicado. El saldo se calcula
+   siempre de aquí (ver calcularGastoProveedor), nunca se guarda aparte. */
+function normalizarAbonoProveedor(a){
+  return {
+    id: (a && a.id) || nuevoId(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fecha) ? a.fecha : hoyISO(),
+    monto: Math.max(0, Math.round((Number(a && a.monto) || 0) * 100) / 100),
+    metodo: (a && a.metodo ? String(a.metodo) : '').trim(),
+    referencia: (a && a.referencia ? String(a.referencia) : '').trim()
+  };
+}
+
+/* Mismo molde que un respaldo de costo (imagen o PDF embebido) más la
+   etiqueta de qué tipo de papel es. */
+function normalizarDocumentoProveedor(d){
+  return Object.assign({}, normalizarRespaldoCosto(d), {
+    tipoDocumento: TIPO_DOC_GASTO_PROVEEDOR.includes(d && d.tipoDocumento) ? d.tipoDocumento : 'factura'
+  });
+}
+
+/* Un gasto: puede empezar como una cotización que mandó el proveedor (todavía
+   no es un compromiso de pago) y pasar a "por pagar" cuando se acepta y ya
+   hay fecha de vencimiento — el mismo ciclo de una cotización propia, solo
+   que del lado de lo que Forguard paga. */
+function normalizarGastoProveedor(g){
+  return {
+    id: (g && g.id) || nuevoId(),
+    proveedorId: (g && g.proveedorId ? String(g.proveedorId) : '').trim(),
+    /* Copiado al guardar, mismo criterio que sitioNombre en pólizas: si el
+       proveedor se borra o se renombra después, el gasto sigue diciendo a
+       quién correspondía. */
+    proveedorNombre: (g && g.proveedorNombre ? String(g.proveedorNombre) : '').trim(),
+    concepto: aOracion((g && g.concepto ? String(g.concepto) : '').trim()),
+    /* Número de factura o de cotización del PROVEEDOR, no un folio propio. */
+    folio: (g && g.folio ? String(g.folio) : '').trim(),
+    monto: Math.max(0, Math.round((Number(g && g.monto) || 0) * 100) / 100),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(g && g.fecha) ? g.fecha : hoyISO(),
+    fechaVencimiento: /^\d{4}-\d{2}-\d{2}$/.test(g && g.fechaVencimiento) ? g.fechaVencimiento : '',
+    estatus: ESTATUS_GASTO_PROVEEDOR.includes(g && g.estatus) ? g.estatus : 'cotizacion',
+    /* Liga opcional hacia LA cotización que le hacemos a un cliente: así se
+       puede comparar lo que cuesta el proveedor contra lo que se cotizó. */
+    cotizacionClienteId: (g && g.cotizacionClienteId ? String(g.cotizacionClienteId) : '').trim(),
+    abonos: (Array.isArray(g && g.abonos) ? g.abonos : []).map(normalizarAbonoProveedor),
+    documentos: (Array.isArray(g && g.documentos) ? g.documentos : []).map(normalizarDocumentoProveedor),
+    notas: (g && g.notas ? String(g.notas) : '').trim()
+  };
+}
+
+/* Saldo, vencimiento y semáforo — un solo lugar para que la lista general, el
+   detalle del gasto y la tarjeta del proveedor digan siempre lo mismo. Mismo
+   criterio que calcularPoliza(): nada de esto se guarda, se deriva. */
+function calcularGastoProveedor(g){
+  const totalAbonado = g.abonos.reduce((t,a)=> t + a.monto, 0);
+  const saldo = Math.max(0, Math.round((g.monto - totalAbonado) * 100) / 100);
+  const pagado = g.estatus === 'pagado' || (g.estatus === 'por-pagar' && saldo <= 0);
+  const diasParaVencer = g.fechaVencimiento ? diasEntre(hoyISO(), g.fechaVencimiento) : null;
+  const vencido = g.estatus === 'por-pagar' && !pagado && diasParaVencer !== null && diasParaVencer < 0;
+
+  /* tono: acento de la .tarjeta, solo ok/alerta/error/neutro (ver tonoCotizacion
+     más abajo, mismo motivo). tonoInsignia: el badge de estatus, que sí admite
+     "info" — dos campos porque una tarjeta "Cotización" no debe verse gris
+     apagado (neutro) igual que una cancelada. */
+  let estado, tono, tonoInsignia;
+  if(g.estatus === 'cancelado'){ estado = 'Cancelado'; tono = 'neutro'; tonoInsignia = 'neutro'; }
+  else if(g.estatus === 'cotizacion'){ estado = 'Cotización'; tono = 'neutro'; tonoInsignia = 'info'; }
+  else if(pagado){ estado = 'Pagado'; tono = 'ok'; tonoInsignia = 'ok'; }
+  else if(vencido){ estado = 'Vencido'; tono = 'error'; tonoInsignia = 'error'; }
+  else if(diasParaVencer !== null && diasParaVencer <= 7){ estado = 'Por vencer'; tono = 'alerta'; tonoInsignia = 'alerta'; }
+  else{ estado = 'Por pagar'; tono = 'neutro'; tonoInsignia = 'info'; }
+
+  return { totalAbonado, saldo, pagado, vencido, diasParaVencer, estado, tono, tonoInsignia };
+}
+
+/* Mismo molde de siempre: local + IndexedDB (vía guardarLocal), cola hacia
+   Firestore, bitácora — ver guardarActivo() para el mismo patrón. */
+function guardarProveedor(p, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'proveedores', id:p.id, obj:p });
+  anotar(accion || 'editó', 'proveedor', p.nombre || 'sin nombre', detalle);
+}
+function guardarGastoProveedor(g, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'gastosProveedor', id:g.id, obj:g });
+  anotar(accion || 'editó', 'gasto de proveedor', (g.proveedorNombre || 'Proveedor') + ' — ' + (g.concepto || 'sin concepto'), detalle);
 }
 
 function normalizarTecnicoAsignado(t){
@@ -7299,7 +7447,12 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
-                 levantamientoId:null, proyectoImagenId:null, activoId:null,
+                 levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null,
+                 /* Qué estatus de gasto se está viendo en el rastreo de Proveedores
+                    ('todos', o una de ESTATUS_GASTO_PROVEEDOR) — misma naturaleza
+                    que `filtro` de arriba, nada más aparte para no pisarse con el
+                    de Activos/Reportes. */
+                 filtroGastoProveedor:'todos',
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
                  /* Qué fuentes de ingreso están "apagadas" en las gráficas de
@@ -7317,7 +7470,8 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
-                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas',
+                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas', vistaProveedores:'tarjetas',
+                 vistaGastosProveedor:'tarjetas',
                  /* Orden de la lista de pólizas: por qué columna y en qué
                     sentido. Misma naturaleza que vistaPolizas de arriba —
                     preferencia de pantalla, no dato — así que aplica igual en
@@ -7332,7 +7486,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'imagen'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -7376,6 +7530,7 @@ function inicioDelModulo(){
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
        : estado.modulo === 'activos' ? 'activos'
+       : estado.modulo === 'proveedores' ? 'gastos-proveedor'
        : estado.modulo === 'organigrama' ? 'organigrama'
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'clientes' ? 'resumen'
@@ -7428,9 +7583,9 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
   estado.busca = ''; estado.filtro = 'todos';
-  estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = '';
+  estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -7543,6 +7698,36 @@ function entrarActivo(id){
   if(estado.modulo !== 'activos'){ estado.modulo = 'activos'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'activo'; estado.activoId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irAGastosProveedor(){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'gastos-proveedor'; estado.gastoProveedorId = null;
+  estado.busca = ''; estado.filtroGastoProveedor = 'todos';
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irAProveedores(){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'proveedores'; estado.proveedorId = null;
+  estado.busca = '';
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarProveedor(id){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'proveedor'; estado.proveedorId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarGastoProveedor(id){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'gasto-proveedor'; estado.gastoProveedorId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -10984,6 +11169,582 @@ function nodoArbolOrganigrama(p, visitados){
        + '</li>';
 }
 
+/* =========================== Vistas: Proveedores =========================== */
+function botonRegresarGastosProveedor(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-gastos-proveedor">'
+       + ICONO.atras + 'Regresar a gastos</button></div>';
+}
+function botonRegresarProveedores(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-proveedores">'
+       + ICONO.atras + 'Regresar a proveedores</button></div>';
+}
+
+function resumirGastosProveedor(lista){
+  const r = { cotizaciones:0, porPagarCant:0, porPagarSaldo:0, vencidoCant:0, vencidoSaldo:0, porVencerCant:0, pagadoMes:0 };
+  const mesActual = hoyISO().slice(0,7);
+  lista.forEach(g=>{
+    const c = calcularGastoProveedor(g);
+    if(g.estatus === 'cotizacion') r.cotizaciones++;
+    else if(g.estatus === 'por-pagar' && !c.pagado){
+      r.porPagarCant++; r.porPagarSaldo += c.saldo;
+      if(c.vencido){ r.vencidoCant++; r.vencidoSaldo += c.saldo; }
+      else if(c.diasParaVencer !== null && c.diasParaVencer <= 7) r.porVencerCant++;
+    }
+    g.abonos.forEach(a=>{ if((a.fecha || '').slice(0,7) === mesActual) r.pagadoMes += a.monto; });
+  });
+  return r;
+}
+
+/* Cuánto se le debe a UN proveedor — para su tarjeta en el catálogo y el
+   encabezado de su detalle. Mismo cálculo que resumirGastosProveedor, nada
+   más acotado a los gastos de ese proveedor. */
+function resumenProveedor(proveedorId){
+  const gastos = gastosDeProveedor(proveedorId);
+  let porPagarCant = 0, porPagarSaldo = 0, vencidoCant = 0;
+  gastos.forEach(g=>{
+    const c = calcularGastoProveedor(g);
+    if(g.estatus === 'por-pagar' && !c.pagado){
+      porPagarCant++; porPagarSaldo += c.saldo;
+      if(c.vencido) vencidoCant++;
+    }
+  });
+  return { total: gastos.length, porPagarCant, porPagarSaldo, vencidoCant };
+}
+
+/* Una tarjeta de gasto — la usan tanto el rastreo general como el detalle de
+   un proveedor, para no mantener dos moldes de la misma información. */
+function tarjetaGastoProveedor(g, i){
+  const c = calcularGastoProveedor(g);
+  const cotCliente = g.cotizacionClienteId ? cotizacionPorId(g.cotizacionClienteId) : null;
+  let chips = '<span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span>';
+  if(cotCliente) chips += '<span class="insignia i-info">Cotización ' + esc(cotCliente.folio || 'sin folio') + '</span>';
+  if(g.documentos.length) chips += '<span class="insignia i-neutro">' + g.documentos.length + ' ' + plural(g.documentos.length,'documento','documentos') + '</span>';
+
+  return '<div class="tarjeta tarjeta-clic t-' + c.tono + '" data-gasto-proveedor="' + esc(g.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+       +   '<div class="t-cabeza">'
+       +     '<div class="t-avatar">' + esc(iniciales(g.proveedorNombre || 'Proveedor')) + '</div>'
+       +     '<div style="flex:1; min-width:0">'
+       +       '<div class="t-nombre">' + esc(g.concepto || 'Sin concepto') + '</div>'
+       +       '<div class="t-sub">' + esc(g.proveedorNombre || 'Sin proveedor') + (g.folio ? ' · ' + esc(g.folio) : '') + '</div>'
+       +     '</div>'
+       +   '</div>'
+       +   '<div class="t-chips">' + chips + '</div>'
+       +   '<div class="t-datos">'
+       +     '<div class="t-dato"><div class="d-label">Monto</div><div class="d-valor">' + dineroCent(g.monto) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">' + (c.pagado ? 'Pagado' : 'Saldo pendiente') + '</div>'
+       +       '<div class="d-valor" style="color:' + (c.pagado ? 'var(--ok)' : (c.vencido ? 'var(--error)' : 'var(--ink)')) + '">'
+       +         dineroCent(c.pagado ? g.monto : c.saldo) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Vencimiento</div><div class="d-valor chico">' + (g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : 'Sin fecha') + '</div></div>'
+       +   '</div>'
+       +   '<div class="t-pie"><span class="pista">' + fmtFecha(g.fecha) + '</span><span class="espacio"></span>'
+       +     '<button type="button" class="btn btn-suave btn-mini" data-gasto-proveedor="' + esc(g.id) + '">Ver detalle →</button>'
+       +   '</div>'
+       + '</div>';
+}
+
+function tablaGastosProveedor(lista){
+  return '<div class="rodillo"><table class="tabla" style="min-width:1000px"><thead><tr>'
+       +   '<th>Proveedor</th><th>Concepto</th><th>Folio</th><th>Estatus</th><th>Monto</th><th>Saldo</th><th>Vencimiento</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(g=>{
+           const c = calcularGastoProveedor(g);
+           return '<tr class="fila-clic" data-gasto-proveedor="' + esc(g.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(g.proveedorNombre || '—') + '</td>'
+                +   '<td>' + esc(g.concepto || '—') + '</td>'
+                +   '<td>' + esc(g.folio || '—') + '</td>'
+                +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></td>'
+                +   '<td>' + dineroCent(g.monto) + '</td>'
+                +   '<td>' + (c.pagado ? '—' : dineroCent(c.saldo)) + '</td>'
+                +   '<td>' + (g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : '—') + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
+/* Pantalla por default del módulo: el "ambiente de rastreo" pedido — qué se
+   ha pagado, qué está por pagar y qué sigue como cotización, de todos los
+   proveedores juntos. */
+function vistaGastosProveedor(){
+  const r = resumirGastosProveedor(datos.gastosProveedor);
+  let h = '';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Proveedores</h2>'
+     +   '<p>' + numero(datos.gastosProveedor.length) + ' ' + plural(datos.gastosProveedor.length,'gasto','gastos')
+     +   ' · ' + numero(datos.proveedores.length) + ' ' + plural(datos.proveedores.length,'proveedor','proveedores') + '</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-proveedores">' + ICONO.edificio + 'Catálogo de proveedores</button>'
+     +   (puedeGestionarProveedores()
+          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-gasto-proveedor">' + ICONO.mas + 'Nuevo gasto</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Por pagar', dinero(r.porPagarSaldo), r.porPagarCant + ' ' + plural(r.porPagarCant,'factura','facturas') + ' pendientes')
+     + tarjetaKpi('Vencido', dinero(r.vencidoSaldo), r.vencidoCant ? r.vencidoCant + ' ' + plural(r.vencidoCant,'factura vencida','facturas vencidas') : 'Nada vencido', r.vencidoCant ? 'k-alerta' : '')
+     + tarjetaKpi('Por vencer en 7 días', numero(r.porVencerCant), 'Facturas por pagar cerca de su límite', r.porVencerCant ? 'k-alerta' : '')
+     + tarjetaKpi('Pagado este mes', dinero(r.pagadoMes), 'Suma de abonos del mes en curso')
+     + '</div>';
+
+  if(!datos.gastosProveedor.length){
+    h += vistaVacia('reporte', 'Todavía no hay gastos de proveedores registrados',
+          'Registra una cotización que te mandó un proveedor, o una factura por pagar, para empezar a rastrear lo que se le debe.',
+          puedeGestionarProveedores() ? 'nuevo-gasto-proveedor' : '', 'Nuevo gasto');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaGastoProveedor" placeholder="Buscar por proveedor, concepto o folio…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroGastoProveedor">'
+     +     '<option value="todos"' + (estado.filtroGastoProveedor === 'todos' ? ' selected' : '') + '>Todos los estatus</option>'
+     +     ESTATUS_GASTO_PROVEEDOR.map(e => '<option value="' + e + '"' + (estado.filtroGastoProveedor === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_GASTO_PROVEEDOR[e]) + '</option>').join('')
+     +     '<option value="vencido"' + (estado.filtroGastoProveedor === 'vencido' ? ' selected' : '') + '>Vencido</option>'
+     +   '</select>'
+     +   controlAlternaVista('vistaGastosProveedor')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.gastosProveedor.filter(g=>{
+    if(q){
+      const campos = [g.proveedorNombre, g.concepto, g.folio, g.notas];
+      if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
+    }
+    if(estado.filtroGastoProveedor === 'vencido') return calcularGastoProveedor(g).vencido;
+    if(estado.filtroGastoProveedor !== 'todos') return g.estatus === estado.filtroGastoProveedor;
+    return true;
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún gasto coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  /* Lo más urgente primero: vencido, luego por vencer, por pagar, cotización,
+     y al final lo ya resuelto (pagado/cancelado) — para que abrir la pantalla
+     enseñe de una vez lo que necesita atención. */
+  const PRIORIDAD_ESTADO_GASTO = { 'Vencido':0, 'Por vencer':1, 'Por pagar':2, 'Cotización':3, 'Pagado':4, 'Cancelado':5 };
+  const ordenados = lista.slice().sort((a,b)=>{
+    const ca = calcularGastoProveedor(a), cb = calcularGastoProveedor(b);
+    const pa = PRIORIDAD_ESTADO_GASTO[ca.estado], pb = PRIORIDAD_ESTADO_GASTO[cb.estado];
+    if(pa !== pb) return pa - pb;
+    return (a.fechaVencimiento || a.fecha || '').localeCompare(b.fechaVencimiento || b.fecha || '');
+  });
+
+  if(estado.vistaGastosProveedor === 'tabla') return h + tablaGastosProveedor(ordenados);
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((g,i)=> tarjetaGastoProveedor(g,i)).join('') + '</div>';
+  return h;
+}
+
+/* Detalle de un gasto: abonos, documentos y la liga a la cotización de
+   cliente que le dio pie, si aplica. */
+function vistaGastoProveedor(){
+  const g = gastoProveedorPorId(estado.gastoProveedorId);
+  if(!g){ estado.vista = 'gastos-proveedor'; return vistaGastosProveedor(); }
+  const c = calcularGastoProveedor(g);
+  const cotCliente = g.cotizacionClienteId ? cotizacionPorId(g.cotizacionClienteId) : null;
+  const puede = puedeGestionarProveedores();
+
+  let h = botonRegresarGastosProveedor();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(g.concepto || 'Gasto de proveedor') + '</h2>'
+     +   '<p>' + esc(g.proveedorNombre || 'Sin proveedor') + (g.folio ? ' · ' + esc(g.folio) : '') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   '<span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span>'
+     +   (c.diasParaVencer !== null && !c.pagado && g.estatus === 'por-pagar'
+          ? '<span class="insignia i-neutro">' + (c.diasParaVencer >= 0
+              ? 'Vence en ' + c.diasParaVencer + ' ' + plural(c.diasParaVencer,'día','días')
+              : 'Venció hace ' + Math.abs(c.diasParaVencer) + ' ' + plural(Math.abs(c.diasParaVencer),'día','días')) + '</span>'
+          : '')
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Monto', dineroCent(g.monto), fmtFecha(g.fecha))
+     + tarjetaKpi('Abonado', dineroCent(c.totalAbonado), g.abonos.length + ' ' + plural(g.abonos.length,'abono','abonos'))
+     + tarjetaKpi('Saldo', dineroCent(c.saldo), c.pagado ? 'Liquidado' : 'Pendiente')
+     + tarjetaKpi('Vencimiento', g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : 'Sin fecha', '')
+     + '</div>';
+
+  if(cotCliente){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cotización de cliente ligada</h3>'
+       +   '<p>' + esc(cotCliente.folio || 'Sin folio') + ' — ' + esc((clientePorId(cotCliente.clienteId) || {}).nombre || 'Sin cliente') + '</p></div>'
+       +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-cotizacion="' + esc(cotCliente.id) + '">'
+       +     ICONO.credencial + 'Ver cotización →</button></div>'
+       + '</div></div>';
+  }
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Notas</h3></div></div>'
+     +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(g.notas || 'Sin notas.') + '</p>'
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Abonos</h3><p>Pagos parciales de este gasto.</p></div>'
+     +   (puede && !c.pagado && g.estatus !== 'cotizacion'
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="nuevo-abono-proveedor">' + ICONO.mas + 'Agregar abono</button></div>'
+          : '')
+     + '</div>'
+     +   (g.abonos.length
+          ? '<div class="lista-seguimiento">' + g.abonos.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha)).map(a=>
+              '<div class="seguimiento-item"><b>' + dineroCent(a.monto) + '</b> '
+              + '<span class="pista">' + fmtFecha(a.fecha) + (a.metodo ? ' · ' + esc(a.metodo) : '') + (a.referencia ? ' · ' + esc(a.referencia) : '') + '</span>'
+              +   (puede ? '<button type="button" class="btn btn-suave btn-mini" style="margin-left:8px" data-accion="quitar-abono-proveedor" data-abono="' + esc(a.id) + '">' + ICONO.basura + '</button>' : '')
+              + '</div>'
+            ).join('') + '</div>'
+          : '<p class="pista" style="margin:0">Todavía no hay abonos registrados.</p>')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Documentos</h3><p>Cotización del proveedor, factura o comprobante de pago — foto o PDF.</p></div>'
+     +   (puede
+          ? '<div class="acciones">' + TIPO_DOC_GASTO_PROVEEDOR.map(t =>
+              '<button type="button" class="btn btn-suave btn-mini" data-accion="subir-documento-proveedor" data-tipo-documento="' + t + '">' + ICONO.mas + esc(ETIQUETA_TIPO_DOC_GASTO_PROVEEDOR[t]) + '</button>').join('')
+            + '</div>'
+          : '')
+     + '</div>'
+     +   (g.documentos.length
+          /* La etiqueta de qué tipo de documento es va ABAJO del cuadrito, no
+             encima: .evidencia-foto mide apenas 92px y una insignia
+             sobrepuesta ahí tapaba (y le robaba el clic) al botón de quitar,
+             que vive en la esquina superior derecha del mismo cuadrito. */
+          ? '<div class="galeria-evidencia">' + g.documentos.map(d=>
+              '<div style="display:flex; flex-direction:column; align-items:center; gap:4px; width:92px">'
+              +   '<div class="evidencia-foto' + (d.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
+              +     (d.tipo === 'pdf'
+                      ? '<a href="' + esc(d.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(d.nombre) + '">' + ICONO.documento + '<span>' + esc(d.nombre) + '</span></a>'
+                      : '<a href="' + esc(d.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(d.dataUrl) + '" alt="' + esc(d.nombre) + '" loading="lazy"></a>')
+              +     (puede
+                     ? '<button type="button" class="evidencia-quitar" data-accion="quitar-documento-proveedor" data-documento="' + esc(d.id) + '" title="Quitar">' + ICONO.basura + '</button>'
+                     : '')
+              +   '</div>'
+              +   '<span class="pista" style="text-align:center">' + esc(ETIQUETA_TIPO_DOC_GASTO_PROVEEDOR[d.tipoDocumento]) + '</span>'
+              + '</div>'
+            ).join('') + '</div>'
+          : '<p class="pista" style="margin:0">Todavía no hay documentos cargados.</p>')
+     +   (puede ? '<input type="file" id="archivoDocumentoProveedor" accept="image/*,application/pdf" style="display:none">' : '')
+     + '</div>';
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  if(puede){
+    h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-gasto-proveedor">' + ICONO.lapiz + 'Editar</button>';
+    if(g.estatus === 'cotizacion') h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-gasto-proveedor" data-estatus="por-pagar">Convertir en factura por pagar</button>';
+    if(g.estatus === 'por-pagar' && !c.pagado) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-gasto-proveedor" data-estatus="pagado">Marcar como pagado</button>';
+    if(g.estatus !== 'cancelado' && !c.pagado) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-gasto-proveedor" data-estatus="cancelado">Cancelar</button>';
+  }
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-gasto-proveedor">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* Catálogo de proveedores. */
+function vistaProveedores(){
+  let h = botonRegresarGastosProveedor();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Catálogo de proveedores</h2>'
+     +   '<p>' + numero(datos.proveedores.length) + ' ' + plural(datos.proveedores.length,'proveedor','proveedores') + '</p>'
+     + '</div><div class="acciones">'
+     +   (puedeGestionarProveedores()
+          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-proveedor">' + ICONO.mas + 'Nuevo proveedor</button>'
+          : '')
+     + '</div></div>';
+
+  if(!datos.proveedores.length){
+    h += vistaVacia('edificio', 'Todavía no hay proveedores dados de alta',
+          'Da de alta a quien te surte refacciones, insumos o servicios para empezar a registrarle gastos.',
+          puedeGestionarProveedores() ? 'nuevo-proveedor' : '', 'Nuevo proveedor');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaProveedor" placeholder="Buscar por nombre, contacto o qué surte…" value="' + esc(estado.busca) + '">'
+     +   controlAlternaVista('vistaProveedores')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.proveedores.filter(p=>{
+    if(!q) return true;
+    const campos = [p.nombre, p.contacto, p.queSurte, p.telefono, p.correo];
+    return campos.some(v => (v||'').toLowerCase().includes(q));
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún proveedor coincide con la búsqueda.</p></div>';
+    return h;
+  }
+
+  const ordenados = lista.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  if(estado.vistaProveedores === 'tabla') return h + tablaProveedores(ordenados);
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((p,i)=>{
+    const r = resumenProveedor(p.id);
+    let chips = p.activo ? '' : '<span class="insignia i-neutro">Inactivo</span>';
+    if(r.vencidoCant) chips += '<span class="insignia i-error">' + r.vencidoCant + ' ' + plural(r.vencidoCant,'factura vencida','facturas vencidas') + '</span>';
+    return '<div class="tarjeta tarjeta-clic' + (p.activo ? '' : ' t-neutro') + '" data-proveedor="' + esc(p.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     '<div class="t-avatar">' + esc(iniciales(p.nombre || 'Proveedor')) + '</div>'
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(p.nombre || 'Sin nombre') + '</div>'
+         +       '<div class="t-sub">' + esc(p.queSurte || 'Sin especificar qué surte') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   (chips ? '<div class="t-chips">' + chips + '</div>' : '')
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Contacto</div><div class="d-valor chico">' + esc(p.contacto || 'Sin contacto') + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Por pagar</div><div class="d-valor">' + dinero(r.porPagarSaldo) + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">' + numero(r.total) + ' ' + plural(r.total,'gasto','gastos') + '</span></div>'
+         + '</div>';
+  }).join('') + '</div>';
+
+  return h;
+}
+
+function tablaProveedores(lista){
+  return '<div class="rodillo"><table class="tabla"><thead><tr>'
+       +   '<th>Nombre</th><th>Contacto</th><th>Qué surte</th><th>Teléfono</th><th>Correo</th><th>Por pagar</th><th>Gastos</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(p=>{
+           const r = resumenProveedor(p.id);
+           return '<tr class="fila-clic" data-proveedor="' + esc(p.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(p.nombre || '—') + (p.activo ? '' : ' <span class="pista">(inactivo)</span>') + '</td>'
+                +   '<td>' + esc(p.contacto || '—') + '</td>'
+                +   '<td>' + esc(p.queSurte || '—') + '</td>'
+                +   '<td>' + esc(p.telefono || '—') + '</td>'
+                +   '<td>' + esc(p.correo || '—') + '</td>'
+                +   '<td>' + dinero(r.porPagarSaldo) + '</td>'
+                +   '<td>' + numero(r.total) + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
+/* Detalle de un proveedor: sus datos y todos sus gastos juntos. */
+function vistaProveedorDetalle(){
+  const p = proveedorPorId(estado.proveedorId);
+  if(!p){ estado.vista = 'proveedores'; return vistaProveedores(); }
+  const r = resumenProveedor(p.id);
+  const gastos = gastosDeProveedor(p.id).slice().sort((a,b)=> (b.fecha || '').localeCompare(a.fecha || ''));
+
+  let h = botonRegresarProveedores();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(p.nombre || 'Proveedor') + '</h2>'
+     +   '<p>' + esc(p.queSurte || 'Sin especificar qué surte') + '</p>'
+     + '</div></div>';
+
+  if(!p.activo) h += '<div class="t-chips" style="margin:-6px 0 16px"><span class="insignia i-neutro">Inactivo</span></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Contacto', esc(p.contacto || 'Sin especificar'), [p.telefono, p.correo].filter(Boolean).join(' · '))
+     + tarjetaKpi('Por pagar', dinero(r.porPagarSaldo), r.porPagarCant + ' ' + plural(r.porPagarCant,'factura','facturas'))
+     + tarjetaKpi('Vencido', numero(r.vencidoCant), r.vencidoCant ? 'Necesita atención' : 'Nada vencido', r.vencidoCant ? 'k-alerta' : '')
+     + tarjetaKpi('Total de gastos', numero(r.total), 'Cotizaciones + facturas registradas')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Notas</h3></div></div>'
+     +   '<p class="pista" style="white-space:pre-wrap; margin:0">' + esc(p.notas || 'Sin notas.') + '</p>'
+     + '</div>';
+
+  h += '<div class="bloque-cabeza" style="margin-bottom:10px"><div><h3>Gastos de este proveedor</h3></div>'
+     +   (puedeGestionarProveedores()
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="nuevo-gasto-proveedor" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.mas + 'Nuevo gasto</button></div>'
+          : '')
+     + '</div>';
+
+  h += gastos.length
+    ? '<div class="grid">' + gastos.map((g,i)=> tarjetaGastoProveedor(g,i)).join('') + '</div>'
+    : '<p class="pista">Todavía no hay gastos registrados para este proveedor.</p>';
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:16px">';
+  if(puedeGestionarProveedores()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-proveedor">' + ICONO.lapiz + 'Editar</button>';
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-proveedor">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: proveedor ---------------------------- */
+function modalProveedor(id){
+  const p = id ? proveedorPorId(id) : null;
+
+  const cuerpo =
+      '<div class="campo"><label>Nombre *</label>'
+    +   '<input type="text" id="pvNombre" placeholder="Ej. Refaccionaria del Norte" value="' + esc(p ? p.nombre : '') + '"></div>'
+    + '<div class="campo"><label>Qué surte</label>'
+    +   '<input type="text" id="pvQueSurte" placeholder="Ej. Refacciones de refrigeración" value="' + esc(p ? p.queSurte : '') + '"></div>'
+    + '<div class="campo"><label>Persona de contacto</label>'
+    +   '<input type="text" id="pvContacto" value="' + esc(p ? p.contacto : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Teléfono</label>'
+    +     '<input type="text" id="pvTelefono" value="' + esc(p ? p.telefono : '') + '"></div>'
+    +   '<div class="campo"><label>Correo</label>'
+    +     '<input type="email" id="pvCorreo" value="' + esc(p ? p.correo : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="pvNotas" placeholder="Cualquier detalle útil…">' + esc(p ? p.notas : '') + '</textarea></div>'
+    + (p ? '<label class="casilla"><input type="checkbox" id="pvActivo"' + (p.activo ? ' checked' : '') + '> Proveedor activo</label>' : '');
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Registrar proveedor') + '</button>';
+
+  abrirModal(p ? 'Editar proveedor' : 'Nuevo proveedor', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const nombre = $('pvNombre').value.trim();
+    if(!nombre){ $('pvNombre').setAttribute('aria-invalid','true'); $('pvNombre').focus(); aviso('El proveedor necesita un nombre.', true); return; }
+
+    const datosComunes = {
+      nombre, queSurte: $('pvQueSurte').value.trim(), contacto: $('pvContacto').value.trim(),
+      telefono: $('pvTelefono').value.trim(), correo: $('pvCorreo').value.trim(),
+      notas: $('pvNotas').value.trim()
+    };
+    if(p) datosComunes.activo = $('pvActivo') ? $('pvActivo').checked : true;
+
+    let reg;
+    if(p){
+      Object.assign(p, datosComunes);
+      reg = normalizarProveedor(p);
+      Object.assign(p, reg);
+    }else{
+      reg = normalizarProveedor(Object.assign({ id:nuevoId() }, datosComunes));
+      datos.proveedores.push(reg);
+    }
+    guardarProveedor(reg, p ? 'editó' : 'creó');
+    cerrarModal();
+    entrarProveedor(reg.id);
+    aviso(p ? 'Proveedor actualizado.' : 'Proveedor registrado.');
+  };
+}
+
+/* -------------------------- Modal: gasto de proveedor -------------------------- */
+function modalGastoProveedor(id, proveedorPresetId){
+  const g = id ? gastoProveedorPorId(id) : null;
+
+  if(!datos.proveedores.length){
+    aviso('Primero da de alta un proveedor: el gasto cuelga de uno.', true);
+    return;
+  }
+
+  const proveedoresOrd = datos.proveedores.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const cotizacionesOrd = datos.cotizaciones.slice().sort((a,b)=> (b.fecha || '').localeCompare(a.fecha || ''));
+  const proveedorSel = g ? g.proveedorId : (proveedorPresetId || '');
+
+  const cuerpo =
+      '<div class="campo"><label>Proveedor *</label><select id="gpProveedor">'
+    +   (!proveedorSel ? '<option value="">— Elige uno —</option>' : '')
+    +   proveedoresOrd.map(p => '<option value="' + esc(p.id) + '"' + (p.id === proveedorSel ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Concepto *</label>'
+    +   '<input type="text" id="gpConcepto" placeholder="Ej. Refacciones cámara de refrigeración" value="' + esc(g ? g.concepto : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Folio (del proveedor)</label>'
+    +     '<input type="text" id="gpFolio" placeholder="Número de factura o cotización" value="' + esc(g ? g.folio : '') + '"></div>'
+    +   '<div class="campo"><label>Monto *</label>'
+    +     '<input type="number" id="gpMonto" min="0" step="0.01" value="' + (g && g.monto ? g.monto : '') + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fecha *</label>'
+    +     '<input type="date" id="gpFecha" value="' + esc(g ? g.fecha : hoyISO()) + '"></div>'
+    +   '<div class="campo"><label>Fecha límite de pago</label>'
+    +     '<input type="date" id="gpVencimiento" value="' + esc(g ? g.fechaVencimiento : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Estatus</label><select id="gpEstatus">'
+    +   ESTATUS_GASTO_PROVEEDOR.map(e => '<option value="' + e + '"' + ((g ? g.estatus : 'cotizacion') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_GASTO_PROVEEDOR[e]) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Cotización de cliente ligada (opcional)</label><select id="gpCotizacionCliente">'
+    +   '<option value="">— Ninguna —</option>'
+    +   cotizacionesOrd.map(c => '<option value="' + esc(c.id) + '"' + (g && g.cotizacionClienteId === c.id ? ' selected' : '') + '>'
+          + esc(c.folio || 'Sin folio') + ' — ' + esc((clientePorId(c.clienteId) || {}).nombre || 'Sin cliente') + '</option>').join('')
+    + '</select><div class="pista">Para comparar lo que cuesta este proveedor contra lo que se cotizó al cliente.</div></div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="gpNotas" placeholder="Cualquier detalle útil…">' + esc(g ? g.notas : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (g ? 'Guardar cambios' : 'Registrar gasto') + '</button>';
+
+  abrirModal(g ? 'Editar gasto de proveedor' : 'Nuevo gasto de proveedor', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const proveedorId = $('gpProveedor').value;
+    if(!proveedorId){ aviso('Elige un proveedor.', true); return; }
+    const concepto = $('gpConcepto').value.trim();
+    if(!concepto){ $('gpConcepto').setAttribute('aria-invalid','true'); $('gpConcepto').focus(); aviso('El gasto necesita un concepto.', true); return; }
+    const monto = Number($('gpMonto').value) || 0;
+    if(monto <= 0){ $('gpMonto').setAttribute('aria-invalid','true'); aviso('Captura un monto mayor a cero.', true); return; }
+    const prov = proveedorPorId(proveedorId);
+
+    const datosComunes = {
+      proveedorId, proveedorNombre: prov ? prov.nombre : '',
+      concepto, folio: $('gpFolio').value.trim(), monto,
+      fecha: $('gpFecha').value || hoyISO(), fechaVencimiento: $('gpVencimiento').value,
+      estatus: $('gpEstatus').value, cotizacionClienteId: $('gpCotizacionCliente').value,
+      notas: $('gpNotas').value.trim()
+    };
+
+    let reg;
+    if(g){
+      Object.assign(g, datosComunes);
+      reg = normalizarGastoProveedor(g);
+      Object.assign(g, reg);
+    }else{
+      reg = normalizarGastoProveedor(Object.assign({ id:nuevoId() }, datosComunes));
+      datos.gastosProveedor.push(reg);
+    }
+    guardarGastoProveedor(reg, g ? 'editó' : 'registró');
+    cerrarModal();
+    entrarGastoProveedor(reg.id);
+    aviso(g ? 'Gasto actualizado.' : 'Gasto registrado.');
+  };
+}
+
+/* ------------------------- Modal: abono a un gasto ------------------------- */
+function modalAbonoProveedor(gastoId){
+  const g = gastoProveedorPorId(gastoId);
+  if(!g) return;
+  const c = calcularGastoProveedor(g);
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Saldo pendiente: <b>' + dineroCent(c.saldo) + '</b> de ' + dineroCent(g.monto) + '.</p>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Monto *</label>'
+    +     '<input type="number" id="abMonto" min="0.01" step="0.01" value="' + (c.saldo > 0 ? c.saldo : '') + '"></div>'
+    +   '<div class="campo"><label>Fecha *</label>'
+    +     '<input type="date" id="abFecha" value="' + hoyISO() + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Método (opcional)</label>'
+    +     '<input type="text" id="abMetodo" placeholder="Transferencia, cheque, efectivo…"></div>'
+    +   '<div class="campo"><label>Referencia (opcional)</label>'
+    +     '<input type="text" id="abReferencia" placeholder="Folio de transferencia, etc."></div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Registrar abono</button>';
+
+  abrirModal('Nuevo abono', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const monto = Number($('abMonto').value) || 0;
+    if(monto <= 0){ $('abMonto').setAttribute('aria-invalid','true'); aviso('Captura un monto mayor a cero.', true); return; }
+    g.abonos.push(normalizarAbonoProveedor({
+      fecha: $('abFecha').value || hoyISO(), monto,
+      metodo: $('abMetodo').value.trim(), referencia: $('abReferencia').value.trim()
+    }));
+    const reg = normalizarGastoProveedor(g);
+    Object.assign(g, reg);
+    guardarGastoProveedor(g, 'registró un abono de', dineroCent(monto) + ' a ' + (g.concepto || 'un gasto'));
+    cerrarModal();
+    render();
+    aviso('Abono registrado.');
+  };
+}
+
 function vistaOrganigrama(){
   const total = datos.personal.length;
   const areas = new Set(datos.personal.map(p => p.area).filter(Boolean)).size;
@@ -13880,7 +14641,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -13897,6 +14658,10 @@ function render(){
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
     : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo() : vistaActivos())
+    : estado.modulo === 'proveedores'  ? (estado.vista === 'gasto-proveedor' ? vistaGastoProveedor()
+                                    : estado.vista === 'proveedor' ? vistaProveedorDetalle()
+                                    : estado.vista === 'proveedores' ? vistaProveedores()
+                                    : vistaGastosProveedor())
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
@@ -13942,6 +14707,15 @@ function render(){
     const cfA = $('categoriaFiltroActivo');
     if(cfA) cfA.addEventListener('change', ()=>{ estado.categoriaFiltroActivo = cfA.value; render(); });
   }
+  const bpGp = $('buscaGastoProveedor');
+  if(bpGp){
+    bpGp.addEventListener('input', ()=>{ estado.busca = bpGp.value; renderConservandoFoco(bpGp, 'buscaGastoProveedor'); });
+    const fpGp = $('filtroGastoProveedor');
+    fpGp.value = estado.filtroGastoProveedor;
+    fpGp.addEventListener('change', ()=>{ estado.filtroGastoProveedor = fpGp.value; render(); });
+  }
+  const bpPv = $('buscaProveedor');
+  if(bpPv) bpPv.addEventListener('input', ()=>{ estado.busca = bpPv.value; renderConservandoFoco(bpPv, 'buscaProveedor'); });
   /* Subir evidencia directo desde el detalle del activo, sin abrir el modal
      completo de edición — mismo criterio que aeR (Reportes) arriba. */
   const aeA = $('archivoEvidenciaActivo');
@@ -13992,6 +14766,42 @@ function render(){
         ac.respaldosCompra.push(normalizarRespaldoCosto({ dataUrl, tipo, nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
         guardarActivo(ac, 'agregó factura/OC a');
         render(); aviso('Factura/orden de compra agregada.');
+      }catch(e){ aviso(e.message, true); }
+    });
+  }
+  /* Documento de un gasto de proveedor (cotización/factura/comprobante):
+     mismo criterio que el respaldo de costo de Activos/Cotizaciones — acepta
+     imagen o PDF. `tipoDocumentoProveedorTmp` lo deja puesto el botón que
+     abrió el selector de archivo (ver data-accion="subir-documento-proveedor"),
+     porque los tres botones comparten un solo <input type="file">. */
+  const adP = $('archivoDocumentoProveedor');
+  if(adP){
+    adP.addEventListener('change', async ev=>{
+      const archivo = (ev.target.files || [])[0];
+      ev.target.value = '';
+      if(!archivo) return;
+      const gp = gastoProveedorPorId(estado.gastoProveedorId);
+      if(!gp) return;
+      try{
+        let dataUrl, tipo;
+        if(archivo.type === 'application/pdf'){
+          if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 600 KB. Prueba a comprimirlo o sube solo la parte que hace falta.');
+          dataUrl = await leerArchivoComoDataURL(archivo);
+          tipo = 'pdf';
+        }else{
+          const img = await leerRespaldoImagen(archivo);
+          dataUrl = comprimirRespaldoCosto(img);
+          tipo = 'imagen';
+        }
+        const pesoActual = gp.documentos.reduce((s,d)=> s + (d.dataUrl ? d.dataUrl.length : 0), 0);
+        if(pesoActual + dataUrl.length > RESPALDO_PRESUPUESTO_TOTAL){
+          throw new Error('Ya no hay espacio para más documentos en este gasto. Quita alguno para agregar otro.');
+        }
+        gp.documentos.push(normalizarDocumentoProveedor({
+          dataUrl, tipo, nombre: archivo.name, subioNombre: nombreDe(sesion) || '', tipoDocumento: tipoDocumentoProveedorTmp
+        }));
+        guardarGastoProveedor(gp, 'agregó ' + (ETIQUETA_TIPO_DOC_GASTO_PROVEEDOR[tipoDocumentoProveedorTmp] || 'un documento').toLowerCase() + ' a');
+        render(); aviso('Documento agregado.');
       }catch(e){ aviso(e.message, true); }
     });
   }
@@ -14132,7 +14942,8 @@ function pintarCabecera(){
   const inicio = $('btnInicio');
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
-                 : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'organigrama' ? 'Organigrama'
+                 : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'proveedores' ? 'Proveedores'
+                 : estado.modulo === 'organigrama' ? 'Organigrama'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
                  : 'Clientes';
   const enPortada = estado.vista === inicioDelModulo();
@@ -18833,6 +19644,82 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso('Activo eliminado.');
         });
     }
+    else if(a === 'ir-gastos-proveedor') irAGastosProveedor();
+    else if(a === 'ir-proveedores') irAProveedores();
+    else if(a === 'nuevo-proveedor'){ if(exigirGestionProveedores()) modalProveedor(null); }
+    else if(a === 'editar-proveedor'){ if(exigirGestionProveedores()) modalProveedor(estado.proveedorId); }
+    else if(a === 'borrar-proveedor'){
+      if(!exigirAdmin('eliminar un proveedor')) return;
+      const pv = proveedorPorId(estado.proveedorId);
+      if(!pv) return;
+      const cuantos = gastosDeProveedor(pv.id).length;
+      confirmar('Eliminar proveedor',
+        'Se va a eliminar <b>' + esc(pv.nombre || 'este proveedor') + '</b>.'
+        + (cuantos ? ' Tiene ' + cuantos + ' ' + plural(cuantos,'gasto registrado','gastos registrados') + ' que se quedan sin proveedor ligado, pero no se borran.' : '')
+        + ' Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.proveedores = datos.proveedores.filter(x => x.id !== pv.id);
+          borrarRegistro('proveedores', pv.id);
+          anotar('eliminó', 'proveedor', pv.nombre || 'sin nombre');
+          irAProveedores();
+          aviso('Proveedor eliminado.');
+        });
+    }
+    else if(a === 'nuevo-gasto-proveedor'){ if(exigirGestionProveedores()) modalGastoProveedor(null, acc.dataset.proveedorPreset || null); }
+    else if(a === 'editar-gasto-proveedor'){ if(exigirGestionProveedores()) modalGastoProveedor(estado.gastoProveedorId); }
+    else if(a === 'borrar-gasto-proveedor'){
+      if(!exigirAdmin('eliminar un gasto de proveedor')) return;
+      const gp = gastoProveedorPorId(estado.gastoProveedorId);
+      if(!gp) return;
+      confirmar('Eliminar gasto',
+        'Se va a eliminar <b>' + esc(gp.concepto || 'este gasto') + '</b> de ' + esc(gp.proveedorNombre || 'el proveedor')
+        + ' y todos sus abonos y documentos. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.gastosProveedor = datos.gastosProveedor.filter(x => x.id !== gp.id);
+          borrarRegistro('gastosProveedor', gp.id);
+          anotar('eliminó', 'gasto de proveedor', (gp.proveedorNombre || 'Proveedor') + ' — ' + (gp.concepto || 'sin concepto'));
+          irAGastosProveedor();
+          aviso('Gasto eliminado.');
+        });
+    }
+    else if(a === 'cambiar-estatus-gasto-proveedor'){
+      if(!exigirGestionProveedores()) return;
+      const gp = gastoProveedorPorId(estado.gastoProveedorId);
+      if(!gp) return;
+      const nuevo = acc.dataset.estatus;
+      if(!ESTATUS_GASTO_PROVEEDOR.includes(nuevo)) return;
+      const antes = ETIQUETA_ESTATUS_GASTO_PROVEEDOR[gp.estatus];
+      gp.estatus = nuevo;
+      /* Al pasar a "por pagar" desde una cotización, si no trae fecha límite
+         se le propone hoy + 30 días — nadie se queda sin una fecha de
+         referencia para cuándo hay que pagar. */
+      if(nuevo === 'por-pagar' && !gp.fechaVencimiento) gp.fechaVencimiento = sumarDias(hoyISO(), 30);
+      guardarGastoProveedor(gp, 'cambió el estatus de',
+        (gp.proveedorNombre || 'Proveedor') + ' — ' + (gp.concepto || 'gasto') + ': ' + antes + ' → ' + ETIQUETA_ESTATUS_GASTO_PROVEEDOR[nuevo]);
+      render(); aviso('Gasto marcado como "' + ETIQUETA_ESTATUS_GASTO_PROVEEDOR[nuevo] + '".');
+    }
+    else if(a === 'nuevo-abono-proveedor'){ if(exigirGestionProveedores()) modalAbonoProveedor(estado.gastoProveedorId); }
+    else if(a === 'quitar-abono-proveedor'){
+      if(!exigirGestionProveedores()) return;
+      const gp = gastoProveedorPorId(estado.gastoProveedorId);
+      if(!gp) return;
+      gp.abonos = gp.abonos.filter(x => x.id !== acc.dataset.abono);
+      guardarGastoProveedor(gp, 'quitó un abono de', gp.proveedorNombre || 'un gasto');
+      render(); aviso('Abono eliminado.');
+    }
+    else if(a === 'subir-documento-proveedor'){
+      if(!exigirGestionProveedores()) return;
+      tipoDocumentoProveedorTmp = acc.dataset.tipoDocumento;
+      $('archivoDocumentoProveedor').click();
+    }
+    else if(a === 'quitar-documento-proveedor'){
+      if(!exigirGestionProveedores()) return;
+      const gp = gastoProveedorPorId(estado.gastoProveedorId);
+      if(!gp) return;
+      gp.documentos = gp.documentos.filter(x => x.id !== acc.dataset.documento);
+      guardarGastoProveedor(gp, 'quitó un documento de', gp.proveedorNombre || 'un gasto');
+      render(); aviso('Documento eliminado.');
+    }
     else if(a === 'nueva-persona'){ if(exigirGestionPersonal()) modalPersona(null); }
     else if(a === 'ir-levantamientos') irALevantamientos();
     else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
@@ -19218,6 +20105,12 @@ $('vista').addEventListener('click', ev=>{
   const tarAc = t.closest('[data-activo]');
   if(tarAc){ entrarActivo(tarAc.dataset.activo); return; }
 
+  const tarGp = t.closest('[data-gasto-proveedor]');
+  if(tarGp){ entrarGastoProveedor(tarGp.dataset.gastoProveedor); return; }
+
+  const tarPv = t.closest('[data-proveedor]');
+  if(tarPv){ entrarProveedor(tarPv.dataset.proveedor); return; }
+
   /* El organigrama no tiene una vista de detalle aparte: la tarjeta/nodo
      abre directo el modal de edición, igual que "editar" en cualquier otro
      módulo — por eso pasa por exigirGestionPersonal() en vez de un simple
@@ -19329,6 +20222,10 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarR){ ev.preventDefault(); entrarReporte(tarR.dataset.reporte); return; }
   const tarAc = ev.target.closest('[data-activo]');
   if(tarAc){ ev.preventDefault(); entrarActivo(tarAc.dataset.activo); return; }
+  const tarGp = ev.target.closest('[data-gasto-proveedor]');
+  if(tarGp){ ev.preventDefault(); entrarGastoProveedor(tarGp.dataset.gastoProveedor); return; }
+  const tarPv = ev.target.closest('[data-proveedor]');
+  if(tarPv){ ev.preventDefault(); entrarProveedor(tarPv.dataset.proveedor); return; }
   const tarPer = ev.target.closest('[data-persona]');
   if(tarPer){ ev.preventDefault(); if(exigirGestionPersonal()) modalPersona(tarPer.dataset.persona); return; }
   const tarL = ev.target.closest('[data-levantamiento]');
@@ -19411,8 +20308,10 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   levantamientos: (Array.isArray(d.levantamientos) ? d.levantamientos : datos.levantamientos).map(normalizarLevantamiento),
                   proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : datos.proyectosImagen).map(normalizarProyectoImagen),
                   activos: (Array.isArray(d.activos) ? d.activos : datos.activos).map(normalizarActivo),
-                  personal: (Array.isArray(d.personal) ? d.personal : datos.personal).map(normalizarPersona) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
+                  personal: (Array.isArray(d.personal) ? d.personal : datos.personal).map(normalizarPersona),
+                  proveedores: (Array.isArray(d.proveedores) ? d.proveedores : datos.proveedores).map(normalizarProveedor),
+                  gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : datos.gastosProveedor).map(normalizarGastoProveedor) };
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
@@ -20205,7 +21104,7 @@ function salirSilencioso(tambienLosDatos){
   if(tambienLosDatos){
     datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null;
     sincronizado = false;
   }
 }

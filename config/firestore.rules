@@ -324,6 +324,22 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Proveedores (catálogo + sus gastos) ---
+       Rastreo de lo que se les paga: nada de esto es del interés de un
+       técnico o un reportero (a diferencia de /activos, aquí no hay razón
+       para que alguien en campo lo toque), así que sin su excepción — solo
+       quien puede editar en general. Borrar, Admin, como todo lo demás. */
+    match /proveedores/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create, update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+    match /gastosProveedor/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create, update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+
     /* --- Organigrama (directorio de personal) ---
        Décimo módulo: el directorio del personal de la empresa, tenga o no
        cuenta de acceso al tablero. A diferencia de /activos, aquí no hay
