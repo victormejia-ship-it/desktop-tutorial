@@ -15227,8 +15227,10 @@ function vistaPoliza(){
          ? '<p class="pista" style="margin-top:10px">' + c.separadoCant + ' ' + plural(c.separadoCant,'equipo','equipos')
            + ' — ' + esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA.cliente).toLowerCase() + ' — por ' + dineroCent(c.separadoAnual)
            + ' al año: no está incluido en el Precio anual ni en el Costo anual de arriba.</p>'
-         + '<p class="pista" style="margin-top:4px">Si el cliente nos cediera también esos equipos, el precio anual completo '
-           + 'sería de <b>' + dineroCent(c.precioAnualCompleto) + '</b> (' + dineroCent(c.precioMensualCompleto) + ' al mes).</p>'
+         + '<div class="aviso" style="margin-top:12px; margin-bottom:0">' + ICONO.info
+           + '<div><b>Precio completo si el cliente nos cediera también esos equipos:</b><br>'
+           + '<span style="font-size:19px; font-weight:700; color:var(--navy)">' + dineroCent(c.precioAnualCompleto) + '</span>'
+           + ' al año <span class="pista" style="display:inline">(' + dineroCent(c.precioMensualCompleto) + ' al mes)</span></div></div>'
          : '')
      + '</div>';
 
