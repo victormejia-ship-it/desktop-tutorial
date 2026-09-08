@@ -1615,6 +1615,15 @@ const ETIQUETA_ESTATUS = {
    y el descuento. */
 const ESTATUS_ABIERTOS = ['cotizacion', 'enviada'];
 
+/* De quién es la responsabilidad de ESTE renglón — no de la póliza completa
+   (eso ya lo dice "Cargo a"): un contrato normal puede traer, mezclados,
+   equipo que sí cubre el mantenimiento preventivo y actividades que quedan
+   deslindadas al cliente (p.ej. una fuga de gas o una instalación eléctrica,
+   que le tocan a un especialista certificado, no al mantenimiento). Se marca
+   por renglón para que quede clarísimo en el documento impreso cuál es cuál. */
+const ALCANCE_PARTIDA_POLIZA = ['forguard', 'cliente'];
+const ETIQUETA_ALCANCE_PARTIDA_POLIZA = { forguard:'Dentro de nuestro alcance', cliente:'Responsabilidad del cliente' };
+
 /* Congelada PARA QUIEN PREGUNTA. Owner y Admin pasan por la primera cláusula de
    la regla, así que para ellos nunca lo está; para los demás el servidor va a
    negar la escritura. Se pregunta por el usuario y no solo por la póliza a
@@ -6731,7 +6740,12 @@ function normalizarPartida(x){
        Code128 es más angosto y lo lee cualquier lector láser barato; el QR
        cabe en menos espacio en la etiqueta física y lo lee cualquier cámara
        de celular. Ninguno es "mejor": es la elección de cada equipo. */
-    tipoCodigo: x.tipoCodigo === 'qr' ? 'qr' : 'barras'
+    tipoCodigo: x.tipoCodigo === 'qr' ? 'qr' : 'barras',
+    /* 'forguard' por default: un renglón nuevo (o uno viejo de antes de que
+       existiera este campo) se asume cubierto, que es como se venía
+       trabajando siempre — nadie pierde cobertura de golpe por no haber
+       tocado este campo. */
+    alcance: x.alcance === 'cliente' ? 'cliente' : 'forguard'
   };
 }
 
@@ -7430,6 +7444,8 @@ function armarPayloadPoliza(p){
         total:          dineroCent(total),
         frecuencia: String(x.frecuencia),
         totalMtto:      dineroCent(c.totales[i]),
+        alcance: x.alcance,
+        alcanceEtiqueta: ETIQUETA_ALCANCE_PARTIDA_POLIZA[x.alcance],
         /* YA son índices de columna. mesesServicio son DESFASES desde
            fechaInicio, así que el valor guardado ES la columna: no se rota.
            Se llama `columnas` justo para que nadie le aplique un % 12. */
@@ -9467,11 +9483,12 @@ const TEMAS_AYUDA = [
       guiaSeccion('Lo básico', guiaPasos([
         '4 KPIs: Pólizas activas, En espera de confirmar, Servicios este mes, Servicios atrasados (los dos últimos clickeables).',
         'Botones de cabecera: <b>Agenda</b> (calendario de todos los contratos juntos), <b>Lista de precios</b>, <b>Importar JSON</b>, <b>Importar desde Excel</b> y <b>Nueva cotización</b>.',
-        'Usa <b>Nueva cotización</b> para armar un contrato: Cliente, Sitio (con alta al vuelo), Fecha, Facturación (Anual/Mensual), Cargo a (Cliente/Interno), Vendedor, y los equipos cotizados —cada uno con precio, costo, servicios al año y mes de arranque—, tomados del buscador de catálogo.',
+        'Usa <b>Nueva cotización</b> para armar un contrato: Cliente, Sitio (con alta al vuelo), Fecha, Facturación (Anual/Mensual), Cargo a (Cliente/Interno), Vendedor, y los equipos cotizados —cada uno con precio, costo, servicios al año, mes de arranque y <b>Alcance</b>—, tomados del buscador de catálogo.',
+        'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato.',
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
         'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
-        'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa).'
+        'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — si algún equipo quedó marcado "Responsabilidad del cliente", el documento lo deja anotado en sus notas de cierre.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'La <b>Agenda</b> agrupa TODOS los contratos por mes → sitio → equipo, con bloques de Atrasados / Toca ahora / Parciales / Programados — para no tener que revisar contrato por contrato.',
@@ -15255,7 +15272,9 @@ function vistaPoliza(){
          return '<tr>'
            + '<td>' + (i+1) + '</td>'
            + '<td><b>' + esc(x.concepto) + '</b>'
-           +   (descripcionDe(x) ? '<div class="pista">' + esc(descripcionDe(x)) + '</div>' : '') + '</td>'
+           +   (descripcionDe(x) ? '<div class="pista">' + esc(descripcionDe(x)) + '</div>' : '')
+           +   '<div style="margin-top:4px"><span class="insignia i-' + (x.alcance === 'cliente' ? 'alerta' : 'ok') + '">'
+           +     esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA[x.alcance]) + '</span></div></td>'
            + '<td>' + esc(x.marca || '—') + '</td>'
            + '<td>' + numero(x.cantidad) + '</td>'
            + '<td>' + dineroCent(x.precioUnitario)
@@ -18828,6 +18847,9 @@ function modalPoliza(id, origenLevantamiento){
         + '<td class="med"><input type="text" inputmode="decimal" data-campo="costoUnitario" value="' + numero(x.costoUnitario) + '"' + soloL + '></td>'
         + '<td class="mini"><input type="number" min="1" max="' + MESES_POLIZA + '" step="1" data-campo="frecuencia" value="' + x.frecuencia + '"' + soloL + '></td>'
         + '<td class="arr">' + arrHtml + '</td>'
+        + '<td class="arr"><select data-campo="alcance"' + bloq + '>'
+        +   ALCANCE_PARTIDA_POLIZA.map(a => '<option value="' + a + '"' + (a === lim.alcance ? ' selected' : '') + '>' + esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA[a]) + '</option>').join('')
+        + '</select></td>'
         + '<td class="med"><input type="text" readonly data-total value=""></td>'
         + '<td class="acc">'
         +   '<button type="button" class="icono-mini' + (x._abierta ? ' on' : '') + '" data-meses-mano="' + i + '" '
@@ -18850,7 +18872,7 @@ function modalPoliza(id, origenLevantamiento){
           '<button type="button" class="mes' + (lim.mesesServicio.includes(m) ? ' serv' : '') + '" data-mes="' + m + '" '
           + 'aria-pressed="' + (lim.mesesServicio.includes(m) ? 'true' : 'false') + '"' + bloq + '>'
           + esc(etiquetaMesServicio(ini, m)) + '</button>').join('');
-        extra += '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="11">'
+        extra += '<tr class="fila-meses" data-idx="' + i + '"><td></td><td colspan="12">'
           +   '<div class="pista" style="margin-bottom:7px">Meses de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
           +     'Los servicios al año se ajustan solos a los que marques, y el arranque pasa a «a mano».</div>'
           +   '<div class="meses-modal con-mes" data-meses>' + casillas + '</div>'
@@ -18866,7 +18888,7 @@ function modalPoliza(id, origenLevantamiento){
       if(x._infoAbierta){
         const esQr = lim.tipoCodigo === 'qr';
         const previa = lim.codigo ? (esQr ? svgCodigoQr(lim.codigo) : svgCodigoBarras(lim.codigo)) : '';
-        extra += '<tr class="fila-info" data-idx="' + i + '"><td></td><td colspan="11">'
+        extra += '<tr class="fila-info" data-idx="' + i + '"><td></td><td colspan="12">'
           +   '<div class="pista" style="margin-bottom:7px">Código de <b>' + esc(x.concepto || 'este renglón') + '</b>. '
           +     'Solo para control de equipo: no aparece en la cotización que ve el cliente.'
           +     (x.cantidad > 1 ? ' Este renglón tiene ' + x.cantidad + ' unidades: si necesitas un código distinto por unidad, usa «Duplicar» y captúralos por separado.' : '')
@@ -18891,7 +18913,7 @@ function modalPoliza(id, origenLevantamiento){
         const casillasSerie = Array.from({length:x.cantidad}, (_,j)=>
           '<label>Unidad ' + (j+1) + '<input type="text" data-serie-unidad="' + j + '" '
           + 'value="' + esc(lim.series[j] || '') + '" placeholder="—"' + soloL + '></label>').join('');
-        extra += '<tr class="fila-series" data-idx="' + i + '"><td></td><td colspan="11">'
+        extra += '<tr class="fila-series" data-idx="' + i + '"><td></td><td colspan="12">'
           +   '<div class="pista" style="margin-bottom:7px">Número de serie de cada una de las ' + x.cantidad + ' unidades de '
           +     '<b>' + esc(x.concepto || 'este renglón') + '</b>. Solo control interno: no aparece en la cotización que ve el cliente.</div>'
           +   '<div class="info-equipo">' + casillasSerie + '</div>'
@@ -18904,7 +18926,7 @@ function modalPoliza(id, origenLevantamiento){
     $('listaPartidas').innerHTML =
         '<div class="rodillo"><table class="tabla-renglones">'
       + '<thead><tr><th></th><th class="equipo">Equipo</th><th class="marca">Marca</th><th class="marca">Modelo</th><th class="marca">Serie</th><th>Cant.</th><th>P. unitario</th><th>Costo unit.</th>'
-      +   '<th>Serv./año</th><th>Arranque</th><th>Total</th><th></th></tr></thead>'
+      +   '<th>Serv./año</th><th>Arranque</th><th>Alcance</th><th>Total</th><th></th></tr></thead>'
       + '<tbody>' + filas + '</tbody></table></div>'
       /* El pie va FUERA del contenedor que se recorre a lo ancho: los totales son
          lo que más se mira y no pueden quedar escondidos a la derecha. */

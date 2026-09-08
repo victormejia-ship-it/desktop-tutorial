@@ -533,7 +533,15 @@ function pagePoliza(){
       <td class="c">${esc(r.totalMtto)}</td>
     </tr>`).join("");
     /* El cierre solo en la última: en una intermedia sobraría, y en la primera
-       diría un total que todavía no se ha terminado de listar. */
+       diría un total que todavía no se ha terminado de listar.
+
+       El deslinde de alcance por renglón (Forguard / responsabilidad del
+       cliente) NO se mete como columna ni se pega al concepto: la tabla de
+       arriba está medida al 0.01 pt (ver el comentario de "paso entre filas
+       MEDIDO: 21.53 pt" más arriba) y cualquier texto de más arriesga
+       reventar ese paso y correr la paginación entera. Se documenta aquí, en
+       la nota de cierre, que es la única zona de la hoja sin ese candado. */
+    const fueraDeAlcance = POLIZA.renglones.filter(r => r.alcance === 'cliente');
     const cierre = ultima ? `
         <table class="totals">
           ${POLIZA.totales.descuento ? `
@@ -546,6 +554,7 @@ function pagePoliza(){
           <li>${esc(POLIZA.pie.iva)}</li>
           <li>Vigencia: del ${esc(POLIZA.fechas.vigenciaInicio)} al ${esc(POLIZA.fechas.vigenciaFin)}.</li>
           <li>La póliza se contrata y se presta por un periodo anual de doce (12) meses, independientemente de que la facturación se realice de forma anual o mensual.</li>
+          ${fueraDeAlcance.length ? `<li>Quedan fuera del alcance de este mantenimiento preventivo, por ser responsabilidad del cliente: ${fueraDeAlcance.map(r => `#${r.n} ${esc(r.concepto)}`).join(', ')}.</li>` : ''}
         </ul>` : '';
     return `<section class="page">
     <div class="sheet">
