@@ -23630,25 +23630,33 @@ function vistaPortalPolizas(){
    margen en su modelo (ver normalizarSitio/calcular), así que no hay nada
    que esconder aquí — a diferencia de pólizas/cotizaciones, que sí llevan
    costo y por eso usan una copia aparte (polizas_cliente/cotizaciones_cliente). */
+/* Se listan TODOS los sitios del cliente, no solo los que ya tienen módulos
+   activos: un sitio recién capturado (0 módulos, esperando instalación)
+   también debe poder verse aquí — es justo lo que Forguard necesita
+   asignarle, y antes quedaba invisible hasta que alguien le pusiera un
+   módulo (09-sep-2026: un cliente con 7 sitios reales veía "Todavía no
+   tienes Forpass instalado" porque ninguno traía módulos capturados aún). */
 function vistaPortalForpass(){
-  const sitios = portalCliente.sitios.filter(s => s.modulos > 0);
+  const sitios = portalCliente.sitios;
   if(!sitios.length){
-    return vistaVacia('tarjetas', 'Todavía no tienes Forpass instalado',
-      'En cuanto Forguard instale tu Forpass, lo vas a ver aquí.', '', '');
+    return vistaVacia('tarjetas', 'Todavía no tienes ningún sitio dado de alta',
+      'En cuanto Forguard te dé de alta un sitio, lo vas a ver aquí.', '', '');
   }
   return '<div class="grid">' + sitios.map(s=>{
     const c = calcular(s);
+    const sinModulos = c.forpassActivos === 0;
     return '<div class="tarjeta">'
       +   '<div class="t-cabeza"><div style="flex:1; min-width:0">'
       +     '<div class="t-nombre">' + esc(s.nombre) + '</div>'
       +     (s.zona ? '<div class="t-sub">' + esc(s.zona) + '</div>' : '')
       +   '</div></div>'
-      +   '<div class="t-chips"><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estatus) + '</span></div>'
+      +   '<div class="t-chips"><span class="insignia i-' + (sinModulos ? 'neutro' : c.tono) + '"><span class="punto p-' + (sinModulos ? 'neutro' : c.tono) + '"></span>'
+      +     esc(sinModulos ? 'Sin Forpass instalado' : c.estatus) + '</span></div>'
       +   '<div class="t-datos">'
       +     '<div class="t-dato"><div class="d-label">Módulos activos</div><div class="d-valor">' + numero(c.forpassActivos) + '</div></div>'
-      +     '<div class="t-dato"><div class="d-label">Mensualidad</div><div class="d-valor">' + dinero(s.mensualidad) + '</div></div>'
+      +     (sinModulos ? '' : '<div class="t-dato"><div class="d-label">Mensualidad</div><div class="d-valor">' + dinero(s.mensualidad) + '</div></div>')
       +   '</div>'
-      +   '<div class="t-pie"><span class="pista">' + (c.vigente ? 'Vigente hasta ' + fmtFecha(c.fin) : 'Contrato terminado') + '</span></div>'
+      +   '<div class="t-pie"><span class="pista">' + (sinModulos ? 'Todavía sin módulos asignados' : (c.vigente ? 'Vigente hasta ' + fmtFecha(c.fin) : 'Contrato terminado')) + '</span></div>'
       + '</div>';
   }).join('') + '</div>';
 }
