@@ -1,0 +1,64 @@
+rules_version = '2';
+
+/* ===========================================================================
+   Reglas de seguridad de Firebase Storage — Control de Forpass / Forguard
+
+   Aquí viven las fotos de evidencia de los servicios de póliza (ver
+   subirEvidenciaStorage() en index.html): antes se guardaban completas
+   (base64) DENTRO del documento de Firestore, y una póliza con años de
+   servicio terminó pasándose del 1 MiB que Firestore permite por documento
+   (POL-024, sep-2026). Ahora la foto vive aquí y el documento solo guarda
+   la URL de descarga.
+
+   Mismo criterio de acceso que config/firestore.rules —de hecho, ESTAS
+   reglas consultan Firestore (firestore.get()/firestore.exists()) para
+   saber el rol de quien pide algo, así nunca hay dos definiciones de "quién
+   puede qué" que se puedan desalinear.
+
+   Cómo se pegan: consola de Firebase → Storage → pestaña Reglas → borra lo
+   que haya, pega todo esto, y dale a Publicar.
+   =========================================================================== */
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function perfil() {
+      return firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data;
+    }
+    function conAcceso() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/usuarios/$(request.auth.uid))
+        && perfil().activo == true;
+    }
+    function rol() { return perfil().rol; }
+
+    /* Mismo candado que puedeRegistrarServicioPoliza() en index.html: quien
+       puede editar en general, más el técnico de piso que es quien de
+       verdad está frente al equipo tomando la foto. */
+    function puedeRegistrarServicio() {
+      return conAcceso() && rol() in ['owner', 'admin', 'analyst', 'tecnico'];
+    }
+
+    /* --- Evidencias de servicios de póliza --- */
+    match /evidencias/polizas/{polizaId}/{archivo} {
+      /* Leer (mostrar la foto ya subida): cualquiera con acceso interno.
+         El portal de clientes NUNCA llega aquí — vistaPortalPolizas() no
+         pinta evidencias, y su copia en /polizas_cliente ya viene sin ellas
+         (ver datosClientePoliza()). */
+      allow read: if conAcceso();
+      /* Subir una foto nueva: solo quien puede registrar el servicio, y con
+         un tope de tamaño/tipo de archivo — la compresión de comprimirEvidencia()
+         ya la deja muy por debajo de esto; el tope es solo un cinturón. */
+      allow write: if puedeRegistrarServicio()
+                   && request.resource.size < 2 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if puedeRegistrarServicio();
+    }
+
+    /* Candado general: cualquier ruta que no se haya marcado explícito
+       arriba queda cerrada. */
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

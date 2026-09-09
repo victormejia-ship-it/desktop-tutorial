@@ -20,7 +20,7 @@
      Si algún día esto se sirve desde Firebase Hosting (que sí permite
      configurar cabeceras) vale la pena moverlos ahí para bloquear que
      alguien empotre el sitio en un iframe ajeno (clickjacking). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://firebasestorage.googleapis.com; font-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebasestorage.googleapis.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 
 <!-- Permite "Agregar a pantalla de inicio" en Android/Chrome (con manifest)
@@ -1570,7 +1570,12 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
    └───────────────────────────────────────────────────────────────────────┘ */
 const CONFIG_NUBE = {
   apiKey:    'AIzaSyDtF90I-scvrJprYYMT_Z9qr5ItqxSuZSo',
-  projectId: 'forguard-soft-services'
+  projectId: 'forguard-soft-services',
+  /* Bucket de Firebase Storage — ahí viven las fotos de evidencia de los
+     servicios (ver subirEvidenciaStorage()), NO dentro del documento de
+     Firestore: una póliza con años de servicio y fotos embebidas en base64
+     terminaba pasándose del 1 MiB que permite Firestore por documento. */
+  storageBucket: 'forguard-soft-services.firebasestorage.app'
 };
 
 const $ = id => document.getElementById(id);
@@ -2754,6 +2759,97 @@ async function tokenVigente(){
   if(Date.now() > sesion.expira - 60000) await renovarToken();
   return sesion.idToken;
 }
+
+/* ===================== Fotos de evidencia en Firebase Storage =====================
+   Antes una foto de evidencia se guardaba COMPLETA (base64) dentro del
+   documento de Firestore de la póliza/reporte/activo/etc. Con años de
+   servicio y varias fotos por visita, ese documento termina pasándose del
+   1 MiB que permite Firestore por documento — eso fue justo lo que le pasó
+   a POL-024: el servidor rechazaba guardarla con HTTP 400 "cannot be
+   written" y no había manera de arreglarlo reintentando.
+
+   Ahora la foto ya comprimida (comprimirEvidencia) se sube aparte, a
+   Storage, y en el documento solo queda la URL de descarga — el campo del
+   objeto evidencia se sigue llamando `dataUrl` a propósito: todo el código
+   que ya pinta `<img src="...">` sigue funcionando igual, sea un data: URI
+   viejo (fotos de antes de este cambio, que se quedan como estaban) o una
+   URL nueva de Storage.
+
+   Requiere Firebase Storage activado en el proyecto (ver CONFIG_NUBE.storageBucket)
+   y las reglas de config/storage.rules publicadas — de otro modo la subida
+   falla con 403 y se avisa igual que cualquier otro error de guardado. */
+function urlDescargaStorage(ruta, token){
+  return 'https://firebasestorage.googleapis.com/v0/b/' + CONFIG_NUBE.storageBucket
+       + '/o/' + encodeURIComponent(ruta) + '?alt=media&token=' + token;
+}
+async function subirEvidenciaStorage(dataUrl, carpeta, idArchivo){
+  const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl || '');
+  if(!m) throw new Error('La foto no se pudo leer para subirla.');
+  const tipo = m[1];
+  const binario = atob(m[2]);
+  const bytes = new Uint8Array(binario.length);
+  for(let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+  const ext = tipo === 'image/png' ? 'png' : tipo === 'image/webp' ? 'webp' : 'jpg';
+  const ruta = carpeta + '/' + idArchivo + '.' + ext;
+  const token = await tokenVigente();
+  let r;
+  try{
+    r = await fetch(
+      'https://firebasestorage.googleapis.com/v0/b/' + CONFIG_NUBE.storageBucket + '/o?uploadType=media&name=' + encodeURIComponent(ruta),
+      { method:'POST', headers:{ 'Authorization':'Firebase ' + token, 'Content-Type': tipo }, body: bytes }
+    );
+  }catch(e){ throw new Error('Sin conexión: la foto no se pudo subir.'); }
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error((d.error && d.error.message) || ('El servidor de fotos respondió ' + r.status + '.'));
+  return urlDescargaStorage(ruta, d.downloadTokens);
+}
+
+/* ¿Esta póliza todavía trae fotos de servicio guardadas a la antigua —
+   completas, en base64, dentro del propio documento—? Sirve para decidir si
+   vale la pena ofrecer "Migrar fotos a Storage" (ver vistaPoliza()): la
+   mayoría de las pólizas, capturadas después de subirEvidenciaStorage(),
+   nunca van a tener ninguna. */
+function polizaTieneFotosSinMigrar(p){
+  return Object.values(p.hechos || {}).some(porMes =>
+    Object.values(porMes).some(d => (d.evidencias || []).some(e => e.dataUrl && e.dataUrl.startsWith('data:'))));
+}
+/* Sube a Storage, una por una, las fotos que esta póliza todavía trae
+   embebidas —el mismo camino que ya usa "Registrar servicio" para las
+   nuevas— y deja en su lugar la URL. Es lo que de verdad soluciona a
+   POL-024 (y cualquier otra póliza vieja en la misma situación): mientras
+   el documento siga cargando esas fotos en base64, cada guardado corre el
+   riesgo de volver a pasarse del 1 MiB de Firestore. */
+async function migrarFotosPolizaAStorage(polizaId){
+  const p = polizaPorId(polizaId);
+  if(!p) return;
+  const pendientes = [];
+  Object.keys(p.hechos || {}).forEach(partidaId=>{
+    Object.keys(p.hechos[partidaId]).forEach(mes=>{
+      (p.hechos[partidaId][mes].evidencias || []).forEach((e, i)=>{
+        if(e.dataUrl && e.dataUrl.startsWith('data:')) pendientes.push({ partidaId, mes, i });
+      });
+    });
+  });
+  if(!pendientes.length){ aviso('Esta póliza ya no tiene fotos guardadas dentro del documento.'); return; }
+  if(!window.confirm(
+    'Se van a subir ' + pendientes.length + ' ' + plural(pendientes.length,'foto','fotos') + ' a Storage y a quitarlas '
+    + 'del documento de la póliza (nunca se borran, solo cambian de lugar). Puede tardar un momento.\n\n¿Continuar?'
+  )) return;
+  aviso('Subiendo ' + pendientes.length + ' ' + plural(pendientes.length,'foto','fotos') + '…');
+  let ok = 0, fallo = 0;
+  for(const { partidaId, mes, i } of pendientes){
+    const e = p.hechos[partidaId][mes].evidencias[i];
+    try{ e.dataUrl = await subirEvidenciaStorage(e.dataUrl, 'evidencias/polizas/' + p.id, e.id); ok++; }
+    catch(err){ fallo++; }
+  }
+  if(ok){
+    guardarPoliza(p, 'migró fotos de', ok + ' ' + plural(ok,'foto','fotos') + ' a Storage' + (fallo ? ' · ' + fallo + ' no se pudieron subir' : ''));
+    render();
+  }
+  aviso(ok + ' ' + plural(ok,'foto','fotos') + ' subidas a Storage.'
+    + (fallo ? ' ' + fallo + ' no se pudieron subir — vuelve a intentar.' : ''), fallo > 0);
+}
+
 /* Borra sesión y datos, SIN mostrar el login. Está separado porque la persiana
    de cierre necesita borrar de inmediato pero destapar el login más tarde,
    cuando ya está cubierta la pantalla. */
@@ -15278,6 +15374,17 @@ function vistaPoliza(){
      +     (c.estado === ETIQUETA_ESTATUS[p.estatus] ? '' : ' · ' + esc(c.estado)) + '</p>'
      + '</div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="calendario-poliza">' + ICONO.calendario + 'Calendario</button>'
+     /* Solo aparece si de verdad hay algo que migrar: fotos de servicios
+        capturadas ANTES de que existiera subirEvidenciaStorage(), todavía
+        embebidas en base64 dentro de este documento — el mismo problema que
+        tronó a POL-024 al pasarse del 1 MiB de Firestore. Subirlas a Storage
+        y dejar solo la URL es justo lo que ya hace el flujo nuevo de
+        "Registrar servicio"; este botón lo aplica de una vez a lo viejo. */
+     +   (esAdmin() && polizaTieneFotosSinMigrar(p)
+         ? '<button type="button" class="btn btn-suave btn-mini" data-accion="migrar-fotos-poliza" '
+           + 'title="Sube a Storage las fotos que todavía están guardadas dentro del documento">'
+           + ICONO.respaldo + 'Migrar fotos a Storage</button>'
+         : '')
      /* Imprimir va en TODOS los estatus y para TODOS los roles: una cotización
         se imprime antes de aprobarse o aunque nunca se venda, y el estatus solo
         cambia el título de portada (eso ya lo resuelve el payload). */
@@ -18363,7 +18470,7 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
   });
 
   setTimeout(()=>{ const f = $('svCuando'); if(f) f.focus(); }, 70);
-  cerrarModalActual = ()=>{
+  cerrarModalActual = async ()=>{
     /* Todo se lee ANTES de cerrar: cerrarModal reemplaza el contenedor por un
        clon limpio y después los campos devuelven null. */
     const cuando = $('svCuando').value.trim();
@@ -18409,6 +18516,25 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     if(pideRefaccion && !refaccion){
       $('svRefaccionTexto').setAttribute('aria-invalid','true'); $('svRefaccionTexto').focus();
       aviso('Escribe qué refacción hace falta, o desmarca la casilla.', true); return;
+    }
+
+    /* Las fotos nuevas (staging, todavía en base64) se suben a Storage justo
+       aquí, al guardar de verdad — no al elegirlas — para no dejar fotos
+       huérfanas en Storage si se cancela el modal. Una foto que ya traía URL
+       (de un registro anterior) se deja tal cual, no se vuelve a subir. */
+    const btnGuardar = $('modalPie').querySelector('[data-modal="guardar"]');
+    const pendientes = evidenciasTmp.filter(e => e.dataUrl.startsWith('data:'));
+    if(pendientes.length){
+      btnGuardar.disabled = true; btnGuardar.textContent = 'Subiendo fotos…';
+      try{
+        for(const e of pendientes){
+          e.dataUrl = await subirEvidenciaStorage(e.dataUrl, 'evidencias/polizas/' + p.id, e.id);
+        }
+      }catch(err){
+        btnGuardar.disabled = false; btnGuardar.textContent = yaHecho ? 'Guardar cambios' : 'Marcar como hecho';
+        aviso('No se pudieron subir las fotos: ' + err.message, true);
+        return;
+      }
     }
 
     marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp, numeroSerie,
@@ -21525,6 +21651,7 @@ $('vista').addEventListener('click', ev=>{
     }
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
+    else if(a === 'migrar-fotos-poliza') migrarFotosPolizaAStorage(estado.polizaId);
     /* SIN exigirPermiso, a propósito: imprimir es solo lectura y el Viewer ya
        ve todas estas cifras en pantalla — negarle el botón no protege nada. */
     else if(a === 'imprimir-poliza') abrirDocumentoPoliza(estado.polizaId);
