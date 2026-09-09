@@ -17133,8 +17133,7 @@ function modalCrearCuentaCliente(){
     const sitios = (clienteId && clienteId !== '__nuevo__') ? sitiosDe(clienteId) : [];
     $('zonaSitiosCC').hidden = !sitios.length;
     $('listaSitiosCC').innerHTML = sitios.map(s =>
-      '<label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; font-weight:400">'
-      + '<input type="checkbox" class="chkSitioCC" value="' + esc(s.id) + '">'
+      '<label class="casilla"><input type="checkbox" class="chkSitioCC" value="' + esc(s.id) + '">'
       + esc(s.nombre) + (s.zona ? ' <span class="pista">(' + esc(s.zona) + ')</span>' : '')
       + '</label>'
     ).join('');
@@ -17275,8 +17274,7 @@ function modalAprobarCliente(usuarioId){
     const sitios = (clienteId && clienteId !== '__nuevo__') ? sitiosDe(clienteId) : [];
     $('zonaSitiosAp').hidden = !sitios.length;
     $('listaSitiosAp').innerHTML = sitios.map(s =>
-      '<label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; font-weight:400">'
-      + '<input type="checkbox" class="chkSitioAp" value="' + esc(s.id) + '"' + (sitiosMarcados.includes(s.id) ? ' checked' : '') + '>'
+      '<label class="casilla"><input type="checkbox" class="chkSitioAp" value="' + esc(s.id) + '"' + (sitiosMarcados.includes(s.id) ? ' checked' : '') + '>'
       + esc(s.nombre) + (s.zona ? ' <span class="pista">(' + esc(s.zona) + ')</span>' : '')
       + '</label>'
     ).join('');
