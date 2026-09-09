@@ -2588,25 +2588,27 @@ function datosClientePoliza(p){
      cliente — no debería tener un usuario de portal de todos modos. */
   if(p.cargoA === 'interno') return null;
   /* Las fotos de evidencia de cada servicio (p.hechos[partidaId][mes].evidencias)
-     viajan como dataUrl —imagen completa en base64— y el portal de clientes
-     JAMÁS las pinta (vistaPortalPolizas() solo muestra mensualidad, servicios
-     hechos/programados, cobranza y la tabla de equipos: ver arriba). Cargarlas
-     aquí de todos modos no le da nada al cliente y sí puede sacar a esta copia
-     del límite de 1 MiB por documento que tiene Firestore —justo lo que pasó
-     con POL-024: el servidor rechazó guardar polizas_cliente por "documento
-     no se puede escribir", el mismo síntoma que ya se documentó arriba para
-     proyectosImagen—. Se quitan aquí, nunca de /polizas: ese sigue
-     completo, es el respaldo real de Forguard. */
-  const hechosSinFotos = {};
+     ahora SÍ viajan al portal —el cliente pidió poder consultarlas y
+     descargarlas desde el Calendario (modalDetalleServicioPortal)— pero solo
+     las que ya son una URL ligera de Storage (e.dataUrl empieza con "http",
+     ver subirEvidenciaStorage). Una foto vieja todavía en base64 completo
+     dentro del documento se sigue quitando aquí: cargarla de nuevo puede
+     sacar a esta copia del límite de 1 MiB por documento que tiene Firestore
+     —justo lo que pasó con POL-024: el servidor rechazó guardar
+     polizas_cliente por "documento no se puede escribir", el mismo síntoma
+     que ya se documentó arriba para proyectosImagen—. Nada de esto toca
+     /polizas: ese sigue completo, es el respaldo real de Forguard. */
+  const hechosLigeros = {};
   Object.keys(p.hechos || {}).forEach(partidaId=>{
     const porMes = p.hechos[partidaId] || {};
-    hechosSinFotos[partidaId] = {};
+    hechosLigeros[partidaId] = {};
     Object.keys(porMes).forEach(mes=>{
-      hechosSinFotos[partidaId][mes] = Object.assign({}, porMes[mes], { evidencias: [] });
+      const evidenciasLigeras = (porMes[mes].evidencias || []).filter(e => e.dataUrl && e.dataUrl.startsWith('http'));
+      hechosLigeros[partidaId][mes] = Object.assign({}, porMes[mes], { evidencias: evidenciasLigeras });
     });
   });
   return Object.assign({}, p, {
-    hechos: hechosSinFotos,
+    hechos: hechosLigeros,
     /* costoUnitario es lo que de verdad hay que esconder (dinero). modelo,
        serie y código de barras/QR van igual en 0/vacío por la misma razón
        de siempre (ver el comentario junto a esos campos en
@@ -19595,7 +19597,7 @@ function recalcularCalendarioPoliza(id){
    mes/atrasado/hecho), y si se puede registrar servicio la celda es un botón
    que abre el mismo formulario que ya usa la lista de abajo — sin tener que
    bajar a buscarlo. */
-function ganttCalendarioHTML(p, mesActual, marcable){
+function ganttCalendarioHTML(p, mesActual, marcable, verDetalle){
   const encabezados = Array.from({length:MESES_POLIZA}, (_,m)=>
     '<th class="' + (m === mesActual ? 'ahora' : '') + '">' + esc(etiquetaMesServicio(p.fechaInicio, m)) + '</th>').join('');
 
@@ -19628,9 +19630,17 @@ function ganttCalendarioHTML(p, mesActual, marcable){
         : estado === 'atrasado' ? 'atrasado' : estado === 'toca' ? 'toca este mes' : 'programado';
       const tip = esc(x.concepto) + ' · ' + etiquetaMesServicio(p.fechaInicio, m) + ' · ' + etiquetaEstado
         + (esCliente ? ' · responsabilidad del cliente, no cuenta en el cumplimiento' : '');
+      /* Solo lectura (portal de clientes): un servicio ya hecho se puede picar
+         para ver su detalle (cuándo, quién, fotos), pero no editarlo — de ahí
+         data-ver-servicio en vez de data-servicio, para no colgarse del mismo
+         delegado de edición que usa modalCalendario(). Uno programado o
+         atrasado sigue sin nada que picar: no hay detalle todavía. */
       const contenido = marcable
         ? '<button type="button" class="gantt-marcar" data-servicio="' + esc(p.id) + '" data-partida="' + esc(x.id) + '" '
           + 'data-mes="' + m + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>'
+        : (verDetalle && hecho)
+        ? '<button type="button" class="gantt-marcar" data-ver-servicio="' + esc(p.id) + '" data-ver-partida="' + esc(x.id) + '" '
+          + 'data-ver-mes="' + m + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>'
         : '<span style="display:block;width:100%;height:100%" title="' + esc(tip) + '"></span>';
       return '<td class="' + clase + (esAhora ? ' ahora' : '') + '">' + contenido + '</td>';
     }).join('');
@@ -19659,7 +19669,7 @@ function ganttCalendarioHTML(p, mesActual, marcable){
    (modalCalendarioPortal, de solo lectura) — mismo Gantt, mismos anillos de
    cumplimiento, misma lista mes a mes; lo único que cambia es si trae botones
    para tocar algo. */
-function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular){
+function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular, verDetalle){
   const c = calcularPoliza(p);
   const hoy = hoyISO();
   /* En qué mes de la vigencia estamos, para marcar "este mes". El -1 cubre las
@@ -19721,7 +19731,7 @@ function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular){
     +     '</div>'
     +   '</div>'
     + '</div>'
-    + '<div class="cal-gantt-caja">' + ganttCalendarioHTML(p, mesActual, marcable) + '</div>'
+    + '<div class="cal-gantt-caja">' + ganttCalendarioHTML(p, mesActual, marcable, verDetalle) + '</div>'
     + (marcable ? '<div class="pista" style="margin:6px 0 0">Pica una celda para registrar que ese servicio ya se hizo.</div>' : '')
     /* Para pólizas armadas ANTES de que existiera la calendarización por
        categoría (o con equipos que en ese momento no tenían categoría
@@ -19753,12 +19763,17 @@ function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular){
               + (r.det.evidencias && r.det.evidencias.length
                   ? ' · ' + r.det.evidencias.length + ' ' + plural(r.det.evidencias.length,'foto','fotos') : '')
               + (r.det.refaccion ? ' · pidió refacción: ' + r.det.refaccion : '')
-              + (marcable ? ' — pica para corregirlo' : '')
+              + (marcable ? ' — pica para corregirlo' : (verDetalle ? ' — pica para ver el detalle' : ''))
             : (marcable ? 'Registrar que ya se hizo' : 'Pendiente');
+          const verSoloLectura = !marcable && verDetalle && r.det;
           return '<li' + (r.det ? ' class="hecho"' : '') + ' title="' + esc(tip) + '">'
             + (marcable
                 ? '<button type="button" class="cal-marcar" data-servicio="' + esc(p.id) + '" '
                   + 'data-partida="' + esc(r.x.id) + '" data-mes="' + z.m + '" data-vuelve="cal">'
+                  + marca + texto + '</button>'
+                : verSoloLectura
+                ? '<button type="button" class="cal-marcar" data-ver-servicio="' + esc(p.id) + '" '
+                  + 'data-ver-partida="' + esc(r.x.id) + '" data-ver-mes="' + z.m + '">'
                   + marca + texto + '</button>'
                 : marca + texto)
             + '</li>';
@@ -19792,7 +19807,7 @@ function modalCalendario(id){
   const p = polizaPorId(id);
   if(!p) return;
   const marcable = puedeRegistrarServicioPoliza();
-  const cuerpo = cuerpoCalendarioPoliza(p, marcable, puedeEditar());
+  const cuerpo = cuerpoCalendarioPoliza(p, marcable, puedeEditar(), false);
 
   abrirModal('Calendario · ' + (p.sitioNombre || 'Póliza'), cuerpo,
     '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
@@ -19829,14 +19844,64 @@ function modalCalendario(id){
    sale de portalCliente.polizas (la copia sin costos, ver cargarPortalCliente),
    nunca de datos.polizas —esa colección ni siquiera se baja para un cliente,
    ver config/firestore.rules—, y va sin marcable ni "Recalcular calendario"
-   porque el cliente no gestiona su propia póliza, solo la consulta. */
+   porque el cliente no gestiona su propia póliza, solo la consulta. Con
+   verDetalle=true sí puede picarle a un equipo ya hecho para ver cuándo, quién
+   y las fotos de evidencia — ver modalDetalleServicioPortal(). */
 function modalCalendarioPortal(id){
   const p = portalCliente.polizas.find(x => x.id === id);
   if(!p) return;
-  const cuerpo = cuerpoCalendarioPoliza(p, false, false);
+  const cuerpo = cuerpoCalendarioPoliza(p, false, false, true);
   abrirModal('Calendario · ' + (p.sitioNombre || 'Póliza'), cuerpo,
     '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
   $('modal').classList.add('ancho');
+
+  $('modalCuerpo').addEventListener('click', ev=>{
+    const b = ev.target.closest('[data-ver-servicio]');
+    if(!b) return;
+    modalDetalleServicioPortal(b.dataset.verServicio, b.dataset.verPartida, +b.dataset.verMes);
+  });
+}
+
+/* El detalle de un servicio ya hecho, de solo lectura, para el portal: qué
+   equipo, cuándo, quién lo atendió, la nota y sus fotos de evidencia (ya
+   ligeras — URLs de Storage, ver datosClientePoliza — para poder consultarlas
+   o descargarlas abriéndolas en una pestaña nueva). "Volver al calendario"
+   reabre modalCalendarioPortal en vez de solo cerrar, mismo criterio que
+   "Volver al calendario" en modalServicioPoliza(). */
+function modalDetalleServicioPortal(polizaId, partidaId, mes){
+  const p = portalCliente.polizas.find(x => x.id === polizaId);
+  if(!p) return;
+  const x = p.partidas.find(q => q.id === partidaId);
+  if(!x) return;
+  const det = servicioDetalle(p, x, mes);
+  if(!det) return;
+  const parcial = x.cantidad > 1 && (det.hechas || x.cantidad) < x.cantidad;
+
+  const cuerpo = '<div class="resumen" style="margin-bottom:18px">'
+    +   '<div class="r-fila"><span>Equipo</span><span>' + esc(x.concepto) + (x.cantidad > 1 ? ' ×' + x.cantidad : '') + '</span></div>'
+    +   '<div class="r-fila"><span>Mes del calendario</span><span>' + esc(etiquetaMesServicio(p.fechaInicio, mes)) + '</span></div>'
+    +   '<div class="r-fila r-total"><span>Hecho el</span><span>' + fmtFecha(det.cuando) + '</span></div>'
+    +   (det.quien ? '<div class="r-fila"><span>Atendió</span><span>' + esc(det.quien) + '</span></div>' : '')
+    +   (parcial ? '<div class="r-fila"><span>Equipos atendidos</span><span>' + det.hechas + ' de ' + x.cantidad
+          + (det.motivo ? ' · ' + esc(det.motivo) : '') + '</span></div>' : '')
+    +   (det.numeroSerie ? '<div class="r-fila"><span>Número de serie</span><span>' + esc(det.numeroSerie) + '</span></div>' : '')
+    + '</div>'
+    + (det.nota ? '<p style="margin-top:12px"><b>Nota</b><br>' + esc(det.nota) + '</p>' : '')
+    + '<p style="margin-top:12px"><b>Fotos de evidencia</b></p>'
+    + (det.evidencias && det.evidencias.length
+        ? '<div class="galeria-evidencia">' + det.evidencias.map(e =>
+            '<div class="evidencia-foto">'
+            +   '<a href="' + esc(e.dataUrl) + '" target="_blank" rel="noopener" style="display:block;width:100%;height:100%" '
+            +     'title="Abrir en una pestaña nueva para verla completa o descargarla">'
+            +     '<img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy">'
+            +   '</a>'
+            + '</div>'
+          ).join('') + '</div>'
+        : '<p class="pista">No se subieron fotos con este servicio.</p>');
+
+  abrirModal('Servicio · ' + (x.concepto || 'Equipo'), cuerpo,
+    '<button type="button" class="btn btn-suave" id="btnVolverCalendarioPortal">Volver al calendario</button>');
+  $('btnVolverCalendarioPortal').addEventListener('click', ()=>{ cerrarModal(); modalCalendarioPortal(polizaId); });
 }
 
 /* --------------------------- Modal: póliza ---------------------------
