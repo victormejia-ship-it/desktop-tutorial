@@ -7086,6 +7086,23 @@ function clientesDeForpass(){
 function clientePorId(id){ return datos.clientes.find(c => c.id === id); }
 function sitioPorId(id){ return datos.sitios.find(s => s.id === id); }
 
+/* Qué va a ver una cuenta de cliente si se vincula a este clienteId — para
+   que, al elegirlo en el selector de "Vincular cliente"/"Crear cuenta de
+   cliente", quede claro de inmediato si es el registro correcto o si está
+   vacío (nombres parecidos —"Stellantis" vs "Stellantis Camiones"— son el
+   error más fácil de cometer ahí). */
+function resumenClienteCorto(clienteId){
+  const sitios = sitiosDe(clienteId);
+  const polizas = polizasDeCliente(clienteId);
+  const cot = datos.cotizaciones.filter(q => q.clienteId === clienteId);
+  if(!sitios.length && !polizas.length && !cot.length) return 'sin nada capturado todavía';
+  const partes = [];
+  if(sitios.length) partes.push(sitios.length + ' ' + plural(sitios.length,'sitio','sitios') + ' (' + sitios.map(s => s.nombre).join(', ') + ')');
+  if(polizas.length) partes.push(polizas.length + ' ' + plural(polizas.length,'póliza','pólizas'));
+  if(cot.length) partes.push(cot.length + ' ' + plural(cot.length,'cotización','cotizaciones'));
+  return partes.join(' · ');
+}
+
 /* Suma de un conjunto de sitios, para los indicadores de arriba. */
 function resumir(sitios){
   const r = { sitios:sitios.length, sitiosActivos:0, forpass:0, mrr:0, atrasados:0, porPagar:0, porVencer:0, mensualidadesAtrasadas:0, adeudo:0,
@@ -16832,7 +16849,7 @@ function pintarCuentasCliente(){
     : 'Ya aprobadas — pueden ver su póliza, sus cotizaciones y sus reportes.';
   if(!aprobados.length){ cont.innerHTML = '<div class="vacio-chico">Todavía no hay cuentas de cliente aprobadas.</div>'; return; }
   cont.innerHTML = '<table class="tabla"><thead><tr>'
-    + '<th>Nombre</th><th>Correo</th><th>Cliente vinculado</th><th>Estado</th><th></th>'
+    + '<th>Nombre</th><th>Correo</th><th>Cliente vinculado</th><th>Qué va a ver</th><th>Estado</th><th></th>'
     + '</tr></thead><tbody>'
     + aprobados.map(u=>{
         const cli = clientePorId(u.clienteId);
@@ -16840,6 +16857,9 @@ function pintarCuentasCliente(){
         +   '<td><b>' + esc(nombreDe(u) || '—') + '</b></td>'
         +   '<td>' + esc(u.correo || '') + '</td>'
         +   '<td>' + (cli ? esc(cli.nombre) : '<span class="pista" style="color:var(--error)">Sin cliente vinculado — no puede entrar</span>') + '</td>'
+        +   '<td>' + (cli
+              ? '<span class="pista" ' + (resumenClienteCorto(cli.id) === 'sin nada capturado todavía' ? 'style="color:var(--alerta)"' : '') + '>' + esc(resumenClienteCorto(cli.id)) + '</span>'
+              : '—') + '</td>'
         +   '<td>' + (u.activo === false
               ? '<span class="insignia i-error">Bloqueada</span>'
               : '<span class="insignia i-ok"><span class="punto p-ok"></span>Activa</span>') + '</td>'
@@ -17049,9 +17069,10 @@ function modalCrearCuentaCliente(){
     + '<div class="campo"><label>¿A cuál cliente de tu catálogo pertenece? *</label>'
     +   '<select id="ccCliente">'
     +     '<option value="">— Elige uno —</option>'
-    +     clientesOrdenados.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    +     clientesOrdenados.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + ' — ' + esc(resumenClienteCorto(c.id)) + '</option>').join('')
     +     '<option value="__nuevo__">+ No está — crear cliente nuevo</option>'
-    +   '</select></div>'
+    +   '</select>'
+    +   '<div class="pista" id="ccVistaPrevia" style="margin-top:6px"></div></div>'
     + '<div class="campo" id="zonaClienteNuevoCC" hidden><label>Nombre del cliente nuevo</label>'
     +   '<input type="text" id="ccClienteNuevoNombre" placeholder="Nombre de la empresa"></div>'
     + '<div class="campo"><label>Contraseña temporal *</label>'
@@ -17062,7 +17083,11 @@ function modalCrearCuentaCliente(){
     + '<button type="button" class="btn btn-primario" data-modal="guardar">Crear cuenta</button>');
 
   $('ccCliente').addEventListener('change', ()=>{
-    $('zonaClienteNuevoCC').hidden = $('ccCliente').value !== '__nuevo__';
+    const sel = $('ccCliente').value;
+    $('zonaClienteNuevoCC').hidden = sel !== '__nuevo__';
+    $('ccVistaPrevia').textContent = (sel && sel !== '__nuevo__')
+      ? 'Esta cuenta va a ver: ' + resumenClienteCorto(sel)
+      : '';
   });
 
   cerrarModalActual = async ()=>{
@@ -17162,22 +17187,29 @@ function modalAprobarCliente(usuarioId){
     + '<div class="campo"><label>¿A cuál cliente de tu catálogo corresponde? *</label>'
     +   '<select id="apCliente">'
     +     '<option value="">— Elige uno —</option>'
-    +     clientesOrdenados.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    +     clientesOrdenados.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + ' — ' + esc(resumenClienteCorto(c.id)) + '</option>').join('')
     +     '<option value="__nuevo__">+ No está — crear cliente nuevo</option>'
-    +   '</select></div>'
+    +   '</select>'
+    +   '<div class="pista" id="apVistaPrevia" style="margin-top:6px"></div></div>'
     + '<div class="campo" id="zonaClienteNuevoAp" hidden><label>Nombre del cliente nuevo</label>'
     +   '<input type="text" id="apClienteNuevoNombre" placeholder="Ej. ' + esc(u.empresaSolicitada || 'Nombre de la empresa') + '"></div>',
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">Aprobar</button>');
 
-  $('apCliente').addEventListener('change', ()=>{
-    $('zonaClienteNuevoAp').hidden = $('apCliente').value !== '__nuevo__';
-  });
+  function pintarVistaPreviaAp(){
+    const sel = $('apCliente').value;
+    $('zonaClienteNuevoAp').hidden = sel !== '__nuevo__';
+    $('apVistaPrevia').textContent = (sel && sel !== '__nuevo__')
+      ? 'Esta cuenta va a ver: ' + resumenClienteCorto(sel)
+      : '';
+  }
+  $('apCliente').addEventListener('change', pintarVistaPreviaAp);
   $('apCliente').value = '';
   if(u.empresaSolicitada){
     const coincide = clientesOrdenados.find(c => c.nombre.trim().toLowerCase() === u.empresaSolicitada.trim().toLowerCase());
     if(coincide) $('apCliente').value = coincide.id;
   }
+  pintarVistaPreviaAp();
 
   cerrarModalActual = async ()=>{
     let sel = $('apCliente').value;
