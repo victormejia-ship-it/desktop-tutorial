@@ -842,6 +842,20 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .cal-resumen{margin-bottom:4px;}
 .cal-resumen .c-fila{display:flex; gap:8px; align-items:baseline; font-size:13.5px; padding:3px 0;}
 .cal-resumen .c-fila span:first-child{color:var(--gray);}
+/* Gráfica de barras del calendario: un vistazo a los 12 meses antes de bajar
+   a la lista detallada. Una sola serie (equipos por mes) así que no lleva
+   leyenda — el color solo distingue "este mes" (ámbar, igual que el resto de
+   la app) de los demás (verde de marca). */
+.cal-grafica{margin:14px 0 4px; background:#fff; border:1px solid var(--line); border-radius:11px; padding:10px 6px 4px;}
+.cal-grafica svg{display:block; width:100%; height:auto;}
+.cal-barra{cursor:pointer;}
+.cal-barra .cal-b-rect, .cal-barra .cal-b-tapa{transition:opacity .12s var(--ease);}
+.cal-barra:hover .cal-b-rect, .cal-barra:hover .cal-b-tapa{opacity:.8;}
+.cal-barra:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+.cal-grafica-pie{font-size:11px; color:var(--gray); text-align:center; margin-top:2px;}
+/* Al picar una barra, la tarjeta de ese mes se resalta un instante para que
+   sea obvio a cuál brincó el scroll. */
+.cal-mes.resaltado{outline:2px solid var(--accent); outline-offset:2px;}
 .cal-lista li svg{width:12px; height:12px; flex:0 0 auto; position:relative; top:2px;}
 /* El renglón del calendario es un botón: ahí se marca "este ya se hizo". Se ve
    como texto hasta que el mouse encima lo delata — una lista de doce meses llena
@@ -18394,6 +18408,45 @@ function recalcularCalendarioPoliza(id){
   aviso(cambiados + ' ' + plural(cambiados,'equipo reacomodado','equipos reacomodados') + ' según su categoría.');
 }
 
+/* Gráfica de barras del calendario de una póliza: un vistazo visual a los 12
+   meses (equipos que tocan cada uno) antes de bajar al detalle renglón por
+   renglón. Una sola serie, así que el único color con significado es el de
+   "este mes" (ámbar, igual que el resto de la app) contra el resto (verde de
+   marca) — no hace falta leyenda para una sola serie. Los meses sin ningún
+   equipo se dibujan como una barrita plana en vez de desaparecer, para que
+   los 12 sigan siendo visibles y comparables. */
+function graficaCalendarioSVG(fechaInicio, meses, mesActual){
+  const pico = Math.max(...meses.map(z=>z.equipos));
+  const n = meses.length, w = 900, slotW = w / n, barW = 26;
+  const baseY = 116, maxH = 78;
+  const barras = meses.map((z,i)=>{
+    const cx = i*slotW + slotW/2, bx = cx - barW/2;
+    const esAhora = z.m === mesActual;
+    const h = pico > 0 ? Math.max(0, Math.round((z.equipos / pico) * maxH)) : 0;
+    const y = baseY - h;
+    const color = esAhora ? 'var(--alerta)' : 'var(--accent)';
+    const tapaH = Math.min(4, h || 3);
+    const etiqueta = etiquetaMesServicio(fechaInicio, z.m);
+    const tip = etiqueta + ' · ' + z.equipos + ' ' + plural(z.equipos,'equipo','equipos');
+    return '<g class="cal-barra" data-mes="' + z.m + '" tabindex="0" role="button" aria-label="' + esc(tip) + '">'
+      +   '<title>' + esc(tip) + '</title>'
+      +   (h > 0
+            ? '<rect class="cal-b-rect" x="' + bx + '" y="' + y + '" width="' + barW + '" height="' + h + '" rx="4" fill="' + color + '"></rect>'
+              + '<rect class="cal-b-tapa" x="' + bx + '" y="' + (baseY - tapaH) + '" width="' + barW + '" height="' + tapaH + '" fill="' + color + '"></rect>'
+            : '<rect x="' + bx + '" y="' + (baseY - 3) + '" width="' + barW + '" height="3" rx="1.5" fill="var(--line)"></rect>')
+      +   (z.equipos > 0
+            ? '<text x="' + cx + '" y="' + (y - 6) + '" text-anchor="middle" font-size="12" font-weight="700" fill="var(--navy)">' + z.equipos + '</text>'
+            : '')
+      +   '<text x="' + cx + '" y="' + (baseY + 17) + '" text-anchor="middle" font-size="10.5" fill="var(--gray)" style="text-transform:capitalize">' + esc(etiqueta) + '</text>'
+      +   (esAhora ? '<text x="' + cx + '" y="' + (baseY + 29) + '" text-anchor="middle" font-size="8.5" font-weight="700" fill="var(--alerta)">HOY</text>' : '')
+      + '</g>';
+  }).join('');
+  return '<svg viewBox="0 0 ' + w + ' 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Equipos por mes en toda la vigencia">'
+    +   '<line x1="0" y1="' + baseY + '" x2="' + w + '" y2="' + baseY + '" stroke="var(--line)" stroke-width="1"></line>'
+    +   barras
+    + '</svg>';
+}
+
 function modalCalendario(id){
   const p = polizaPorId(id);
   if(!p) return;
@@ -18433,6 +18486,8 @@ function modalCalendario(id){
     +     ' · ' + c.hechos + ' ' + plural(c.hechos,'hecho','hechos') + '</b></div>'
     +   '<div class="c-fila"><span>Mes más cargado:</span><b>' + pico + ' ' + plural(pico,'equipo','equipos') + '</b></div>'
     + '</div>'
+    + '<div class="cal-grafica">' + graficaCalendarioSVG(p.fechaInicio, meses, mesActual) + '</div>'
+    + '<div class="cal-grafica-pie">Pica una barra para ir directo a ese mes.</div>'
     /* Para pólizas armadas ANTES de que existiera la calendarización por
        categoría (o con equipos que en ese momento no tenían categoría
        todavía): sin esto, la única forma de escalonarlas era recrearlas. */
@@ -18480,7 +18535,7 @@ function modalCalendario(id){
           '<div class="pista" style="margin-top:7px;display:flex;align-items:center;gap:5px">'
           + '<span style="display:inline-flex;width:13px;height:13px;flex:0 0 auto">' + ICONO.persona + '</span>'
           + 'Incluye segurista' + (x.cantidad > 1 ? ' ×' + x.cantidad : '') + '</div>').join('');
-        return '<div class="cal-mes' + (z.toca.length ? '' : ' vacio') + (esAhora ? ' ahora' : '') + '">'
+        return '<div class="cal-mes' + (z.toca.length ? '' : ' vacio') + (esAhora ? ' ahora' : '') + '" id="cal-mes-' + z.m + '">'
           + '<div class="cal-cabeza">'
           +   '<b>' + esc(etiquetaMesServicio(p.fechaInicio, z.m)) + '</b>'
           +   (esAhora ? '<span class="insignia i-alerta">este mes</span>' : '')
@@ -18498,6 +18553,28 @@ function modalCalendario(id){
   abrirModal('Calendario · ' + (p.sitioNombre || 'Póliza'), cuerpo,
     '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
   $('modal').classList.add('ancho');
+
+  /* Picar (o Enter sobre, con teclado) una barra de la gráfica brinca a la
+     tarjeta de ese mes y la resalta un instante — funciona para cualquiera
+     que abra el calendario, no solo quien puede marcar servicios. */
+  const irABarra = mes=>{
+    const destino = $('cal-mes-' + mes);
+    if(!destino) return;
+    destino.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    destino.classList.add('resaltado');
+    setTimeout(()=> destino.classList.remove('resaltado'), 1200);
+  };
+  $('modalCuerpo').addEventListener('click', ev=>{
+    const barra = ev.target.closest('.cal-barra');
+    if(barra) irABarra(+barra.dataset.mes);
+  });
+  $('modalCuerpo').addEventListener('keydown', ev=>{
+    if(ev.key !== 'Enter' && ev.key !== ' ') return;
+    const barra = ev.target.closest('.cal-barra');
+    if(!barra) return;
+    ev.preventDefault();
+    irABarra(+barra.dataset.mes);
+  });
 
   /* Delegado y colgado aquí, no fuera: #modalCuerpo lo reemplaza cerrarModal()
      por un clon limpio en cada cierre, así que este listener se va con él y no
