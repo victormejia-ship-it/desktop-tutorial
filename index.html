@@ -178,6 +178,12 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .kpi .k-label{font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--gray); font-weight:600; line-height:1.35; min-height:2.7em;}
 .kpi .k-valor{font-size:24px; font-weight:700; color:var(--navy); margin-top:5px; line-height:1.1;}
 .kpi .k-pie{font-size:11px; color:var(--gray); margin-top:3px;}
+/* Tarjeta de cumplimiento: el anillo de progreso al lado del desglose, en
+   vez del número grande de las demás tarjetas — no le hace falta un k-valor
+   de 24px porque el % ya va dentro del propio anillo. */
+.k-anillo{display:flex; align-items:center; gap:10px; margin-top:5px;}
+.k-anillo svg{flex:0 0 auto;}
+.k-anillo-txt{font-size:15px; font-weight:700; color:var(--navy); line-height:1.2;}
 
 /* Indicadores que se pueden abrir para ver el detalle */
 button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
@@ -839,9 +845,13 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 /* El resumen de arriba del calendario: etiqueta con dos puntos, aire entre
    etiqueta y valor. Sin esto .c-fila queda sin estilo aquí (solo lo trae dentro
    de .bloque) y todo salía pegado. */
+.cal-cabecera{display:flex; justify-content:space-between; align-items:center; gap:18px; flex-wrap:wrap;}
 .cal-resumen{margin-bottom:4px;}
 .cal-resumen .c-fila{display:flex; gap:8px; align-items:baseline; font-size:13.5px; padding:3px 0;}
 .cal-resumen .c-fila span:first-child{color:var(--gray);}
+.cal-cumplimiento{display:flex; align-items:center; gap:12px; flex:0 0 auto;}
+.cal-cumplimiento-label{font-size:11px; color:var(--gray); font-weight:600; text-transform:uppercase; letter-spacing:.05em;}
+.cal-cumplimiento-txt{font-size:13px; color:var(--navy); font-weight:600; margin-top:2px;}
 /* Gantt del calendario: mismo formato que la hoja "Calendario de
    Mantenimientos" de la póliza impresa —un renglón por equipo, una columna
    por mes, celda sombreada cuando ese mes le toca a ese equipo— pero aquí la
@@ -7241,7 +7251,7 @@ function calcularPoliza(p){
 
   /* Ejecución. Un servicio está atrasado cuando su mes ya se cumplió completo y
      nadie lo marcó; el del mes en curso todavía no lo está, solo "toca". */
-  let programados = 0, hechos = 0, atrasados = 0, tocanEsteMes = 0, huerfanos = 0;
+  let programados = 0, hechos = 0, hechosDebidos = 0, atrasados = 0, tocanEsteMes = 0, huerfanos = 0;
   p.partidas.forEach(x=>{
     /* El segurista no entra al seguimiento: es presencia, no mantenimiento.
        Sin esto, sus meses contarían como "atrasados" para siempre y la póliza
@@ -7251,12 +7261,25 @@ function calcularPoliza(p){
     hechos      += serviciosHechos(p, x);
     huerfanos   += serviciosFueraDeCalendario(p, x).length;
     x.mesesServicio.forEach(m=>{
-      if(servicioHecho(p, x, m)) return;
+      if(servicioHecho(p, x, m)){
+        /* "Cumplido a tiempo" cuenta solo lo que ya le tocaba (este mes o
+           antes) — un servicio de un mes futuro hecho por adelantado no
+           debe inflar el % de cumplimiento, así que no se cuenta ni a favor
+           ni en contra. */
+        if(m <= mesActual) hechosDebidos++;
+        return;
+      }
       if(m < mesesCumplidos) atrasados++;
       else if(m === mesActual) tocanEsteMes++;
     });
   });
   const pendientes = programados - hechos;
+  /* % de cumplimiento: de lo que YA le tocaba a esta póliza (hecho a tiempo +
+     atrasado), cuánto se hizo de verdad. Antes de que arranque la vigencia
+     no le toca nada todavía, así que se cuenta como 100% — no hay nada que
+     se le haya fallado. */
+  const serviciosDebidos = hechosDebidos + atrasados;
+  const cumplimientoPct = serviciosDebidos > 0 ? Math.round(hechosDebidos / serviciosDebidos * 100) : 100;
 
   const vigente = diasEntre(hoy, fin) >= 0;
   const diasVigencia = diasEntre(hoy, fin);
@@ -7302,7 +7325,8 @@ function calcularPoliza(p){
            costos, costoAnual, costoAnualCent, costoMensual, utilidadAnual, utilidadMensual, margenPct,
            montos, montosCent, costoMontos, costoMontosCent,
            cobrados, debidos, cobrosAtrasados, adeudo, cobrado, proximoCobro,
-           programados, hechos, pendientes, atrasados, tocanEsteMes, huerfanos,
+           programados, hechos, hechosDebidos, serviciosDebidos, cumplimientoPct,
+           pendientes, atrasados, tocanEsteMes, huerfanos,
            mesesCumplidos, mesActual, vigente, diasVigencia, diasEsperando,
            noCuadran, cerrable, estado, tono, activa };
 }
@@ -8689,6 +8713,30 @@ function tarjetaKpi(label, valor, pie, clase, accion){
       + cuerpo + '<span class="k-mas">Ver cuáles →</span></button>'
     : '<div class="kpi ' + (clase||'') + '">' + cuerpo + '</div>';
 }
+
+/* Anillo de progreso (dona) para el % de cumplimiento de una póliza. La
+   pista sin llenar va del color neutro de línea —igual que un medidor de
+   cualquier otro lado de la app— y el arco lleno lleva el color de
+   severidad (ok/alerta/error) que ya trae calcularPoliza() en su semáforo,
+   para no inventar una segunda regla de color para la misma idea. */
+function anilloProgresoSVG(pct, size, grosor, color){
+  const r = (size - grosor) / 2, cx = size / 2, cy = size / 2;
+  const circ = 2 * Math.PI * r;
+  const relleno = circ * Math.max(0, Math.min(100, pct)) / 100;
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" '
+    +   'role="img" aria-label="' + pct + '% de cumplimiento">'
+    +   '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="var(--line)" stroke-width="' + grosor + '"></circle>'
+    +   '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="' + grosor + '" '
+    +     'stroke-linecap="round" stroke-dasharray="' + relleno.toFixed(1) + ' ' + circ.toFixed(1) + '" '
+    +     'transform="rotate(-90 ' + cx + ' ' + cy + ')"></circle>'
+    +   '<text x="' + cx + '" y="' + cy + '" text-anchor="middle" dominant-baseline="central" '
+    +     'font-size="' + Math.round(size * 0.28) + '" font-weight="700" fill="var(--navy)">' + pct + '%</text>'
+    + '</svg>';
+}
+/* Mismo color que ya usa el semáforo de la póliza (estatus/insignia): así el
+   anillo de cumplimiento nunca contradice lo que dice el resto de la
+   pantalla sobre esta póliza. */
+const COLOR_TONO = { ok:'var(--ok)', alerta:'var(--alerta)', error:'var(--error)', neutro:'var(--gray-claro)' };
 
 /* El mismo alternador tarjetas/tabla para cualquier lista: Forpass, Pólizas y
    Cotizaciones lo usan igual, cada uno con su propio campo en `estado` para
@@ -15224,6 +15272,22 @@ function vistaPoliza(){
          : '')
      + tarjetaKpi('Servicios', c.hechos + ' de ' + c.programados,
          c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Sin atrasos', c.atrasados ? 'k-error' : '')
+     /* Cumplimiento: de lo que YA le tocaba a esta póliza, cuánto se hizo de
+        verdad — un anillo de progreso en vez de solo un número, visible
+        desde que se abre la póliza, sin tener que entrar al Calendario. */
+     +   (()=>{
+           const tono = c.cumplimientoPct === 100 ? 'ok' : c.cumplimientoPct >= 80 ? 'alerta' : 'error';
+           return '<div class="kpi k-' + tono + '">'
+             +   '<div class="k-label">Cumplimiento</div>'
+             +   '<div class="k-anillo">'
+             +     anilloProgresoSVG(c.cumplimientoPct, 54, 7, COLOR_TONO[tono])
+             +     '<div><div class="k-anillo-txt">' + c.hechosDebidos + ' de ' + c.serviciosDebidos + '</div>'
+             +       '<div class="k-pie">' + (c.serviciosDebidos
+                       ? (c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Al corriente')
+                       : 'Aún no le toca nada') + '</div></div>'
+             +   '</div>'
+             + '</div>';
+         })()
      + tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
          c.vigente ? 'Faltan ' + c.diasVigencia + ' ' + plural(c.diasVigencia,'día','días') : 'Terminada')
      + '</div>';
@@ -18507,12 +18571,27 @@ function modalCalendario(id){
 
   /* Con su envoltorio .cal-resumen: .c-fila solo trae estilo dentro de .bloque
      y aquí quedaba pelona — etiqueta y valor salían pegados («Vigencia01 jun»). */
+  const tonoCal = c.cumplimientoPct === 100 ? 'ok' : c.cumplimientoPct >= 80 ? 'alerta' : 'error';
   const cuerpo =
-      '<div class="cal-resumen">'
-    +   '<div class="c-fila"><span>Vigencia:</span><b>' + fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin) + '</b></div>'
-    +   '<div class="c-fila"><span>Servicios en el año:</span><b>' + numero(c.programados)
-    +     ' · ' + c.hechos + ' ' + plural(c.hechos,'hecho','hechos') + '</b></div>'
-    +   '<div class="c-fila"><span>Mes más cargado:</span><b>' + pico + ' ' + plural(pico,'equipo','equipos') + '</b></div>'
+      '<div class="cal-cabecera">'
+    +   '<div class="cal-resumen">'
+    +     '<div class="c-fila"><span>Vigencia:</span><b>' + fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin) + '</b></div>'
+    +     '<div class="c-fila"><span>Servicios en el año:</span><b>' + numero(c.programados)
+    +       ' · ' + c.hechos + ' ' + plural(c.hechos,'hecho','hechos') + '</b></div>'
+    +     '<div class="c-fila"><span>Mes más cargado:</span><b>' + pico + ' ' + plural(pico,'equipo','equipos') + '</b></div>'
+    +   '</div>'
+    /* Mismo % que ya se ve al abrir la póliza (KPI "Cumplimiento") — aquí en
+       grande, junto al Gantt, para no tener que ir y venir entre las dos
+       pantallas para relacionar el número con el detalle mes por mes. */
+    +   '<div class="cal-cumplimiento">'
+    +     anilloProgresoSVG(c.cumplimientoPct, 76, 9, COLOR_TONO[tonoCal])
+    +     '<div><div class="cal-cumplimiento-label">Cumplimiento</div>'
+    +       '<div class="cal-cumplimiento-txt">' + c.hechosDebidos + ' de ' + c.serviciosDebidos + ' al corriente</div>'
+    +       (c.atrasados
+             ? '<div class="cal-cumplimiento-txt" style="color:var(--error)">' + c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') + '</div>'
+             : '<div class="cal-cumplimiento-txt" style="color:var(--ok)">Sin atrasos</div>')
+    +     '</div>'
+    +   '</div>'
     + '</div>'
     + '<div class="cal-gantt-caja">' + ganttCalendarioHTML(p, mesActual, marcable) + '</div>'
     + (marcable ? '<div class="pista" style="margin:6px 0 0">Pica una celda para registrar que ese servicio ya se hizo.</div>' : '')
