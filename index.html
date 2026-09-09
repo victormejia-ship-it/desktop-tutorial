@@ -2561,7 +2561,26 @@ function datosClientePoliza(p){
      enseñar a nadie, así que esta póliza sencillamente no tiene copia para
      cliente — no debería tener un usuario de portal de todos modos. */
   if(p.cargoA === 'interno') return null;
+  /* Las fotos de evidencia de cada servicio (p.hechos[partidaId][mes].evidencias)
+     viajan como dataUrl —imagen completa en base64— y el portal de clientes
+     JAMÁS las pinta (vistaPortalPolizas() solo muestra mensualidad, servicios
+     hechos/programados, cobranza y la tabla de equipos: ver arriba). Cargarlas
+     aquí de todos modos no le da nada al cliente y sí puede sacar a esta copia
+     del límite de 1 MiB por documento que tiene Firestore —justo lo que pasó
+     con POL-024: el servidor rechazó guardar polizas_cliente por "documento
+     no se puede escribir", el mismo síntoma que ya se documentó arriba para
+     proyectosImagen—. Se quitan aquí, nunca de /polizas: ese sigue
+     completo, es el respaldo real de Forguard. */
+  const hechosSinFotos = {};
+  Object.keys(p.hechos || {}).forEach(partidaId=>{
+    const porMes = p.hechos[partidaId] || {};
+    hechosSinFotos[partidaId] = {};
+    Object.keys(porMes).forEach(mes=>{
+      hechosSinFotos[partidaId][mes] = Object.assign({}, porMes[mes], { evidencias: [] });
+    });
+  });
   return Object.assign({}, p, {
+    hechos: hechosSinFotos,
     /* costoUnitario es lo que de verdad hay que esconder (dinero). modelo,
        serie y código de barras/QR van igual en 0/vacío por la misma razón
        de siempre (ver el comentario junto a esos campos en
