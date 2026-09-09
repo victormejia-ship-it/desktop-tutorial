@@ -16664,7 +16664,9 @@ function vistaAdmin(){
      + '</div>';
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div>'
-     +   '<h3>Cuentas de clientes</h3><p id="clientesResumen">Ya aprobadas — pueden ver su póliza, sus cotizaciones y sus reportes.</p></div></div>'
+     +   '<h3>Cuentas de clientes</h3><p id="clientesResumen">Ya aprobadas — pueden ver su póliza, sus cotizaciones, su Forpass y sus reportes.</p></div>'
+     +   '<div class="acciones"><button type="button" class="btn btn-primario btn-mini" data-accion="nueva-cuenta-cliente">'
+     +     ICONO.mas + 'Crear cuenta de cliente</button></div></div>'
      +   '<div class="rodillo" id="tablaCuentasCliente"></div>'
      + '</div>';
 
@@ -16746,7 +16748,13 @@ function pintarUsuarios(){
            del servidor solo deja a un Admin tocar la ficha completa de
            alguien que NO sea Owner (ver config/firestore.rules, /usuarios). */
         const puedeEditarFicha = esOwner() || (esAdmin() && !esDueno);
-        const rolesQuePuedeDar = Object.keys(ROLES).filter(r => r !== 'owner' || esOwner());
+        /* 'cliente' NO va aquí: ese rol necesita vincularse a un clienteId
+           real (ver modalAprobarCliente/modalCrearCuentaCliente), y este
+           selector rápido escribe el rol solo, sin ese paso — así se rompió
+           una cuenta de verdad (09-sep-2026): quedó rol:'cliente' sin
+           clienteId, activa, y nadie podía entrar. Dar de alta un cliente
+           tiene su propio botón, aparte, en "Cuentas de clientes". */
+        const rolesQuePuedeDar = Object.keys(ROLES).filter(r => r !== 'owner' || esOwner()).filter(r => r !== 'cliente');
         const opciones = rolesQuePuedeDar.map(r =>
           '<option value="' + r + '"' + (u.rol === r ? ' selected' : '') + '>' + esc(ROLES[r].nombre) + '</option>').join('');
         const razon = yo ? 'No puedes cambiarte tu propio permiso'
@@ -16831,11 +16839,13 @@ function pintarCuentasCliente(){
         return '<tr>'
         +   '<td><b>' + esc(nombreDe(u) || '—') + '</b></td>'
         +   '<td>' + esc(u.correo || '') + '</td>'
-        +   '<td>' + (cli ? esc(cli.nombre) : '<span class="pista">(el cliente ya no existe)</span>') + '</td>'
+        +   '<td>' + (cli ? esc(cli.nombre) : '<span class="pista" style="color:var(--error)">Sin cliente vinculado — no puede entrar</span>') + '</td>'
         +   '<td>' + (u.activo === false
               ? '<span class="insignia i-error">Bloqueada</span>'
               : '<span class="insignia i-ok"><span class="punto p-ok"></span>Activa</span>') + '</td>'
         +   '<td class="acciones">'
+        +     '<button type="button" class="btn ' + (cli ? 'btn-suave' : 'btn-primario') + ' btn-mini" data-vincular-cliente="' + esc(u.id) + '">'
+        +       (cli ? 'Cambiar cliente' : 'Vincular cliente') + '</button>'
         +     '<button type="button" class="btn ' + (u.activo === false ? 'btn-verde' : 'btn-suave') + ' btn-mini" data-bloquear="' + esc(u.id) + '">'
         +       (u.activo === false ? 'Reactivar' : 'Bloquear') + '</button>'
         +     '<button type="button" class="btn btn-peligro btn-mini" data-borrar-usuario="' + esc(u.id) + '" title="Borrar el acceso de esta cuenta">' + ICONO.basura + '</button>'
@@ -16902,8 +16912,10 @@ function claveSugerida(){
 function modalCuenta(){
   const sugerida = claveSugerida();
   let fotoTmp = '';
-  /* Solo un Owner puede crear otro Owner. */
-  const opciones = Object.keys(ROLES).filter(r => r !== 'owner' || esOwner()).map(r =>
+  /* Solo un Owner puede crear otro Owner. 'cliente' no se ofrece aquí: ese
+     rol necesita un clienteId vinculado, y este formulario no lo pide —
+     usa el botón "Crear cuenta de cliente" en Cuentas de clientes. */
+  const opciones = Object.keys(ROLES).filter(r => r !== 'owner' || esOwner()).filter(r => r !== 'cliente').map(r =>
     '<option value="' + r + '"' + (r === 'analyst' ? ' selected' : '') + '>' + esc(ROLES[r].nombre) + ' — ' + esc(ROLES[r].desc) + '</option>').join('');
 
   abrirModal('Crear cuenta',
@@ -17009,6 +17021,115 @@ function modalCuenta(){
       });
       cerrarModalActual = null;
       pintarUsuarios();
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'Crear cuenta';
+      aviso(e.message, true);
+    }
+  };
+}
+
+/* ------------------- Modal: crear cuenta de cliente -------------------
+   Para cuando Forguard mismo da de alta el acceso de un cliente (sin
+   esperar a que él se autorregistre desde «Solicita tu acceso»): junta,
+   en un solo paso, lo de "Crear cuenta" (correo/nombre/contraseña) con lo
+   de "Vincular y aprobar" (a cuál cliente del catálogo pertenece) —
+   así nunca se puede terminar con una cuenta rol:'cliente' sin
+   clienteId (ver la lección del 09-sep-2026 en pintarUsuarios). */
+function modalCrearCuentaCliente(){
+  const sugerida = claveSugerida();
+  const clientesOrdenados = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  abrirModal('Crear cuenta de cliente',
+      '<div class="campo"><label>Correo de la persona *</label>'
+    +   '<input type="email" id="ccCorreo" placeholder="nombre@empresadelcliente.com" autocomplete="off"></div>'
+    + '<div class="campo"><label>Nombre (opcional)</label>'
+    +   '<input type="text" id="ccNombre" placeholder="Ej. Ana Torres"></div>'
+    + '<div class="campo"><label>Teléfono de contacto (opcional)</label>'
+    +   '<input type="text" id="ccTelefono" inputmode="tel" placeholder="811 60 71 051"></div>'
+    + '<div class="campo"><label>¿A cuál cliente de tu catálogo pertenece? *</label>'
+    +   '<select id="ccCliente">'
+    +     '<option value="">— Elige uno —</option>'
+    +     clientesOrdenados.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    +     '<option value="__nuevo__">+ No está — crear cliente nuevo</option>'
+    +   '</select></div>'
+    + '<div class="campo" id="zonaClienteNuevoCC" hidden><label>Nombre del cliente nuevo</label>'
+    +   '<input type="text" id="ccClienteNuevoNombre" placeholder="Nombre de la empresa"></div>'
+    + '<div class="campo"><label>Contraseña temporal *</label>'
+    +   '<input type="text" id="ccClave" value="' + esc(sugerida) + '">'
+    +   '<div class="pista">Mínimo 6 caracteres. Se la pasas a la persona y ella puede cambiarla después '
+    +   'con el enlace de «¿Olvidaste tu contraseña?». Tú no la vas a poder volver a ver.</div></div>',
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">Crear cuenta</button>');
+
+  $('ccCliente').addEventListener('change', ()=>{
+    $('zonaClienteNuevoCC').hidden = $('ccCliente').value !== '__nuevo__';
+  });
+
+  cerrarModalActual = async ()=>{
+    const correo = $('ccCorreo').value.trim();
+    const clave  = $('ccClave').value;
+    const nombre = $('ccNombre').value.trim();
+    const telefono = $('ccTelefono').value.trim();
+    const sel = $('ccCliente').value;
+    if(!correo){ $('ccCorreo').setAttribute('aria-invalid','true'); $('ccCorreo').focus(); aviso('Falta el correo.', true); return; }
+    if(clave.length < 6){ $('ccClave').setAttribute('aria-invalid','true'); aviso('La contraseña necesita al menos 6 caracteres.', true); return; }
+    if(!sel){ aviso('Elige a cuál cliente pertenece.', true); return; }
+    let nombreClienteNuevo = '';
+    if(sel === '__nuevo__'){
+      nombreClienteNuevo = $('ccClienteNuevoNombre').value.trim();
+      if(!nombreClienteNuevo){ aviso('Escribe el nombre del cliente nuevo.', true); return; }
+    }
+
+    const btn = $('modalPie').querySelector('[data-modal="guardar"]');
+    btn.disabled = true; btn.textContent = 'Creando…';
+    try{
+      let clienteId = sel, clienteNombre;
+      if(sel === '__nuevo__'){
+        const c = normalizarCliente({ id: nuevoId(), nombre: nombreClienteNuevo });
+        datos.clientes.push(c);
+        guardarCliente(c, 'creó', c.nombre + ' (al crear su cuenta de acceso al portal)');
+        clienteId = c.id;
+        clienteNombre = c.nombre;
+      }else{
+        clienteNombre = (clientePorId(clienteId) || {}).nombre || '';
+      }
+
+      /* Se crea la cuenta en Firebase. Los tokens que devuelve se descartan:
+         tu sesión de administrador no se toca. */
+      const d = await pedirAuth('signUp', { email:correo, password:clave, returnSecureToken:false });
+      const perfil = {
+        correo, nombre, rol:'cliente', activo:true, clienteId, telefono, foto:'',
+        creado: new Date().toISOString(),
+        creadoPor: sesion.correo || '',
+        ultimoAcceso: ''
+      };
+      await escribirNube('usuarios', d.localId, perfil);
+      anotar('creó', 'cuenta de cliente', correo, clienteNombre);
+      admin.usuarios = (admin.usuarios || []).concat([Object.assign({ id:d.localId }, perfil)]);
+
+      abrirModal('Cuenta de cliente creada',
+          '<p style="font-size:13.5px; color:#3a4256; line-height:1.65; margin-bottom:14px">'
+        +   'Ya puede entrar y ver su póliza, sus cotizaciones, su Forpass y sus reportes de <b>' + esc(clienteNombre) + '</b>. '
+        +   'Pásale estos datos a <b>' + esc(correo) + '</b>:</p>'
+        + '<div class="credencial">'
+        +   '<div class="c-fila"><span>Página</span><code>' + esc(location.origin + location.pathname) + '</code></div>'
+        +   '<div class="c-fila"><span>Correo</span><code>' + esc(correo) + '</code></div>'
+        +   '<div class="c-fila"><span>Contraseña</span><code>' + esc(clave) + '</code></div>'
+        +   '<div class="c-nota">Esta es la única vez que ves la contraseña. Si se pierde, no se recupera: '
+        +   'se manda un correo para poner una nueva.</div>'
+        + '</div>',
+          '<button type="button" class="btn btn-suave izq" id="copiarDatosCC">Copiar los datos</button>'
+        + '<button type="button" class="btn btn-primario" data-modal="cancelar">Listo</button>');
+
+      $('copiarDatosCC').addEventListener('click', ()=>{
+        const texto = 'Forguard\n' + location.origin + location.pathname
+                    + '\nCorreo: ' + correo + '\nContraseña: ' + clave;
+        navigator.clipboard.writeText(texto)
+          .then(()=> aviso('Datos copiados.'))
+          .catch(()=> aviso('No se pudo copiar. Selecciona el texto a mano.', true));
+      });
+      cerrarModalActual = null;
+      pintarCuentasCliente();
     }catch(e){
       btn.disabled = false; btn.textContent = 'Crear cuenta';
       aviso(e.message, true);
@@ -17306,6 +17427,9 @@ $('vista').addEventListener('click', async ev=>{
 
   const aproCli = ev.target.closest('[data-aprobar-cliente]');
   if(aproCli){ modalAprobarCliente(aproCli.dataset.aprobarCliente); return; }
+
+  const vinCli = ev.target.closest('[data-vincular-cliente]');
+  if(vinCli){ modalAprobarCliente(vinCli.dataset.vincularCliente); return; }
 });
 
 /* ============================ VENTANA MODAL ============================ */
@@ -21706,6 +21830,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-por-pagar') modalCobranza(null, 'porPagar');
     else if(a === 'ver-atrasados-cliente') modalCobranza(estado.clienteId, 'atrasados');
     else if(a === 'nueva-cuenta') modalCuenta();
+    else if(a === 'nueva-cuenta-cliente') modalCrearCuentaCliente();
     else if(a === 'refrescar-admin') montarAdmin(true);
     else if(a === 'agregar-segmento'){
       if(!exigirAdmin('agregar un segmento')) return;
@@ -23421,14 +23546,16 @@ function vistaPortalCliente(){
   if(!portalCliente.cargado) return '<div class="vacio-chico">Cargando tu información…</div>';
   const nombreCliente = portalCliente.cliente ? portalCliente.cliente.nombre : sesion.nombre || 'tu cuenta';
   let h = '<div class="titulo-zona"><div><h2>' + esc(nombreCliente) + '</h2>'
-        +   '<p>Portal de cliente — consulta tu póliza, tus cotizaciones y tus reportes de mantenimiento.</p></div></div>';
-  h += '<nav class="modulos" role="tablist" aria-label="Portal" style="margin-bottom:22px; max-width:520px">'
+        +   '<p>Portal de cliente — consulta tu póliza, tus cotizaciones, tu Forpass y tus reportes de mantenimiento.</p></div></div>';
+  h += '<nav class="modulos" role="tablist" aria-label="Portal" style="margin-bottom:22px; max-width:640px">'
      +   '<button type="button" class="mod" data-portal="poliza" role="tab" aria-selected="' + (estado.vistaPortal === 'poliza') + '">Mi póliza</button>'
      +   '<button type="button" class="mod" data-portal="cotizaciones" role="tab" aria-selected="' + (estado.vistaPortal === 'cotizaciones') + '">Mis cotizaciones</button>'
+     +   '<button type="button" class="mod" data-portal="forpass" role="tab" aria-selected="' + (estado.vistaPortal === 'forpass') + '">Mi Forpass</button>'
      +   '<button type="button" class="mod" data-portal="reportes" role="tab" aria-selected="' + (estado.vistaPortal === 'reportes') + '">Mis reportes</button>'
      + '</nav>';
   h += estado.vistaPortal === 'cotizaciones' ? vistaPortalCotizaciones()
      : estado.vistaPortal === 'reportes'     ? vistaPortalReportes()
+     : estado.vistaPortal === 'forpass'      ? vistaPortalForpass()
      : vistaPortalPolizas();
   return h;
 }
@@ -23465,6 +23592,33 @@ function vistaPortalPolizas(){
       + '<p class="pista" style="margin-top:10px">*Prorrateado del total anual del renglón entre los ' + MESES_POLIZA + ' meses del contrato.</p>'
       + '</div>';
   }).join('');
+}
+
+/* Solo precio de venta (mensualidad): un sitio de Forpass no lleva costo ni
+   margen en su modelo (ver normalizarSitio/calcular), así que no hay nada
+   que esconder aquí — a diferencia de pólizas/cotizaciones, que sí llevan
+   costo y por eso usan una copia aparte (polizas_cliente/cotizaciones_cliente). */
+function vistaPortalForpass(){
+  const sitios = portalCliente.sitios.filter(s => s.modulos > 0);
+  if(!sitios.length){
+    return vistaVacia('tarjetas', 'Todavía no tienes Forpass instalado',
+      'En cuanto Forguard instale tu Forpass, lo vas a ver aquí.', '', '');
+  }
+  return '<div class="grid">' + sitios.map(s=>{
+    const c = calcular(s);
+    return '<div class="tarjeta">'
+      +   '<div class="t-cabeza"><div style="flex:1; min-width:0">'
+      +     '<div class="t-nombre">' + esc(s.nombre) + '</div>'
+      +     (s.zona ? '<div class="t-sub">' + esc(s.zona) + '</div>' : '')
+      +   '</div></div>'
+      +   '<div class="t-chips"><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estatus) + '</span></div>'
+      +   '<div class="t-datos">'
+      +     '<div class="t-dato"><div class="d-label">Módulos activos</div><div class="d-valor">' + numero(c.forpassActivos) + '</div></div>'
+      +     '<div class="t-dato"><div class="d-label">Mensualidad</div><div class="d-valor">' + dinero(s.mensualidad) + '</div></div>'
+      +   '</div>'
+      +   '<div class="t-pie"><span class="pista">' + (c.vigente ? 'Vigente hasta ' + fmtFecha(c.fin) : 'Contrato terminado') + '</span></div>'
+      + '</div>';
+  }).join('') + '</div>';
 }
 
 function vistaPortalCotizaciones(){
