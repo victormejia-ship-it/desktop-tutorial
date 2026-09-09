@@ -2700,7 +2700,12 @@ function etiquetaRol(rol){
   return '<span class="rol c-' + r + '">' + esc(ROLES[r].nombre) + '</span>';
 }
 
-const sesion = { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'' };
+/* sitioIds: sitios específicos a los que se acota una cuenta de cliente
+   (ver modalAprobarCliente/modalCrearCuentaCliente). Vacío = ve TODOS los
+   sitios/pólizas/cotizaciones/reportes de su clienteId, igual que antes de
+   que existiera esto — así ninguna cuenta ya vinculada pierde acceso solo
+   porque se agregó el campo. */
+const sesion = { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[] };
 
 function guardarSesion(){ try{ localStorage.setItem(LLAVE_SESION, JSON.stringify(sesion)); }catch(e){} }
 function cargarSesion(){
@@ -2906,7 +2911,7 @@ function pintarPuntoClave(){
 
 function limpiarSesionYDatos(){
   detenerVigilancia();
-  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'' });
+  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[] });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
@@ -2939,6 +2944,9 @@ async function cargarPerfil(){
   sesion.rol = normalizarRol(p.rol);
   sesion.nombre = p.nombre || '';
   sesion.clienteId = p.clienteId || '';
+  /* Acota el portal a solo estos sitios del cliente (ver cargarPortalCliente).
+     Vacío = ve todos los sitios de su clienteId, el comportamiento de siempre. */
+  sesion.sitioIds = Array.isArray(p.sitioIds) ? p.sitioIds : [];
   /* El celular del vendedor sale impreso en las cotizaciones de póliza. Se trae
      aquí para poder prellenarlo; que falte nunca detiene nada, porque la póliza
      guarda su propia copia y ahí se puede teclear. */
@@ -2989,13 +2997,20 @@ async function revisarCuenta(){
        rechaza. Eso no amerita sacarlo: se actualiza y se redibuja. */
     const rolNuevo = normalizarRol(p.rol);
     const nombreNuevo = p.nombre || '';
-    if(rolNuevo !== sesion.rol || nombreNuevo !== sesion.nombre){
+    const sitioIdsNuevo = Array.isArray(p.sitioIds) ? p.sitioIds : [];
+    const sitiosCambiaron = JSON.stringify(sitioIdsNuevo.slice().sort()) !== JSON.stringify((sesion.sitioIds || []).slice().sort());
+    if(rolNuevo !== sesion.rol || nombreNuevo !== sesion.nombre || sitiosCambiaron){
       const rolAntes = sesion.rol;
       sesion.rol = rolNuevo;
       sesion.nombre = nombreNuevo;
+      sesion.sitioIds = sitioIdsNuevo;
       guardarSesion();
       /* Si lo bajaron de Admin estando en el panel de cuentas, no puede quedarse ahí. */
       if(estado.vista === 'admin' && !esAdmin()){ estado.vista = 'clientes'; estado.clienteId = null; }
+      /* A un cliente con el portal ya cargado, si le acotaron/ampliaron los sitios,
+         hay que volver a traer su información — el filtro es sobre lo que YA se
+         bajó, no sobre una nueva consulta. */
+      if(esCliente() && sitiosCambiaron && portalCliente.cargado) cargarPortalCliente().then(render).catch(()=>{});
       render();
       if(rolNuevo !== rolAntes) aviso('Un administrador cambió tu permiso a ' + ROLES[rolNuevo].nombre + '.');
     }
@@ -7108,10 +7123,15 @@ function sitioPorId(id){ return datos.sitios.find(s => s.id === id); }
    cliente", quede claro de inmediato si es el registro correcto o si está
    vacío (nombres parecidos —"Stellantis" vs "Stellantis Camiones"— son el
    error más fácil de cometer ahí). */
-function resumenClienteCorto(clienteId){
-  const sitios = sitiosDe(clienteId);
-  const polizas = polizasDeCliente(clienteId);
-  const cot = datos.cotizaciones.filter(q => q.clienteId === clienteId);
+/* sitioIds (opcional): si se pasa, acota el resumen a solo esos sitios del
+   cliente — para la vista previa de una cuenta restringida a un sitio en
+   particular (ver modalAprobarCliente/modalCrearCuentaCliente), en vez de
+   enseñar todo lo del cliente completo cuando en realidad va a ver menos. */
+function resumenClienteCorto(clienteId, sitioIds){
+  const soloSitios = Array.isArray(sitioIds) && sitioIds.length ? sitioIds : null;
+  const sitios = sitiosDe(clienteId).filter(s => !soloSitios || soloSitios.includes(s.id));
+  const polizas = polizasDeCliente(clienteId).filter(p => !soloSitios || soloSitios.includes(p.sitioId));
+  const cot = datos.cotizaciones.filter(q => q.clienteId === clienteId && (!soloSitios || soloSitios.includes(q.sitioId)));
   if(!sitios.length && !polizas.length && !cot.length) return 'sin nada capturado todavía';
   const partes = [];
   if(sitios.length) partes.push(sitios.length + ' ' + plural(sitios.length,'sitio','sitios') + ' (' + sitios.map(s => s.nombre).join(', ') + ')');
@@ -16873,9 +16893,12 @@ function pintarCuentasCliente(){
         return '<tr>'
         +   '<td><b>' + esc(nombreDe(u) || '—') + '</b></td>'
         +   '<td>' + esc(u.correo || '') + '</td>'
-        +   '<td>' + (cli ? esc(cli.nombre) : '<span class="pista" style="color:var(--error)">Sin cliente vinculado — no puede entrar</span>') + '</td>'
         +   '<td>' + (cli
-              ? '<span class="pista" ' + (resumenClienteCorto(cli.id) === 'sin nada capturado todavía' ? 'style="color:var(--alerta)"' : '') + '>' + esc(resumenClienteCorto(cli.id)) + '</span>'
+              ? esc(cli.nombre) + (Array.isArray(u.sitioIds) && u.sitioIds.length
+                  ? ' <span class="pista">(acotada a ' + u.sitioIds.length + ' ' + plural(u.sitioIds.length,'sitio','sitios') + ')</span>' : '')
+              : '<span class="pista" style="color:var(--error)">Sin cliente vinculado — no puede entrar</span>') + '</td>'
+        +   '<td>' + (cli
+              ? '<span class="pista" ' + (resumenClienteCorto(cli.id, u.sitioIds) === 'sin nada capturado todavía' ? 'style="color:var(--alerta)"' : '') + '>' + esc(resumenClienteCorto(cli.id, u.sitioIds)) + '</span>'
               : '—') + '</td>'
         +   '<td>' + (u.activo === false
               ? '<span class="insignia i-error">Bloqueada</span>'
@@ -17095,6 +17118,10 @@ function modalCrearCuentaCliente(){
     +   '<div class="pista" id="ccVistaPrevia" style="margin-top:6px"></div></div>'
     + '<div class="campo" id="zonaClienteNuevoCC" hidden><label>Nombre del cliente nuevo</label>'
     +   '<input type="text" id="ccClienteNuevoNombre" placeholder="Nombre de la empresa"></div>'
+    + '<div class="campo" id="zonaSitiosCC" hidden><label>¿Solo sitios específicos? (opcional)</label>'
+    +   '<div class="pista" style="margin-bottom:6px">Si no marcas ninguno, esta cuenta ve TODOS los sitios, pólizas, '
+    +   'cotizaciones y reportes de este cliente. Marcando uno o varios, se acota nada más a esos.</div>'
+    +   '<div id="listaSitiosCC"></div></div>'
     + '<div class="campo"><label>Contraseña temporal *</label>'
     +   '<input type="text" id="ccClave" value="' + esc(sugerida) + '">'
     +   '<div class="pista">Mínimo 6 caracteres. Se la pasas a la persona y ella puede cambiarla después '
@@ -17102,12 +17129,31 @@ function modalCrearCuentaCliente(){
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">Crear cuenta</button>');
 
+  function pintarListaSitiosCC(clienteId){
+    const sitios = (clienteId && clienteId !== '__nuevo__') ? sitiosDe(clienteId) : [];
+    $('zonaSitiosCC').hidden = !sitios.length;
+    $('listaSitiosCC').innerHTML = sitios.map(s =>
+      '<label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; font-weight:400">'
+      + '<input type="checkbox" class="chkSitioCC" value="' + esc(s.id) + '">'
+      + esc(s.nombre) + (s.zona ? ' <span class="pista">(' + esc(s.zona) + ')</span>' : '')
+      + '</label>'
+    ).join('');
+    $('listaSitiosCC').querySelectorAll('.chkSitioCC').forEach(chk => chk.addEventListener('change', pintarVistaPreviaCC));
+  }
+  function sitiosElegidosCC(){
+    return Array.from($('listaSitiosCC').querySelectorAll('.chkSitioCC:checked')).map(c => c.value);
+  }
+  function pintarVistaPreviaCC(){
+    const sel = $('ccCliente').value;
+    $('ccVistaPrevia').textContent = (sel && sel !== '__nuevo__')
+      ? 'Esta cuenta va a ver: ' + resumenClienteCorto(sel, sitiosElegidosCC())
+      : '';
+  }
   $('ccCliente').addEventListener('change', ()=>{
     const sel = $('ccCliente').value;
     $('zonaClienteNuevoCC').hidden = sel !== '__nuevo__';
-    $('ccVistaPrevia').textContent = (sel && sel !== '__nuevo__')
-      ? 'Esta cuenta va a ver: ' + resumenClienteCorto(sel)
-      : '';
+    pintarListaSitiosCC(sel);
+    pintarVistaPreviaCC();
   });
 
   cerrarModalActual = async ()=>{
@@ -17124,6 +17170,7 @@ function modalCrearCuentaCliente(){
       nombreClienteNuevo = $('ccClienteNuevoNombre').value.trim();
       if(!nombreClienteNuevo){ aviso('Escribe el nombre del cliente nuevo.', true); return; }
     }
+    const sitioIds = sitiosElegidosCC();
 
     const btn = $('modalPie').querySelector('[data-modal="guardar"]');
     btn.disabled = true; btn.textContent = 'Creando…';
@@ -17143,7 +17190,7 @@ function modalCrearCuentaCliente(){
          tu sesión de administrador no se toca. */
       const d = await pedirAuth('signUp', { email:correo, password:clave, returnSecureToken:false });
       const perfil = {
-        correo, nombre, rol:'cliente', activo:true, clienteId, telefono, foto:'',
+        correo, nombre, rol:'cliente', activo:true, clienteId, sitioIds, telefono, foto:'',
         creado: new Date().toISOString(),
         creadoPor: sesion.correo || '',
         ultimoAcceso: ''
@@ -17200,6 +17247,9 @@ function modalAprobarCliente(usuarioId){
   const u = (admin.usuarios || []).find(x => x.id === usuarioId);
   if(!u) return;
   const clientesOrdenados = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  /* Sitios ya marcados de antes, SOLO tienen sentido si seguimos en el mismo
+     cliente — si se cambia de cliente, esos ids ya no aplican a nada. */
+  let sitiosMarcados = Array.isArray(u.sitioIds) ? u.sitioIds.slice() : [];
 
   abrirModal('Vincular y aprobar',
       '<p style="font-size:13px; color:#3a4256; margin-bottom:14px">'
@@ -17213,28 +17263,56 @@ function modalAprobarCliente(usuarioId){
     +   '</select>'
     +   '<div class="pista" id="apVistaPrevia" style="margin-top:6px"></div></div>'
     + '<div class="campo" id="zonaClienteNuevoAp" hidden><label>Nombre del cliente nuevo</label>'
-    +   '<input type="text" id="apClienteNuevoNombre" placeholder="Ej. ' + esc(u.empresaSolicitada || 'Nombre de la empresa') + '"></div>',
+    +   '<input type="text" id="apClienteNuevoNombre" placeholder="Ej. ' + esc(u.empresaSolicitada || 'Nombre de la empresa') + '"></div>'
+    + '<div class="campo" id="zonaSitiosAp" hidden><label>¿Solo sitios específicos? (opcional)</label>'
+    +   '<div class="pista" style="margin-bottom:6px">Si no marcas ninguno, esta cuenta ve TODOS los sitios, pólizas, '
+    +   'cotizaciones y reportes de este cliente. Marcando uno o varios, se acota nada más a esos.</div>'
+    +   '<div id="listaSitiosAp"></div></div>',
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">Aprobar</button>');
 
+  function pintarListaSitiosAp(clienteId){
+    const sitios = (clienteId && clienteId !== '__nuevo__') ? sitiosDe(clienteId) : [];
+    $('zonaSitiosAp').hidden = !sitios.length;
+    $('listaSitiosAp').innerHTML = sitios.map(s =>
+      '<label style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; font-weight:400">'
+      + '<input type="checkbox" class="chkSitioAp" value="' + esc(s.id) + '"' + (sitiosMarcados.includes(s.id) ? ' checked' : '') + '>'
+      + esc(s.nombre) + (s.zona ? ' <span class="pista">(' + esc(s.zona) + ')</span>' : '')
+      + '</label>'
+    ).join('');
+    $('listaSitiosAp').querySelectorAll('.chkSitioAp').forEach(chk => chk.addEventListener('change', pintarVistaPreviaAp));
+  }
+  function sitiosElegidosAp(){
+    return Array.from($('listaSitiosAp').querySelectorAll('.chkSitioAp:checked')).map(c => c.value);
+  }
   function pintarVistaPreviaAp(){
     const sel = $('apCliente').value;
-    $('zonaClienteNuevoAp').hidden = sel !== '__nuevo__';
     $('apVistaPrevia').textContent = (sel && sel !== '__nuevo__')
-      ? 'Esta cuenta va a ver: ' + resumenClienteCorto(sel)
+      ? 'Esta cuenta va a ver: ' + resumenClienteCorto(sel, sitiosElegidosAp())
       : '';
   }
-  $('apCliente').addEventListener('change', pintarVistaPreviaAp);
+  $('apCliente').addEventListener('change', ()=>{
+    const sel = $('apCliente').value;
+    $('zonaClienteNuevoAp').hidden = sel !== '__nuevo__';
+    /* Al cambiar de cliente, los sitios marcados eran de OTRO cliente: no
+       tiene sentido arrastrarlos, se empieza limpio con el nuevo. */
+    if(sel !== u.clienteId) sitiosMarcados = [];
+    pintarListaSitiosAp(sel);
+    pintarVistaPreviaAp();
+  });
   $('apCliente').value = '';
   if(u.empresaSolicitada){
     const coincide = clientesOrdenados.find(c => c.nombre.trim().toLowerCase() === u.empresaSolicitada.trim().toLowerCase());
     if(coincide) $('apCliente').value = coincide.id;
   }
+  if(u.clienteId && clientePorId(u.clienteId)) $('apCliente').value = u.clienteId;
+  pintarListaSitiosAp($('apCliente').value);
   pintarVistaPreviaAp();
 
   cerrarModalActual = async ()=>{
     let sel = $('apCliente').value;
     if(!sel){ aviso('Elige el cliente al que pertenece.', true); return; }
+    const sitioIds = sitiosElegidosAp();
 
     const btn = $('modalPie').querySelector('[data-modal="guardar"]');
     btn.disabled = true; btn.textContent = 'Aprobando…';
@@ -17253,12 +17331,13 @@ function modalAprobarCliente(usuarioId){
         clienteNombre = (clientePorId(clienteId) || {}).nombre || '';
       }
 
-      await escribirNube('usuarios', u.id, { activo:true, clienteId, id:undefined,
+      await escribirNube('usuarios', u.id, { activo:true, clienteId, sitioIds, id:undefined,
         correo:u.correo, nombre:u.nombre, rol:'cliente', telefono:u.telefono||'', foto:u.foto||'',
         creado:u.creado, creadoPor:u.creadoPor||'', ultimoAcceso:u.ultimoAcceso||'', empresaSolicitada:u.empresaSolicitada||'' });
-      u.activo = true; u.clienteId = clienteId;
+      u.activo = true; u.clienteId = clienteId; u.sitioIds = sitioIds;
       resincronizarCopiasCliente(clienteId);
-      anotar('aprobó la cuenta de cliente de', 'cuenta', u.correo, clienteNombre);
+      anotar('aprobó la cuenta de cliente de', 'cuenta', u.correo,
+        clienteNombre + (sitioIds.length ? ' (acotada a ' + sitioIds.length + ' ' + plural(sitioIds.length,'sitio','sitios') + ')' : ''));
       cerrarModalActual = null;
       cerrarModal();
       pintarSolicitudesCliente(); pintarCuentasCliente();
@@ -23576,11 +23655,18 @@ async function cargarPortalCliente(){
     consultarNubePorCampo('cotizaciones_cliente', 'clienteId', idCliente),
     consultarNubePorCampo('reportes', 'clienteId', idCliente)
   ]);
+  /* Si la cuenta está acotada a sitios específicos (sesion.sitioIds, ver
+     modalAprobarCliente), se filtra aquí lo que ya se bajó de su clienteId —
+     no es una consulta aparte, es la misma información recortada a solo lo
+     suyo. Vacío (el caso normal, cuenta a nivel de todo el cliente) no
+     filtra nada. */
+  const soloSitios = Array.isArray(sesion.sitioIds) && sesion.sitioIds.length ? sesion.sitioIds : null;
+  const esDeMiSitio = sitioId => !soloSitios || soloSitios.includes(sitioId);
   portalCliente.cliente = (cliDoc && cliDoc.fields) ? normalizarCliente(Object.assign({ id:idCliente }, deCampos(cliDoc.fields))) : null;
-  portalCliente.sitios = si.map(normalizarSitio);
-  portalCliente.polizas = po.map(normalizarPoliza);
-  portalCliente.cotizaciones = co.map(normalizarCotizacion).sort((a,b)=> b.fecha.localeCompare(a.fecha));
-  portalCliente.reportes = rp.map(normalizarReporte).sort((a,b)=> b.fechaCreacion.localeCompare(a.fechaCreacion));
+  portalCliente.sitios = si.map(normalizarSitio).filter(s => esDeMiSitio(s.id));
+  portalCliente.polizas = po.map(normalizarPoliza).filter(p => esDeMiSitio(p.sitioId));
+  portalCliente.cotizaciones = co.map(normalizarCotizacion).filter(q => esDeMiSitio(q.sitioId)).sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  portalCliente.reportes = rp.map(normalizarReporte).filter(r => esDeMiSitio(r.sitioId)).sort((a,b)=> b.fechaCreacion.localeCompare(a.fechaCreacion));
   portalCliente.cargado = true;
   portalCliente.error = '';
 }
