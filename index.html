@@ -18070,6 +18070,8 @@ $('vista').addEventListener('click', async ev=>{
   if(pVerCot){ estado.cotizacionPortalId = pVerCot.dataset.verCotizacionPortal; render(); return; }
   const pVerRep = ev.target.closest('[data-ver-reporte-portal]');
   if(pVerRep){ estado.reportePortalId = pVerRep.dataset.verReportePortal; render(); return; }
+  const pCal = ev.target.closest('[data-calendario-portal]');
+  if(pCal){ modalCalendarioPortal(pCal.dataset.calendarioPortal); return; }
 
   const bor = ev.target.closest('[data-borrar-usuario]');
   if(bor){
@@ -19652,9 +19654,12 @@ function ganttCalendarioHTML(p, mesActual, marcable){
     + '</table></div>';
 }
 
-function modalCalendario(id){
-  const p = polizaPorId(id);
-  if(!p) return;
+/* El cuerpo del Calendario se comparte entre la vista interna (modalCalendario,
+   con permiso para marcar servicios y recalcular) y el portal de clientes
+   (modalCalendarioPortal, de solo lectura) — mismo Gantt, mismos anillos de
+   cumplimiento, misma lista mes a mes; lo único que cambia es si trae botones
+   para tocar algo. */
+function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular){
   const c = calcularPoliza(p);
   const hoy = hoyISO();
   /* En qué mes de la vigencia estamos, para marcar "este mes". El -1 cubre las
@@ -19664,7 +19669,6 @@ function modalCalendario(id){
   const trans = mesesTranscurridos(p.fechaInicio, hoy);
   const mesActual = (diasEntre(p.fechaInicio, hoy) < 0 || trans >= MESES_POLIZA) ? -1 : trans;
 
-  const marcable = puedeRegistrarServicioPoliza();
   const meses = Array.from({length:MESES_POLIZA}, (_,m)=>{
     const toca = [], seguristas = [];
     p.partidas.forEach(x=>{
@@ -19722,7 +19726,7 @@ function modalCalendario(id){
     /* Para pólizas armadas ANTES de que existiera la calendarización por
        categoría (o con equipos que en ese momento no tenían categoría
        todavía): sin esto, la única forma de escalonarlas era recrearlas. */
-    + (puedeEditar()
+    + (permiteRecalcular
         ? '<button type="button" class="btn btn-suave btn-mini" style="margin-top:10px" data-recalcular-calendario="' + esc(p.id) + '">'
           + ICONO.organigrama + ' Recalcular calendario por categoría</button>'
         : '')
@@ -19781,6 +19785,15 @@ function modalCalendario(id){
       }).join('')
     + '</div>';
 
+  return cuerpo;
+}
+
+function modalCalendario(id){
+  const p = polizaPorId(id);
+  if(!p) return;
+  const marcable = puedeRegistrarServicioPoliza();
+  const cuerpo = cuerpoCalendarioPoliza(p, marcable, puedeEditar());
+
   abrirModal('Calendario · ' + (p.sitioNombre || 'Póliza'), cuerpo,
     '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
   $('modal').classList.add('ancho');
@@ -19810,6 +19823,20 @@ function modalCalendario(id){
       modalServicioPoliza(b.dataset.servicio, b.dataset.partida, +b.dataset.mes, true);
     });
   }
+}
+
+/* Mismo Calendario, de solo lectura, para el portal de clientes: la póliza
+   sale de portalCliente.polizas (la copia sin costos, ver cargarPortalCliente),
+   nunca de datos.polizas —esa colección ni siquiera se baja para un cliente,
+   ver config/firestore.rules—, y va sin marcable ni "Recalcular calendario"
+   porque el cliente no gestiona su propia póliza, solo la consulta. */
+function modalCalendarioPortal(id){
+  const p = portalCliente.polizas.find(x => x.id === id);
+  if(!p) return;
+  const cuerpo = cuerpoCalendarioPoliza(p, false, false);
+  abrirModal('Calendario · ' + (p.sitioNombre || 'Póliza'), cuerpo,
+    '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
+  $('modal').classList.add('ancho');
 }
 
 /* --------------------------- Modal: póliza ---------------------------
@@ -24376,7 +24403,9 @@ function vistaPortalPolizas(){
       + '<div class="bloque-cabeza"><div>'
       +   '<h3>' + esc(p.sitioNombre || (s && s.nombre) || 'Tu sitio') + '</h3>'
       +   '<p><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></p>'
-      + '</div></div>'
+      + '</div>'
+      +   '<div class="der"><button type="button" class="btn btn-suave btn-mini" data-calendario-portal="' + esc(p.id) + '">' + ICONO.calendario + 'Calendario</button></div>'
+      + '</div>'
       + '<div class="kpis">'
       +   tarjetaKpi('Mensualidad', dinero(c.precioMensual), 'Vigente hasta ' + fmtFecha(sumarMeses(p.fechaInicio, MESES_POLIZA)))
       +   tarjetaKpi('Servicios este contrato', c.hechos + ' de ' + c.programados, c.pendientes ? c.pendientes + ' ' + plural(c.pendientes,'pendiente','pendientes') : 'Al corriente')
