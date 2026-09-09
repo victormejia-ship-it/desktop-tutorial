@@ -24409,7 +24409,18 @@ function vistaPortalPolizas(){
       + '<div class="kpis">'
       +   tarjetaKpi('Mensualidad', dinero(c.precioMensual), 'Vigente hasta ' + fmtFecha(sumarMeses(p.fechaInicio, MESES_POLIZA)))
       +   tarjetaKpi('Servicios este contrato', c.hechos + ' de ' + c.programados, c.pendientes ? c.pendientes + ' ' + plural(c.pendientes,'pendiente','pendientes') : 'Al corriente')
+      /* Mismos dos anillos de cumplimiento (total y del mes) que ya se ven
+         internamente al abrir la póliza y dentro del Calendario — el cliente
+         pidió poder revisarlos sin tener que entrar al Calendario primero. */
+      +   tarjetaCumplimiento('Cumplimiento total', c.cumplimientoPct, c.hechosDebidos, c.serviciosDebidos,
+            c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Al corriente',
+            'Aún no le toca nada')
+      +   tarjetaCumplimiento('Cumplimiento del mes', c.cumplimientoMesPct, c.hechosMes, c.programadosMes,
+            c.tocanEsteMes ? c.tocanEsteMes + ' ' + plural(c.tocanEsteMes,'pendiente','pendientes') + ' este mes' : 'Mes al corriente',
+            'Nada programado este mes')
       +   tarjetaKpi('Cobranza', c.cobrados + ' de ' + c.montos.length, c.adeudo ? 'Adeudo: ' + dinero(c.adeudo) : 'Sin adeudo')
+      +   tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
+            c.vigente ? 'Faltan ' + c.diasVigencia + ' ' + plural(c.diasVigencia,'día','días') : 'Terminada')
       + '</div>'
       + '<div class="rodillo"><table class="tabla"><thead><tr>'
       +   '<th>Equipo</th><th>Marca</th><th>Cant.</th><th>Visitas/año</th><th>Precio mensual*</th>'
