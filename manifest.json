@@ -1,6 +1,6 @@
 {
-  "name": "Control de Forpass · Forguard",
-  "short_name": "Forpass",
+  "name": "Forguard",
+  "short_name": "Forguard",
   "description": "Tablero interno de Forguard para dar seguimiento a clientes, sitios, pólizas, cotizaciones, reportes y activos.",
   "start_url": "./",
   "scope": "./",

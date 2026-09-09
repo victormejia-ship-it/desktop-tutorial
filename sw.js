@@ -7,7 +7,7 @@
    y una app que sirviera una versión vieja del caché por error sería peor
    que no tener caché. Cada visita con internet reemplaza el caché con la
    versión más reciente que se acaba de descargar. */
-const CACHE = 'forpass-shell-v1';
+const CACHE = 'forpass-shell-v2';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
