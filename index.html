@@ -2623,6 +2623,23 @@ function guardarPoliza(p, accion, detalle){
   anotar(accion || 'editó', 'póliza', p.sitioNombre || p.folio || 'sin nombre', detalle);
 }
 const COPIA_CLIENTE_DE = { polizas:'polizas_cliente', cotizaciones:'cotizaciones_cliente' };
+
+/* La copia de portal (polizas_cliente/cotizaciones_cliente) solo se pone al
+   día CUANDO se guarda la póliza/cotización original (ver guardarPoliza,
+   guardarCotizacion). Una capturada o IMPORTADA antes de que existiera este
+   mecanismo, o antes de que el cliente tuviera cuenta, se queda sin su
+   copia — el registro real sigue ahí en /polizas o /cotizaciones, pero el
+   portal no tiene nada que leer. Por eso, justo al vincular (o cambiar) a
+   qué cliente pertenece una cuenta —el momento en que Forguard confirma
+   "esta persona ya puede ver lo suyo"— se reescriben de una vez todas las
+   copias de ESE cliente, para no depender de que alguien vuelva a guardar
+   cada póliza/cotización vieja a mano. */
+function resincronizarCopiasCliente(clienteId){
+  polizasDeCliente(clienteId).forEach(p => encolarCopiaCliente('polizas_cliente', p.id, datosClientePoliza(p)));
+  datos.cotizaciones.filter(q => q.clienteId === clienteId)
+    .forEach(q => encolarCopiaCliente('cotizaciones_cliente', q.id, datosClienteCotizacion(q)));
+  guardarLocal();
+}
 function borrarRegistro(coleccion, id){
   guardarLocal();
   encolar({ tipo:'borrar', coleccion, id });
@@ -16866,6 +16883,9 @@ function pintarCuentasCliente(){
         +   '<td class="acciones">'
         +     '<button type="button" class="btn ' + (cli ? 'btn-suave' : 'btn-primario') + ' btn-mini" data-vincular-cliente="' + esc(u.id) + '">'
         +       (cli ? 'Cambiar cliente' : 'Vincular cliente') + '</button>'
+        +     (cli ? '<button type="button" class="btn btn-suave btn-mini" data-resincronizar-cliente="' + esc(cli.id) + '" '
+                 + 'title="Vuelve a mandar al portal la copia de cada póliza y cotización de este cliente. '
+                 + 'Úsalo si el cliente ve vacío algo que en el catálogo sí tiene capturado.">Resincronizar portal</button>' : '')
         +     '<button type="button" class="btn ' + (u.activo === false ? 'btn-verde' : 'btn-suave') + ' btn-mini" data-bloquear="' + esc(u.id) + '">'
         +       (u.activo === false ? 'Reactivar' : 'Bloquear') + '</button>'
         +     '<button type="button" class="btn btn-peligro btn-mini" data-borrar-usuario="' + esc(u.id) + '" title="Borrar el acceso de esta cuenta">' + ICONO.basura + '</button>'
@@ -17129,6 +17149,7 @@ function modalCrearCuentaCliente(){
         ultimoAcceso: ''
       };
       await escribirNube('usuarios', d.localId, perfil);
+      resincronizarCopiasCliente(clienteId);
       anotar('creó', 'cuenta de cliente', correo, clienteNombre);
       admin.usuarios = (admin.usuarios || []).concat([Object.assign({ id:d.localId }, perfil)]);
 
@@ -17236,6 +17257,7 @@ function modalAprobarCliente(usuarioId){
         correo:u.correo, nombre:u.nombre, rol:'cliente', telefono:u.telefono||'', foto:u.foto||'',
         creado:u.creado, creadoPor:u.creadoPor||'', ultimoAcceso:u.ultimoAcceso||'', empresaSolicitada:u.empresaSolicitada||'' });
       u.activo = true; u.clienteId = clienteId;
+      resincronizarCopiasCliente(clienteId);
       anotar('aprobó la cuenta de cliente de', 'cuenta', u.correo, clienteNombre);
       cerrarModalActual = null;
       cerrarModal();
@@ -17462,6 +17484,15 @@ $('vista').addEventListener('click', async ev=>{
 
   const vinCli = ev.target.closest('[data-vincular-cliente]');
   if(vinCli){ modalAprobarCliente(vinCli.dataset.vincularCliente); return; }
+
+  const resinCli = ev.target.closest('[data-resincronizar-cliente]');
+  if(resinCli){
+    const cli = clientePorId(resinCli.dataset.resincronizarCliente);
+    if(!cli) return;
+    resincronizarCopiasCliente(cli.id);
+    aviso('Portal de ' + cli.nombre + ' resincronizado: ' + resumenClienteCorto(cli.id) + '.');
+    return;
+  }
 });
 
 /* ============================ VENTANA MODAL ============================ */
