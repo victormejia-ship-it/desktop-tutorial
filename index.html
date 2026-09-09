@@ -6434,6 +6434,7 @@ function normalizarSitio(s){
     correo: e.correo ? String(e.correo) : ''
   };
 
+  const modulos = Math.max(0, parseInt(s.modulos,10) || 0);
   return {
     pagosDetalle, contactos, encargado,
     id: s.id || nuevoId(),
@@ -6443,8 +6444,21 @@ function normalizarSitio(s){
     color: IDS_COLOR.includes(s.color) ? s.color : 'azul',
     estado: ['activo','pausado','baja'].includes(s.estado) ? s.estado : 'activo',
     tipo: s.tipo === 'sw' ? 'sw' : 'hw',
-    modulos: Math.max(0, parseInt(s.modulos,10) || 0),
+    modulos,
     mensualidad: Math.max(0, Number(s.mensualidad) || 0),
+    /* Forpass de cortesía: instalados que el cliente NO paga (los absorbe la
+       empresa). Se cuentan DENTRO de `modulos` —uno cobrado y uno regalado son
+       2 instalados, 1 de cortesía—, así que cortesiaCant nunca puede pasar de
+       modulos. La mensualidad capturada arriba no cambia por esto: sigue
+       siendo el total que de verdad se le cobra al cliente por los módulos
+       que sí paga; ver calcular() para el precio por módulo ya descontando
+       la cortesía. */
+    tieneCortesia: !!s.tieneCortesia,
+    cortesiaCant: Math.max(0, Math.min(modulos, parseInt(s.cortesiaCant,10) || 0)),
+    cortesiaAbsorbe: (s.cortesiaAbsorbe || '').trim(),
+    cortesiaAutorizo: (s.cortesiaAutorizo || '').trim(),
+    cortesiaCuando: /^\d{4}-\d{2}-\d{2}$/.test(s.cortesiaCuando||'') ? s.cortesiaCuando : '',
+    cortesiaPorque: (s.cortesiaPorque || '').trim(),
     incViaticos: !!s.incViaticos,
     viaticos: Math.max(0, Number(s.viaticos) || 0),
     incOnboarding: !!s.incOnboarding,
@@ -6848,6 +6862,10 @@ function calcular(s){
 
   const activo = s.estado === 'activo' && vigente;
   const forpassActivos = activo ? s.modulos : 0;
+  /* Los de cortesía siguen contando como instalados/activos arriba —el
+     cliente los tiene funcionando igual—, solo no entran en lo que se cobra. */
+  const cortesiaCant = s.tieneCortesia ? s.cortesiaCant : 0;
+  const modulosCobrados = Math.max(0, s.modulos - cortesiaCant);
 
   /* Los viáticos y el onboarding se cobran UNA sola vez, en el pago 1.
      De la mensualidad 2 en adelante es la renta normal. */
@@ -6863,6 +6881,7 @@ function calcular(s){
 
   return { hoy, fin, pagados, pendientes, debidas, atrasadas, proximo, diasRest,
            vigente, suscripcion, diasVigencia, estatus, tono, activo, forpassActivos,
+           cortesiaCant, modulosCobrados,
            extras, montos, primerPago, valorContrato, cobrado, adeudo };
 }
 
@@ -9428,7 +9447,8 @@ const TEMAS_AYUDA = [
         'Un Admin asigna el <b>encargado</b> de cada sitio; cualquiera puede después filtrar la lista de sitios por encargado (incluido "Sin asignar").',
         'Si te equivocaste al capturar un pago, ábrelo de nuevo y usa <b>Deshacer captura</b> para regresarlo a pendiente.',
         'Cada tarjeta de sitio trae accesos directos a SU póliza, SUS cotizaciones, SUS reportes y SUS activos, si existen, sin tener que volver a buscarlos.',
-        'Los KPIs clickeables abren tablas de apoyo: <b>Vigencias por vencer</b> (ya vencidas + las que terminan en 45 días, con el MRR en juego) y <b>Cobranza</b> (atrasados ordenados por adeudo, o por-pagar-esta-semana ordenados por días restantes).'
+        'Los KPIs clickeables abren tablas de apoyo: <b>Vigencias por vencer</b> (ya vencidas + las que terminan en 45 días, con el MRR en juego) y <b>Cobranza</b> (atrasados ordenados por adeudo, o por-pagar-esta-semana ordenados por días restantes).',
+        'Si el sitio tiene módulos que no se le cobran al cliente, marca <b>Forpass de cortesía</b> al editarlo: cuántos son, quién los absorbe (Plato Express o Forguard), quién lo autorizó* y cuándo, y por qué. Se cuentan dentro de "Forpass instalados" —no cambian la mensualidad capturada— pero el precio por módulo se reparte solo entre los que sí se cobran, y la tarjeta del sitio muestra el aviso completo.'
       ]))
       + guiaSeccion('Funciones avanzadas', guiaPasos([
           'Usa <b>Fusionar</b> (Admin) en un sitio individual cuando es un duplicado del mismo cliente (ej. "Componentes" vs. "JD Componentes") — puedes fusionarlo con un sitio ya existente en vez de dejarlo duplicado.',
@@ -10321,6 +10341,13 @@ function tarjetaSitio(s, i){
        +     '<div class="meses">' + casillas + '</div>'
        +   '</div>'
 
+       +   (c.cortesiaCant
+           ? '<div class="t-nota" style="color:var(--navy); font-weight:600; background:#EEF2FB; border-color:#c9d6f5">'
+             + 'Cortesía' + (s.cortesiaAbsorbe ? ' de ' + esc(s.cortesiaAbsorbe) : '') + ' — '
+             + c.cortesiaCant + ' de los ' + s.modulos + ' Forpass ' + plural(c.cortesiaCant,'no cobra','no cobran')
+             + (s.cortesiaAutorizo ? '. Autorizó ' + esc(s.cortesiaAutorizo) + (s.cortesiaCuando ? ' el ' + fmtFecha(s.cortesiaCuando) : '') : '')
+             + '</div>'
+           : '')
        +   (s.notas ? '<div class="t-nota">' + esc(s.notas) + '</div>' : '')
        +   chipsPersonalizados('sitios', s)
 
@@ -17636,6 +17663,34 @@ function modalSitio(clienteId, sitioId){
     +   '</div>'
     + '</div>'
 
+    + '<div class="seccion"><h4>Forpass de cortesía</h4>'
+    +   '<label class="casilla"><input type="checkbox" id="sTieneCortesia"' + (s && s.tieneCortesia ? ' checked':'') + '> '
+    +     'Tiene Forpass de cortesía — instalados que no se le cobran al cliente</label>'
+    +   '<div class="aviso" style="margin:10px 0 14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5M12 8h.01"/></svg>'
+    +     '<div>Los absorbe la empresa; el cliente no los paga. Se cuentan <b>dentro</b> de «Forpass instalados»: '
+    +     'uno cobrado y uno regalado son 2 instalados, 1 de cortesía. La mensualidad no cambia: captúrala completa, '
+    +     'tal como se está cobrando.</div></div>'
+    +   '<div id="wrapCortesia">'
+    +     '<div class="fila2">'
+    +       '<div class="campo"><label>Cuántos son de cortesía</label>'
+    +         '<input type="number" id="sCortesiaCant" min="0" step="1" value="' + (s ? s.cortesiaCant : 0) + '">'
+    +         '<div class="pista" id="pistaCortesiaCant"></div></div>'
+    +       '<div class="campo"><label>Quién lo absorbe</label>'
+    +         '<input type="text" id="sCortesiaAbsorbe" list="listaAbsorbeCortesia" placeholder="Ej. Plato Express" value="' + esc(s ? s.cortesiaAbsorbe : '') + '">'
+    +         '<datalist id="listaAbsorbeCortesia"><option value="Plato Express"><option value="Forguard"></datalist></div>'
+    +     '</div>'
+    +     '<div class="fila2">'
+    +       '<div class="campo"><label>Quién lo autorizó *</label>'
+    +         '<input type="text" id="sCortesiaAutorizo" placeholder="Ej. Fernando Garza" value="' + esc(s ? s.cortesiaAutorizo : '') + '">'
+    +         '<div class="pista">El nombre de quien dio el permiso, para que quede de quién fue la decisión.</div></div>'
+    +       '<div class="campo"><label>Cuándo lo autorizó</label>'
+    +         '<input type="date" id="sCortesiaCuando" value="' + esc(s ? s.cortesiaCuando : '') + '"></div>'
+    +     '</div>'
+    +     '<div class="campo"><label>Por qué (opcional)</label>'
+    +       '<input type="text" id="sCortesiaPorque" placeholder="Ej. Regalo al cerrar la renovación" value="' + esc(s ? s.cortesiaPorque : '') + '"></div>'
+    +   '</div>'
+    + '</div>'
+
     + '<div class="seccion"><h4>Cómo se fue</h4>'
     +   '<div class="campo"><label>Tipo de contratación *</label><select id="sTipo">'
     +     '<option value="hw"' + (!s || s.tipo==='hw' ? ' selected':'') + '>Software + Hardware</option>'
@@ -17694,6 +17749,12 @@ function modalSitio(clienteId, sitioId){
       clienteId: $('sCliente').value,
       modulos: Math.max(0, parseInt($('sModulos').value,10) || 0),
       estado: $('sEstado').value,
+      tieneCortesia: $('sTieneCortesia').checked,
+      cortesiaCant: Math.max(0, parseInt($('sCortesiaCant').value,10) || 0),
+      cortesiaAbsorbe: $('sCortesiaAbsorbe').value.trim(),
+      cortesiaAutorizo: $('sCortesiaAutorizo').value.trim(),
+      cortesiaCuando: $('sCortesiaCuando').value,
+      cortesiaPorque: $('sCortesiaPorque').value.trim(),
       tipo: $('sTipo').value,
       mensualidad: aNumero($('sMensualidad').value),
       incOnboarding: $('sIncOnboarding').checked,
@@ -17724,10 +17785,21 @@ function modalSitio(clienteId, sitioId){
     const f = leerForm();
     const prov = normalizarSitio(Object.assign({}, f, { pagos:pagosTmp, id:'tmp' }));
     const c = calcular(prov);
-    const unit = f.modulos > 0 ? f.mensualidad / f.modulos : 0;
-    $('pistaUnitario').textContent = f.modulos > 0
-      ? 'Es el total mensual del sitio: ' + dinero(f.mensualidad) + ' ÷ ' + f.modulos + ' Forpass = ' + dinero(unit) + ' por módulo.'
-      : 'Es el total mensual del sitio, sumando todos sus Forpass.';
+    /* Con cortesía, el precio por módulo se reparte solo entre los que SÍ se
+       cobran —c.modulosCobrados—, no entre el total instalado: son los mismos
+       pesos de mensualidad entre menos módulos. */
+    const unit = c.modulosCobrados > 0 ? f.mensualidad / c.modulosCobrados : 0;
+    $('pistaUnitario').textContent = f.modulos === 0
+      ? 'Es el total mensual del sitio, sumando todos sus Forpass.'
+      : c.cortesiaCant
+        ? 'Es el total mensual del sitio: ' + dinero(f.mensualidad) + ' ÷ ' + c.modulosCobrados + ' '
+          + plural(c.modulosCobrados,'Forpass que sí se cobra','Forpass que sí se cobran') + ' = ' + dinero(unit) + ' cada uno.'
+        : 'Es el total mensual del sitio: ' + dinero(f.mensualidad) + ' ÷ ' + f.modulos + ' Forpass = ' + dinero(unit) + ' por módulo.';
+
+    $('pistaCortesiaCant').textContent = c.cortesiaCant
+      ? c.cortesiaCant + ' de ' + f.modulos + ' no se ' + plural(c.cortesiaCant,'cobra','cobran') + '. Se sigue cobrando ' + c.modulosCobrados + '.'
+      : '';
+    $('wrapCortesia').style.display = f.tieneCortesia ? '' : 'none';
 
     let prox = 'Contrato cubierto';
     if(c.proximo) prox = fmtFecha(c.proximo) + ' · ' + (c.diasRest < 0
@@ -17754,7 +17826,9 @@ function modalSitio(clienteId, sitioId){
 
   function refrescar(){ pintarMeses(); pintarResumen(); }
 
-  ['sNombre','sCliente','sModulos','sEstado','sTipo','sMensualidad','sIncOnboarding','sOnboarding','sIncViaticos','sViaticos','sInicio','sNotas']
+  ['sNombre','sCliente','sModulos','sEstado','sTipo','sMensualidad',
+   'sTieneCortesia','sCortesiaCant','sCortesiaAbsorbe','sCortesiaAutorizo','sCortesiaCuando','sCortesiaPorque',
+   'sIncOnboarding','sOnboarding','sIncViaticos','sViaticos','sInicio','sNotas']
     .forEach(id => $(id).addEventListener('input', pintarResumen));
   /* Paleta de color de la etiqueta. Si el usuario no ha tocado el color y
      escribe una zona que ya existe en otro sitio, se hereda ese color para que
@@ -17799,6 +17873,10 @@ function modalSitio(clienteId, sitioId){
     const f = leerForm();
     if(!f.nombre){ $('sNombre').setAttribute('aria-invalid','true'); $('sNombre').focus(); aviso('El sitio necesita un nombre.', true); return; }
     if(!f.clienteId){ aviso('Selecciona un cliente.', true); return; }
+    if(f.tieneCortesia && !f.cortesiaAutorizo){
+      $('sCortesiaAutorizo').setAttribute('aria-invalid','true'); $('sCortesiaAutorizo').focus();
+      aviso('Falta quién autorizó el Forpass de cortesía.', true); return;
+    }
     /* El formulario no trae todo lo del sitio: las OC de cada pago, el contacto
        y el encargado se administran por separado. Hay que arrastrarlos aquí o
        normalizarSitio los deja en blanco y se borran al editar. */
