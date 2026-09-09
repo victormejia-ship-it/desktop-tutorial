@@ -842,20 +842,35 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .cal-resumen{margin-bottom:4px;}
 .cal-resumen .c-fila{display:flex; gap:8px; align-items:baseline; font-size:13.5px; padding:3px 0;}
 .cal-resumen .c-fila span:first-child{color:var(--gray);}
-/* Gráfica de barras del calendario: un vistazo a los 12 meses antes de bajar
-   a la lista detallada. Una sola serie (equipos por mes) así que no lleva
-   leyenda — el color solo distingue "este mes" (ámbar, igual que el resto de
-   la app) de los demás (verde de marca). */
-.cal-grafica{margin:14px 0 4px; background:#fff; border:1px solid var(--line); border-radius:11px; padding:10px 6px 4px;}
-.cal-grafica svg{display:block; width:100%; height:auto;}
-.cal-barra{cursor:pointer;}
-.cal-barra .cal-b-rect, .cal-barra .cal-b-tapa{transition:opacity .12s var(--ease);}
-.cal-barra:hover .cal-b-rect, .cal-barra:hover .cal-b-tapa{opacity:.8;}
-.cal-barra:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
-.cal-grafica-pie{font-size:11px; color:var(--gray); text-align:center; margin-top:2px;}
-/* Al picar una barra, la tarjeta de ese mes se resalta un instante para que
-   sea obvio a cuál brincó el scroll. */
-.cal-mes.resaltado{outline:2px solid var(--accent); outline-offset:2px;}
+/* Gantt del calendario: mismo formato que la hoja "Calendario de
+   Mantenimientos" de la póliza impresa —un renglón por equipo, una columna
+   por mes, celda sombreada cuando ese mes le toca a ese equipo— pero aquí la
+   celda también dice EN QUÉ VA (programado/toca este mes/atrasado/hecho),
+   con color, y se puede picar para registrar el servicio sin bajar a la
+   lista de abajo. #8BB4D8 es el mismo azul que usa la plantilla impresa
+   (var(--shade) ahí) para que el de pantalla y el de papel se reconozcan
+   como la misma cosa. */
+.cal-gantt-caja{margin:14px 0 4px; background:#fff; border:1px solid var(--line); border-radius:11px; padding:12px;}
+.cal-gantt-leyenda{display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--gray); margin-bottom:10px;}
+.cal-gantt-leyenda span{display:inline-flex; align-items:center; gap:5px;}
+.cal-gantt-leyenda i{width:11px; height:11px; border-radius:3px; display:inline-block; flex:0 0 auto;}
+.cal-gantt{width:100%; border-collapse:collapse; table-layout:fixed;}
+.cal-gantt th{font-size:10px; font-weight:600; color:var(--gray); padding:4px 2px; text-align:center; white-space:nowrap; text-transform:capitalize; border-bottom:1.5px solid var(--line);}
+.cal-gantt th.gantt-eq-h{text-align:left; padding-left:6px; width:26%;}
+.cal-gantt th.ahora{color:var(--navy); background:var(--alerta-suave); border-radius:6px 6px 0 0;}
+.cal-gantt td{border-bottom:1px solid var(--line); height:26px; padding:0; text-align:center;}
+.cal-gantt td:nth-child(n+2){border-left:1px solid var(--line);}
+.cal-gantt td.gantt-eq{text-align:left; padding:0 6px; font-size:11.5px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.cal-gantt tbody tr:hover td.gantt-vacia{background:var(--bg);}
+.cal-gantt td.gantt-vacia.ahora{background:var(--alerta-suave); opacity:.5;}
+.cal-gantt td.gantt-on{background:#8BB4D8;}
+.cal-gantt td.gantt-on.toca{background:var(--alerta);}
+.cal-gantt td.gantt-on.atrasado{background:var(--error);}
+.cal-gantt td.gantt-on.hecho{background:var(--ok);}
+.cal-gantt td.gantt-on.hecho.fuera{outline:1.5px dashed var(--navy); outline-offset:-2px;}
+.gantt-marcar{width:100%; height:100%; border:none; padding:0; margin:0; cursor:pointer; background:none; display:block;}
+.gantt-marcar:hover{filter:brightness(.92);}
+.gantt-marcar:focus-visible{outline:2px solid var(--navy); outline-offset:-2px;}
 .cal-lista li svg{width:12px; height:12px; flex:0 0 auto; position:relative; top:2px;}
 /* El renglón del calendario es un botón: ahí se marca "este ya se hizo". Se ve
    como texto hasta que el mouse encima lo delata — una lista de doce meses llena
@@ -18408,43 +18423,56 @@ function recalcularCalendarioPoliza(id){
   aviso(cambiados + ' ' + plural(cambiados,'equipo reacomodado','equipos reacomodados') + ' según su categoría.');
 }
 
-/* Gráfica de barras del calendario de una póliza: un vistazo visual a los 12
-   meses (equipos que tocan cada uno) antes de bajar al detalle renglón por
-   renglón. Una sola serie, así que el único color con significado es el de
-   "este mes" (ámbar, igual que el resto de la app) contra el resto (verde de
-   marca) — no hace falta leyenda para una sola serie. Los meses sin ningún
-   equipo se dibujan como una barrita plana en vez de desaparecer, para que
-   los 12 sigan siendo visibles y comparables. */
-function graficaCalendarioSVG(fechaInicio, meses, mesActual){
-  const pico = Math.max(...meses.map(z=>z.equipos));
-  const n = meses.length, w = 900, slotW = w / n, barW = 26;
-  const baseY = 116, maxH = 78;
-  const barras = meses.map((z,i)=>{
-    const cx = i*slotW + slotW/2, bx = cx - barW/2;
-    const esAhora = z.m === mesActual;
-    const h = pico > 0 ? Math.max(0, Math.round((z.equipos / pico) * maxH)) : 0;
-    const y = baseY - h;
-    const color = esAhora ? 'var(--alerta)' : 'var(--accent)';
-    const tapaH = Math.min(4, h || 3);
-    const etiqueta = etiquetaMesServicio(fechaInicio, z.m);
-    const tip = etiqueta + ' · ' + z.equipos + ' ' + plural(z.equipos,'equipo','equipos');
-    return '<g class="cal-barra" data-mes="' + z.m + '" tabindex="0" role="button" aria-label="' + esc(tip) + '">'
-      +   '<title>' + esc(tip) + '</title>'
-      +   (h > 0
-            ? '<rect class="cal-b-rect" x="' + bx + '" y="' + y + '" width="' + barW + '" height="' + h + '" rx="4" fill="' + color + '"></rect>'
-              + '<rect class="cal-b-tapa" x="' + bx + '" y="' + (baseY - tapaH) + '" width="' + barW + '" height="' + tapaH + '" fill="' + color + '"></rect>'
-            : '<rect x="' + bx + '" y="' + (baseY - 3) + '" width="' + barW + '" height="3" rx="1.5" fill="var(--line)"></rect>')
-      +   (z.equipos > 0
-            ? '<text x="' + cx + '" y="' + (y - 6) + '" text-anchor="middle" font-size="12" font-weight="700" fill="var(--navy)">' + z.equipos + '</text>'
-            : '')
-      +   '<text x="' + cx + '" y="' + (baseY + 17) + '" text-anchor="middle" font-size="10.5" fill="var(--gray)" style="text-transform:capitalize">' + esc(etiqueta) + '</text>'
-      +   (esAhora ? '<text x="' + cx + '" y="' + (baseY + 29) + '" text-anchor="middle" font-size="8.5" font-weight="700" fill="var(--alerta)">HOY</text>' : '')
-      + '</g>';
+/* Gantt del calendario de una póliza: mismo formato que la hoja "Calendario
+   de Mantenimientos" del documento impreso — un renglón por equipo, una
+   columna por mes, celda sombreada cuando ese mes le toca. Aquí además el
+   color de la celda dice en qué va ese servicio (programado/toca este
+   mes/atrasado/hecho), y si se puede registrar servicio la celda es un botón
+   que abre el mismo formulario que ya usa la lista de abajo — sin tener que
+   bajar a buscarlo. */
+function ganttCalendarioHTML(p, mesActual, marcable){
+  const encabezados = Array.from({length:MESES_POLIZA}, (_,m)=>
+    '<th class="' + (m === mesActual ? 'ahora' : '') + '">' + esc(etiquetaMesServicio(p.fechaInicio, m)) + '</th>').join('');
+
+  const filas = p.partidas.map(x=>{
+    const celdas = Array.from({length:MESES_POLIZA}, (_,m)=>{
+      const programado = x.mesesServicio.includes(m);
+      const hecho = servicioHecho(p, x, m);
+      const fuera = !programado && hecho;   /* servicio real en un mes que ya no está en el calendario */
+      const esAhora = m === mesActual;
+      if(!programado && !fuera){
+        return '<td class="gantt-vacia' + (esAhora ? ' ahora' : '') + '"></td>';
+      }
+      let estado = 'programado';
+      if(hecho) estado = 'hecho';
+      else if(mesActual !== -1 && m < mesActual) estado = 'atrasado';
+      else if(esAhora) estado = 'toca';
+      const clase = 'gantt-on ' + (hecho ? 'hecho' : estado) + (fuera ? ' fuera' : '');
+      const det = servicioDetalle(p, x, m);
+      const etiquetaEstado = hecho
+        ? 'hecho' + (fuera ? ' (fuera de calendario)' : '') + (det && det.cuando ? ' el ' + fmtFecha(det.cuando) : '')
+        : estado === 'atrasado' ? 'atrasado' : estado === 'toca' ? 'toca este mes' : 'programado';
+      const tip = esc(x.concepto) + ' · ' + etiquetaMesServicio(p.fechaInicio, m) + ' · ' + etiquetaEstado;
+      const contenido = marcable
+        ? '<button type="button" class="gantt-marcar" data-servicio="' + esc(p.id) + '" data-partida="' + esc(x.id) + '" '
+          + 'data-mes="' + m + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>'
+        : '<span style="display:block;width:100%;height:100%" title="' + esc(tip) + '"></span>';
+      return '<td class="' + clase + (esAhora ? ' ahora' : '') + '">' + contenido + '</td>';
+    }).join('');
+    return '<tr><td class="gantt-eq" title="' + esc(x.concepto) + '">' + esc(x.concepto)
+      + (x.cantidad > 1 ? ' ×' + x.cantidad : '') + '</td>' + celdas + '</tr>';
   }).join('');
-  return '<svg viewBox="0 0 ' + w + ' 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Equipos por mes en toda la vigencia">'
-    +   '<line x1="0" y1="' + baseY + '" x2="' + w + '" y2="' + baseY + '" stroke="var(--line)" stroke-width="1"></line>'
-    +   barras
-    + '</svg>';
+
+  return '<div class="cal-gantt-leyenda">'
+    +   '<span><i style="background:#8BB4D8"></i>Programado</span>'
+    +   '<span><i style="background:var(--alerta)"></i>Toca este mes</span>'
+    +   '<span><i style="background:var(--error)"></i>Atrasado</span>'
+    +   '<span><i style="background:var(--ok)"></i>Hecho</span>'
+    + '</div>'
+    + '<div class="rodillo"><table class="cal-gantt">'
+    +   '<thead><tr><th class="gantt-eq-h">Equipo</th>' + encabezados + '</tr></thead>'
+    +   '<tbody>' + filas + '</tbody>'
+    + '</table></div>';
 }
 
 function modalCalendario(id){
@@ -18486,8 +18514,8 @@ function modalCalendario(id){
     +     ' · ' + c.hechos + ' ' + plural(c.hechos,'hecho','hechos') + '</b></div>'
     +   '<div class="c-fila"><span>Mes más cargado:</span><b>' + pico + ' ' + plural(pico,'equipo','equipos') + '</b></div>'
     + '</div>'
-    + '<div class="cal-grafica">' + graficaCalendarioSVG(p.fechaInicio, meses, mesActual) + '</div>'
-    + '<div class="cal-grafica-pie">Pica una barra para ir directo a ese mes.</div>'
+    + '<div class="cal-gantt-caja">' + ganttCalendarioHTML(p, mesActual, marcable) + '</div>'
+    + (marcable ? '<div class="pista" style="margin:6px 0 0">Pica una celda para registrar que ese servicio ya se hizo.</div>' : '')
     /* Para pólizas armadas ANTES de que existiera la calendarización por
        categoría (o con equipos que en ese momento no tenían categoría
        todavía): sin esto, la única forma de escalonarlas era recrearlas. */
@@ -18553,28 +18581,6 @@ function modalCalendario(id){
   abrirModal('Calendario · ' + (p.sitioNombre || 'Póliza'), cuerpo,
     '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
   $('modal').classList.add('ancho');
-
-  /* Picar (o Enter sobre, con teclado) una barra de la gráfica brinca a la
-     tarjeta de ese mes y la resalta un instante — funciona para cualquiera
-     que abra el calendario, no solo quien puede marcar servicios. */
-  const irABarra = mes=>{
-    const destino = $('cal-mes-' + mes);
-    if(!destino) return;
-    destino.scrollIntoView({ behavior:'smooth', block:'nearest' });
-    destino.classList.add('resaltado');
-    setTimeout(()=> destino.classList.remove('resaltado'), 1200);
-  };
-  $('modalCuerpo').addEventListener('click', ev=>{
-    const barra = ev.target.closest('.cal-barra');
-    if(barra) irABarra(+barra.dataset.mes);
-  });
-  $('modalCuerpo').addEventListener('keydown', ev=>{
-    if(ev.key !== 'Enter' && ev.key !== ' ') return;
-    const barra = ev.target.closest('.cal-barra');
-    if(!barra) return;
-    ev.preventDefault();
-    irABarra(+barra.dataset.mes);
-  });
 
   /* Delegado y colgado aquí, no fuera: #modalCuerpo lo reemplaza cerrarModal()
      por un clon limpio en cada cierre, así que este listener se va con él y no
