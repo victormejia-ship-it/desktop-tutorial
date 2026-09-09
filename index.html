@@ -7257,6 +7257,14 @@ function calcularPoliza(p){
        Sin esto, sus meses contarían como "atrasados" para siempre y la póliza
        viviría en rojo. Su dinero ya quedó sumado arriba, en totales. */
     if(esSegurista(x)) return;
+    /* Un equipo "responsabilidad del cliente" (ver ALCANCE_PARTIDA_POLIZA)
+       tampoco entra aquí, por la misma razón que ya se separa del precio y
+       el costo: no es trabajo de Forguard, así que si el cliente no le da
+       mantenimiento no es una falla NUESTRA — no debe pintar la póliza de
+       rojo ni bajarle el % de cumplimiento. Sigue viéndose en el
+       Calendario/Gantt (para documentar qué se revisó y de quién es), solo
+       que no cuenta en programados/hechos/atrasados/cumplimiento. */
+    if(x.alcance === 'cliente') return;
     programados += x.mesesServicio.length;
     hechos      += serviciosHechos(p, x);
     huerfanos   += serviciosFueraDeCalendario(p, x).length;
@@ -18499,6 +18507,14 @@ function ganttCalendarioHTML(p, mesActual, marcable){
     '<th class="' + (m === mesActual ? 'ahora' : '') + '">' + esc(etiquetaMesServicio(p.fechaInicio, m)) + '</th>').join('');
 
   const filas = p.partidas.map(x=>{
+    /* Un equipo "responsabilidad del cliente" se sigue viendo aquí —para
+       documentar qué se revisó y de quién es, igual que en la tabla de
+       equipos cotizados— pero nunca se pinta de ámbar/rojo: no es trabajo de
+       Forguard, así que si el cliente no le da mantenimiento no es un
+       atraso NUESTRO. calcularPoliza() ya lo excluye del % de cumplimiento;
+       aquí nada más se evita que el Gantt lo contradiga mostrándolo "en
+       rojo" cuando ese rojo no cuenta para nada. */
+    const esCliente = x.alcance === 'cliente';
     const celdas = Array.from({length:MESES_POLIZA}, (_,m)=>{
       const programado = x.mesesServicio.includes(m);
       const hecho = servicioHecho(p, x, m);
@@ -18509,6 +18525,7 @@ function ganttCalendarioHTML(p, mesActual, marcable){
       }
       let estado = 'programado';
       if(hecho) estado = 'hecho';
+      else if(esCliente) estado = 'programado';
       else if(mesActual !== -1 && m < mesActual) estado = 'atrasado';
       else if(esAhora) estado = 'toca';
       const clase = 'gantt-on ' + (hecho ? 'hecho' : estado) + (fuera ? ' fuera' : '');
@@ -18516,15 +18533,17 @@ function ganttCalendarioHTML(p, mesActual, marcable){
       const etiquetaEstado = hecho
         ? 'hecho' + (fuera ? ' (fuera de calendario)' : '') + (det && det.cuando ? ' el ' + fmtFecha(det.cuando) : '')
         : estado === 'atrasado' ? 'atrasado' : estado === 'toca' ? 'toca este mes' : 'programado';
-      const tip = esc(x.concepto) + ' · ' + etiquetaMesServicio(p.fechaInicio, m) + ' · ' + etiquetaEstado;
+      const tip = esc(x.concepto) + ' · ' + etiquetaMesServicio(p.fechaInicio, m) + ' · ' + etiquetaEstado
+        + (esCliente ? ' · responsabilidad del cliente, no cuenta en el cumplimiento' : '');
       const contenido = marcable
         ? '<button type="button" class="gantt-marcar" data-servicio="' + esc(p.id) + '" data-partida="' + esc(x.id) + '" '
           + 'data-mes="' + m + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>'
         : '<span style="display:block;width:100%;height:100%" title="' + esc(tip) + '"></span>';
       return '<td class="' + clase + (esAhora ? ' ahora' : '') + '">' + contenido + '</td>';
     }).join('');
-    return '<tr><td class="gantt-eq" title="' + esc(x.concepto) + '">' + esc(x.concepto)
-      + (x.cantidad > 1 ? ' ×' + x.cantidad : '') + '</td>' + celdas + '</tr>';
+    return '<tr><td class="gantt-eq" title="' + esc(x.concepto) + (esCliente ? ' · responsabilidad del cliente' : '') + '">' + esc(x.concepto)
+      + (x.cantidad > 1 ? ' ×' + x.cantidad : '') + (esCliente ? ' <span class="pista" style="display:inline">(cliente)</span>' : '')
+      + '</td>' + celdas + '</tr>';
   }).join('');
 
   return '<div class="cal-gantt-leyenda">'
@@ -18532,6 +18551,9 @@ function ganttCalendarioHTML(p, mesActual, marcable){
     +   '<span><i style="background:var(--alerta)"></i>Toca este mes</span>'
     +   '<span><i style="background:var(--error)"></i>Atrasado</span>'
     +   '<span><i style="background:var(--ok)"></i>Hecho</span>'
+    +   (p.partidas.some(x => x.alcance === 'cliente')
+         ? '<span>(cliente) = responsabilidad del cliente, no cuenta en el cumplimiento</span>'
+         : '')
     + '</div>'
     + '<div class="rodillo"><table class="cal-gantt">'
     +   '<thead><tr><th class="gantt-eq-h">Equipo</th>' + encabezados + '</tr></thead>'
