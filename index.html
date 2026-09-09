@@ -10030,6 +10030,36 @@ const TEMAS_AYUDA = [
           ]))
       + guiaRoles('Casi todos los roles lo usan completo. Eliminar el levantamiento: Owner/Admin. Generar póliza desde él: Owner/Admin/Analyst.') },
 
+  { id:'visitas', titulo:'Visitas',
+    resumen:'La agenda de campo de todo el equipo: qué falta por programar, quién va a dónde cada semana, y la hoja de ruta impresa por técnico.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'La pestaña <b>Por programar</b> es una bolsa que se arma sola: junta cada póliza atrasada (un servicio que ya le tocaba y no se ha marcado hecho) y cada reporte todavía abierto, y los agrupa por sitio — no hay que capturar nada para que aparezcan ahí.',
+        'Cada tarjeta de sitio muestra sus pendientes con una casilla marcada por default; puedes destildar los que no quieras atender todavía y usar <b>Programar visita a este sitio</b> — se abre "Nueva visita" ya con el cliente y el sitio bloqueados y esos pendientes prellenados.',
+        'La pestaña <b>Calendario</b> muestra la semana en curso: una fila por técnico, una columna por día, y un chip por visita con el nombre del sitio (y un "×N" si trae varios pendientes adjuntos). Navega semana a semana con las flechas de arriba.',
+        'La pestaña <b>Todas las visitas</b> es la lista completa, filtrable por técnico y por estatus, para buscar cualquier visita pasada o futura sin depender del calendario.',
+        'El estatus de una visita avanza por: Programada → Confirmada → En curso → Realizada (o Reprogramada / Cancelada en cualquier punto).'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'Usa <b>Nueva visita</b> desde la cabecera del módulo para programar sin partir de la bolsa: eliges Cliente y Sitio igual que en el resto de la app.',
+        'El técnico se elige de una lista con las cuentas ya dadas de alta con rol Técnico; si tu cuenta no puede consultar esa lista (por ejemplo un Analyst), el campo cae solo a un texto libre para escribir el nombre — nunca te deja sin poder capturar quién va.',
+        'Puedes agregar Notas libres a la visita (por ejemplo "pedir acceso con el guardia") — se guardan en la visita y viajan también a la hoja de ruta impresa.',
+        'Desde el chip de cualquier visita en el calendario o la lista entras a <b>Editar visita</b>: mismos campos, más el selector de estatus.',
+        'Si <b>cancelas</b> una visita, sus pendientes (pólizas/reportes) regresan solos a la bolsa de "Por programar" — no se pierden, solo se sueltan para volver a agendarlos. Cualquier otro cambio de estatus los deja cubiertos.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', guiaPasos([
+          'El botón <b>Imprimir ruta</b> (en el calendario, por técnico) arma una hoja de ruta de la semana completa: un bloque por día con sus visitas, sitio, cliente, zona, contacto del sitio, hora, los pendientes que va a atender y las notas — pensada para que el técnico la traiga impresa o en el celular, sin necesitar conexión.',
+          'La bolsa de "Por programar" agrupa por sitio a propósito: si un mismo sitio tiene una póliza atrasada Y un reporte abierto al mismo tiempo, los junta en una sola visita en vez de mandar al técnico dos veces — es el corazón de la idea de "optimizar visitas".',
+          'Un pendiente nunca se duplica entre visitas: en cuanto queda adjunto a una visita que no está cancelada, desaparece de la bolsa para todos, aunque la estés viendo desde otra pestaña o la vuelvas a abrir después.'
+        ])
+        + guiaTip('Quién puede usarlo', [
+          'Ven el módulo Owner, Admin, Analyst y Técnico. Viewer y Reportero no lo tienen en su navegación.',
+          'Programar, editar y cambiar el estatus de una visita: Owner/Admin/Analyst y también Técnico (para que puedan reprogramarse o marcarse a sí mismos en curso/realizada sin depender de alguien más).',
+          'Eliminar una visita por completo es exclusivo de Owner/Admin.',
+          'Imprimir la hoja de ruta no necesita permiso especial: cualquiera que vea el módulo puede generarla.'
+        ]))
+      + guiaRoles('Ven el módulo: Owner/Admin/Analyst/Técnico. Programar y editar: los mismos cuatro. Eliminar una visita: Owner/Admin.') },
+
   { id:'polizas', titulo:'Pólizas',
     resumen:'Los contratos formales de mantenimiento: qué equipo cubren, cada cuánto se revisa, y si cada servicio programado ya se hizo.',
     contenido:
