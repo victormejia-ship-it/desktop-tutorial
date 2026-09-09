@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Control de Forpass · Forguard</title>
+<title>Forguard</title>
 <!-- Sin internet: no hay enlaces a fuentes ni librerías externas. Todo va embebido. -->
 
 <!-- Endurece lo que el navegador deja hacer dentro de la página: nada de
@@ -1363,7 +1363,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
         </g>
       </g>
     </svg>
-    <h2>Control de Forpass</h2>
+    <h2>Forguard</h2>
     <p class="intro"><span id="saludo"></span> Entra con tu correo y contraseña. La sesión se queda abierta en este navegador, así no te la pide cada vez.</p>
     <div class="acceso-error" id="accesoError" role="alert"></div>
     <div class="campo">
@@ -16719,7 +16719,7 @@ function modalCuenta(){
         + '<button type="button" class="btn btn-primario" data-modal="cancelar">Listo</button>');
 
       $('copiarDatos').addEventListener('click', ()=>{
-        const texto = 'Control de Forpass\n' + location.origin + location.pathname
+        const texto = 'Forguard\n' + location.origin + location.pathname
                     + '\nCorreo: ' + correo + '\nContraseña: ' + clave;
         navigator.clipboard.writeText(texto)
           .then(()=> aviso('Datos copiados.'))
