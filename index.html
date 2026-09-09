@@ -7366,7 +7366,7 @@ function calcularPoliza(p){
 
   /* Ejecución. Un servicio está atrasado cuando su mes ya se cumplió completo y
      nadie lo marcó; el del mes en curso todavía no lo está, solo "toca". */
-  let programados = 0, hechos = 0, hechosDebidos = 0, atrasados = 0, tocanEsteMes = 0, huerfanos = 0;
+  let programados = 0, hechos = 0, hechosDebidos = 0, hechosMes = 0, atrasados = 0, tocanEsteMes = 0, huerfanos = 0;
   p.partidas.forEach(x=>{
     /* El segurista no entra al seguimiento: es presencia, no mantenimiento.
        Sin esto, sus meses contarían como "atrasados" para siempre y la póliza
@@ -7390,6 +7390,7 @@ function calcularPoliza(p){
            debe inflar el % de cumplimiento, así que no se cuenta ni a favor
            ni en contra. */
         if(m <= mesActual) hechosDebidos++;
+        if(m === mesActual) hechosMes++;
         return;
       }
       if(m < mesesCumplidos) atrasados++;
@@ -7403,6 +7404,15 @@ function calcularPoliza(p){
      se le haya fallado. */
   const serviciosDebidos = hechosDebidos + atrasados;
   const cumplimientoPct = serviciosDebidos > 0 ? Math.round(hechosDebidos / serviciosDebidos * 100) : 100;
+  /* Mismo criterio, acotado SOLO al mes en curso: de lo que toca este mes
+     (hechosMes + tocanEsteMes — lo atrasado es de meses YA cerrados, no de
+     este), cuánto ya se hizo. Se resetea cada mes, a diferencia del de
+     arriba que es acumulado de toda la vigencia — sirve para ver "vamos
+     bien ESTE mes" sin que un mal mes anterior ya superado lo siga
+     arrastrando hacia abajo. Sin nada programado este mes, 100%: no hay
+     nada que hacer, así que no hay nada que fallar. */
+  const programadosMes = hechosMes + tocanEsteMes;
+  const cumplimientoMesPct = programadosMes > 0 ? Math.round(hechosMes / programadosMes * 100) : 100;
 
   const vigente = diasEntre(hoy, fin) >= 0;
   const diasVigencia = diasEntre(hoy, fin);
@@ -7449,6 +7459,7 @@ function calcularPoliza(p){
            montos, montosCent, costoMontos, costoMontosCent,
            cobrados, debidos, cobrosAtrasados, adeudo, cobrado, proximoCobro,
            programados, hechos, hechosDebidos, serviciosDebidos, cumplimientoPct,
+           hechosMes, programadosMes, cumplimientoMesPct,
            pendientes, atrasados, tocanEsteMes, huerfanos,
            mesesCumplidos, mesActual, vigente, diasVigencia, diasEsperando,
            noCuadran, cerrable, estado, tono, activa };
@@ -8860,6 +8871,21 @@ function anilloProgresoSVG(pct, size, grosor, color){
    anillo de cumplimiento nunca contradice lo que dice el resto de la
    pantalla sobre esta póliza. */
 const COLOR_TONO = { ok:'var(--ok)', alerta:'var(--alerta)', error:'var(--error)', neutro:'var(--gray-claro)' };
+/* Tarjeta KPI de cumplimiento (anillo + desglose), reusada para el total del
+   contrato y para el mes en curso — mismo formato, mismo criterio de color
+   (100% ok, 80-99% alerta, menos de 80% error) para que las dos se lean
+   igual y el ojo no tenga que aprender dos convenciones. */
+function tarjetaCumplimiento(label, pct, hechosN, totalN, piePositivo, piePendiente){
+  const tono = pct === 100 ? 'ok' : pct >= 80 ? 'alerta' : 'error';
+  return '<div class="kpi k-' + tono + '">'
+    +   '<div class="k-label">' + esc(label) + '</div>'
+    +   '<div class="k-anillo">'
+    +     anilloProgresoSVG(pct, 54, 7, COLOR_TONO[tono])
+    +     '<div><div class="k-anillo-txt">' + hechosN + ' de ' + totalN + '</div>'
+    +       '<div class="k-pie">' + (totalN ? piePositivo : piePendiente) + '</div></div>'
+    +   '</div>'
+    + '</div>';
+}
 
 /* El mismo alternador tarjetas/tabla para cualquier lista: Forpass, Pólizas y
    Cotizaciones lo usan igual, cada uno con su propio campo en `estado` para
@@ -15408,20 +15434,16 @@ function vistaPoliza(){
          c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Sin atrasos', c.atrasados ? 'k-error' : '')
      /* Cumplimiento: de lo que YA le tocaba a esta póliza, cuánto se hizo de
         verdad — un anillo de progreso en vez de solo un número, visible
-        desde que se abre la póliza, sin tener que entrar al Calendario. */
-     +   (()=>{
-           const tono = c.cumplimientoPct === 100 ? 'ok' : c.cumplimientoPct >= 80 ? 'alerta' : 'error';
-           return '<div class="kpi k-' + tono + '">'
-             +   '<div class="k-label">Cumplimiento</div>'
-             +   '<div class="k-anillo">'
-             +     anilloProgresoSVG(c.cumplimientoPct, 54, 7, COLOR_TONO[tono])
-             +     '<div><div class="k-anillo-txt">' + c.hechosDebidos + ' de ' + c.serviciosDebidos + '</div>'
-             +       '<div class="k-pie">' + (c.serviciosDebidos
-                       ? (c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Al corriente')
-                       : 'Aún no le toca nada') + '</div></div>'
-             +   '</div>'
-             + '</div>';
-         })()
+        desde que se abre la póliza, sin tener que entrar al Calendario.
+        Dos tarjetas: el TOTAL acumulado de toda la vigencia, y el del MES en
+        curso —que se resetea cada mes— para poder ver "vamos bien este mes"
+        sin que un mes anterior ya superado lo siga arrastrando. */
+     +   tarjetaCumplimiento('Cumplimiento total', c.cumplimientoPct, c.hechosDebidos, c.serviciosDebidos,
+           c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Al corriente',
+           'Aún no le toca nada')
+     +   tarjetaCumplimiento('Cumplimiento del mes', c.cumplimientoMesPct, c.hechosMes, c.programadosMes,
+           c.tocanEsteMes ? c.tocanEsteMes + ' ' + plural(c.tocanEsteMes,'pendiente','pendientes') + ' este mes' : 'Mes al corriente',
+           'Nada programado este mes')
      + tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
          c.vigente ? 'Faltan ' + c.diasVigencia + ' ' + plural(c.diasVigencia,'día','días') : 'Terminada')
      + '</div>';
@@ -18739,6 +18761,7 @@ function modalCalendario(id){
   /* Con su envoltorio .cal-resumen: .c-fila solo trae estilo dentro de .bloque
      y aquí quedaba pelona — etiqueta y valor salían pegados («Vigencia01 jun»). */
   const tonoCal = c.cumplimientoPct === 100 ? 'ok' : c.cumplimientoPct >= 80 ? 'alerta' : 'error';
+  const tonoCalMes = c.cumplimientoMesPct === 100 ? 'ok' : c.cumplimientoMesPct >= 80 ? 'alerta' : 'error';
   const cuerpo =
       '<div class="cal-cabecera">'
     +   '<div class="cal-resumen">'
@@ -18747,16 +18770,26 @@ function modalCalendario(id){
     +       ' · ' + c.hechos + ' ' + plural(c.hechos,'hecho','hechos') + '</b></div>'
     +     '<div class="c-fila"><span>Mes más cargado:</span><b>' + pico + ' ' + plural(pico,'equipo','equipos') + '</b></div>'
     +   '</div>'
-    /* Mismo % que ya se ve al abrir la póliza (KPI "Cumplimiento") — aquí en
-       grande, junto al Gantt, para no tener que ir y venir entre las dos
-       pantallas para relacionar el número con el detalle mes por mes. */
+    /* Mismos % que ya se ven al abrir la póliza (KPI "Cumplimiento total" y
+       "Cumplimiento del mes") — aquí en grande, junto al Gantt, para no
+       tener que ir y venir entre las dos pantallas para relacionar el
+       número con el detalle mes por mes. */
     +   '<div class="cal-cumplimiento">'
     +     anilloProgresoSVG(c.cumplimientoPct, 76, 9, COLOR_TONO[tonoCal])
-    +     '<div><div class="cal-cumplimiento-label">Cumplimiento</div>'
+    +     '<div><div class="cal-cumplimiento-label">Cumplimiento total</div>'
     +       '<div class="cal-cumplimiento-txt">' + c.hechosDebidos + ' de ' + c.serviciosDebidos + ' al corriente</div>'
     +       (c.atrasados
              ? '<div class="cal-cumplimiento-txt" style="color:var(--error)">' + c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') + '</div>'
              : '<div class="cal-cumplimiento-txt" style="color:var(--ok)">Sin atrasos</div>')
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="cal-cumplimiento">'
+    +     anilloProgresoSVG(c.cumplimientoMesPct, 76, 9, COLOR_TONO[tonoCalMes])
+    +     '<div><div class="cal-cumplimiento-label">Cumplimiento del mes</div>'
+    +       '<div class="cal-cumplimiento-txt">' + c.hechosMes + ' de ' + c.programadosMes + ' este mes</div>'
+    +       (c.tocanEsteMes
+             ? '<div class="cal-cumplimiento-txt" style="color:var(--alerta)">' + c.tocanEsteMes + ' ' + plural(c.tocanEsteMes,'pendiente','pendientes') + '</div>'
+             : '<div class="cal-cumplimiento-txt" style="color:var(--ok)">Mes al corriente</div>')
     +     '</div>'
     +   '</div>'
     + '</div>'
