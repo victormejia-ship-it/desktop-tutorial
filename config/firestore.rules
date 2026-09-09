@@ -345,6 +345,19 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Visitas (programación de rutas) ---
+       Undécimo módulo: cuándo va cada técnico a qué sitio, armado desde lo
+       que ya toca de póliza y los reportes abiertos. Mismo candado que
+       /activos: administración de siempre, más el rol técnico —programa y
+       ajusta su propia ruta sin depender de un Analyst—; cerrado por
+       completo al portal de clientes, igual que /activos y /personal. */
+    match /visitas/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
+      allow update: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
+      allow delete: if esAdmin();
+    }
+
     /* --- Organigrama (directorio de personal) ---
        Décimo módulo: el directorio del personal de la empresa, tenga o no
        cuenta de acceso al tablero. A diferencia de /activos, aquí no hay

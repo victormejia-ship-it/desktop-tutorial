@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ruta de visitas</title>
+
+<!--
+  ==========================================================================
+  PLANTILLA · Ruta de visitas de un técnico                            v1
+  ==========================================================================
+  El tablero deja aquí el documento YA RESUELTO, en sessionStorage, antes de
+  abrir esta pestaña (armarPayloadRutaTecnico() / abrirDocumentoRutaTecnico()
+  en index.html). Esta plantilla solo FORMATEA Y CONCATENA: la lista de
+  visitas por día ya viene ordenada y filtrada, no se recalcula nada aquí.
+
+  A diferencia de plantilla_poliza_forguard.html/plantilla_cotizacion.html,
+  este es un documento OPERATIVO (para que el técnico lo traiga impreso o en
+  el celular), no uno que se le entrega al cliente — por eso usa una
+  tipografía del sistema en vez de la Poppins embebida de los documentos
+  comerciales: mismo azul de marca, sin el peso de la fuente.
+  ==========================================================================
+-->
+
+<style>
+  :root{
+    --navy:#002369; --ink:#14181D; --muted:#6B7280; --line:#E3E7EF; --bg:#F5F7FB;
+    --ok:#1A7A4C; --ok-bg:#E4F5EC; --alerta:#9A6A0C; --alerta-bg:#FDF1DA; --error:#a5322e; --error-bg:#FBE7E6;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+    font-size:13px; line-height:1.5;}
+  .page{max-width:800px; margin:0 auto; padding:28px 26px 60px;}
+  .marca{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;}
+  .marca .nombre{font-size:19px; font-weight:800; color:var(--navy); letter-spacing:.01em;}
+  .marca .sub{font-size:11px; color:var(--muted);}
+  h1{font-size:17px; margin:0 0 4px; color:var(--navy);}
+  .resumen{font-size:12.5px; color:var(--muted); margin-bottom:22px;}
+  .dia{margin-bottom:22px; page-break-inside:avoid;}
+  .dia-tit{font-size:13.5px; font-weight:700; color:var(--navy); border-bottom:2px solid var(--navy);
+    padding-bottom:5px; margin-bottom:10px; text-transform:capitalize;}
+  .visita{border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin-bottom:9px; background:#fff;}
+  .visita-cab{display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:6px;}
+  .visita-sitio{font-size:13.5px; font-weight:700;}
+  .visita-hora{font-size:12px; color:var(--muted); font-weight:600;}
+  .visita-linea{font-size:11.5px; color:var(--muted); margin:2px 0;}
+  .pastilla{display:inline-block; padding:2px 9px; border-radius:20px; font-size:10.5px; font-weight:700;}
+  .pastilla.ok{background:var(--ok-bg); color:var(--ok);}
+  .pastilla.alerta{background:var(--alerta-bg); color:var(--alerta);}
+  .pastilla.neutro{background:var(--line); color:var(--muted);}
+  .pendientes{margin:7px 0 0; padding-left:18px; font-size:11.5px;}
+  .notas{margin-top:6px; font-size:11px; color:var(--muted); font-style:italic;}
+  .vacio{padding:14px 0; color:var(--muted); font-size:12px;}
+  .pie{margin-top:26px; font-size:9.5px; color:#9AA2B1; text-align:center;}
+
+  .aviso-impresion{position:fixed; top:0; left:0; right:0; z-index:50;
+    background:#0E1116; color:#fff; font-size:12.5px; line-height:1.5;
+    padding:9px 18px; box-shadow:0 6px 18px rgba(0,0,0,.35);
+    display:flex; gap:8px 16px; align-items:center; justify-content:center; flex-wrap:wrap;}
+  .aviso-impresion button{font-size:13px; font-weight:700; color:#06281a;
+    background:#54C682; border:none; border-radius:8px; padding:7px 16px; cursor:pointer; font-family:inherit;}
+  .aviso-impresion button:hover{background:#7EE2A8;}
+  .aviso-impresion .pista{color:#9FB3DC;}
+  .error-doc{max-width:480px; margin:90px auto; text-align:center; font-size:14px; color:#7a2c28;}
+
+  @media print{
+    body{background:#fff; padding-top:0;}
+    .page{max-width:none; margin:0;}
+    .aviso-impresion{display:none;}
+    .dia{page-break-inside:avoid;}
+    @page{size:letter; margin:.6in;}
+  }
+</style>
+</head>
+<body>
+<div class="aviso-impresion" id="avisoImpresion">
+  <button type="button" onclick="window.print()">Guardar como PDF</button>
+  <span class="pista">si sale una impresora, cambia el destino a «Guardar como PDF»</span>
+</div>
+<div id="raiz"></div>
+
+<script>
+const LLAVE_DOC = 'forguard.documento.visitas';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const NOMBRES_DIA = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+
+function pintarError(msg){
+  document.getElementById('avisoImpresion').style.display = 'none';
+  document.getElementById('raiz').innerHTML = '<div class="error-doc"><b>No se pudo abrir el documento.</b><br>' + esc(msg) + '<br><br>Regresa al tablero e inténtalo de nuevo.</div>';
+}
+
+function fechaLarga(iso){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return iso || '';
+  const [a,m,d] = iso.split('-').map(Number);
+  const fecha = new Date(Date.UTC(a, m-1, d));
+  return NOMBRES_DIA[fecha.getUTCDay()] + ' ' + d + '/' + m + '/' + a;
+}
+
+function pastillaEstatus(estatus){
+  const tono = /realizada|confirmada|en curso/i.test(estatus) ? 'ok' : /cancelada/i.test(estatus) ? 'neutro' : 'alerta';
+  return '<span class="pastilla ' + tono + '">' + esc(estatus) + '</span>';
+}
+
+function visitaHTML(v){
+  return '<div class="visita">'
+    + '<div class="visita-cab">'
+    +   '<div class="visita-sitio">' + esc(v.sitio || 'Sitio sin nombre') + (v.hora ? '' : '') + '</div>'
+    +   '<div>' + (v.hora ? '<span class="visita-hora">' + esc(v.hora) + '</span> ' : '') + pastillaEstatus(v.estatus) + '</div>'
+    + '</div>'
+    + (v.cliente ? '<div class="visita-linea"><b>Cliente:</b> ' + esc(v.cliente) + (v.zona ? ' · ' + esc(v.zona) : '') + '</div>' : '')
+    + (v.contacto ? '<div class="visita-linea"><b>Contacto:</b> ' + esc(v.contacto) + '</div>' : '')
+    + (v.pendientes && v.pendientes.length
+        ? '<ul class="pendientes">' + v.pendientes.map(p => '<li>' + esc(p) + '</li>').join('') + '</ul>'
+        : '')
+    + (v.notas ? '<div class="notas">' + esc(v.notas) + '</div>' : '')
+    + '</div>';
+}
+
+function diaHTML(dia){
+  const visitas = (dia.visitas || []).map(visitaHTML).join('') || '<div class="vacio">Sin visitas programadas.</div>';
+  return '<div class="dia"><div class="dia-tit">' + esc(fechaLarga(dia.fecha)) + '</div>' + visitas + '</div>';
+}
+
+function render(payload){
+  const totalVisitas = (payload.dias || []).reduce((t, d) => t + (d.visitas || []).length, 0);
+  document.title = 'Ruta de ' + (payload.tecnico || 'técnico');
+  document.getElementById('raiz').innerHTML =
+      '<div class="page">'
+    +   '<div class="marca"><div class="nombre">FORGUARD</div><div class="sub">Ruta de visitas</div></div>'
+    +   '<h1>' + esc(payload.tecnico || 'Técnico') + '</h1>'
+    +   '<div class="resumen">' + esc(fechaLarga(payload.desde)) + ' – ' + esc(fechaLarga(payload.hasta))
+    +     ' · ' + totalVisitas + ' ' + (totalVisitas === 1 ? 'visita' : 'visitas') + '</div>'
+    +   (payload.dias || []).map(diaHTML).join('')
+    +   '<div class="pie">Generado el ' + esc(new Date(payload.generado || Date.now()).toLocaleString('es-MX')) + '</div>'
+    + '</div>';
+}
+
+try{
+  const crudo = sessionStorage.getItem(LLAVE_DOC);
+  if(!crudo) throw new Error('No hay ningún documento preparado. Ábrelo desde el botón "Imprimir ruta" en Visitas.');
+  const payload = JSON.parse(crudo);
+  render(payload);
+}catch(e){
+  pintarError(e && e.message ? e.message : 'Error inesperado leyendo el documento.');
+}
+</script>
+</body>
+</html>

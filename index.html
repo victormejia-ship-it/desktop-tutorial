@@ -881,6 +881,25 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .gantt-marcar{width:100%; height:100%; border:none; padding:0; margin:0; cursor:pointer; background:none; display:block;}
 .gantt-marcar:hover{filter:brightness(.92);}
 .gantt-marcar:focus-visible{outline:2px solid var(--navy); outline-offset:-2px;}
+
+/* ---- Calendario semanal de Visitas (módulo Visitas) ---- */
+.cal-visitas{width:100%; border-collapse:collapse; table-layout:fixed;}
+.cal-visitas th{font-size:10.5px; font-weight:600; color:var(--gray); padding:6px 4px; text-align:center; border-bottom:1.5px solid var(--line);}
+.cal-visitas th.ahora{color:var(--navy); background:var(--alerta-suave); border-radius:6px 6px 0 0;}
+.cal-visitas td{border-bottom:1px solid var(--line); padding:6px 4px; vertical-align:top; min-width:100px;}
+.cal-visitas td:nth-child(n+2){border-left:1px solid var(--line);}
+.cal-visitas td.ahora{background:var(--alerta-suave); opacity:.7;}
+.cal-visitas-tec{font-size:12.5px; font-weight:600; color:var(--ink); white-space:nowrap; padding:6px 8px !important;}
+.cal-visitas-imprimir{text-align:center; vertical-align:middle !important;}
+.visita-chip{display:block; width:100%; text-align:left; font-size:10.5px; font-weight:600; padding:3px 6px;
+  border-radius:6px; border:none; margin-bottom:3px; cursor:pointer; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.visita-chip.i-ok{background:var(--ok);}
+.visita-chip.i-alerta{background:var(--alerta); color:#3a2c00;}
+.visita-chip.i-neutro{background:var(--gray);}
+.visita-agregar{display:block; width:100%; background:none; border:1px dashed var(--line); border-radius:6px;
+  color:var(--gray); font-size:13px; padding:2px 0; cursor:pointer;}
+.visita-agregar:hover{border-color:var(--accent); color:var(--accent);}
+.lista-pendientes-visita{display:flex; flex-direction:column;}
 .cal-lista li svg{width:12px; height:12px; flex:0 0 auto; position:relative; top:2px;}
 /* El renglón del calendario es un botón: ahí se marca "este ya se hizo". Se ve
    como texto hasta que el mouse encima lo delata — una lista de doce meses llena
@@ -1321,6 +1340,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="true">Forpass</button>
     <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
     <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
+    <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
     <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
     <button type="button" class="mod" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
@@ -2061,7 +2081,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], visitas:[] };
 
 function cargar(){
   try{
@@ -2915,7 +2935,7 @@ function limpiarSesionYDatos(){
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], visitas:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -3337,13 +3357,13 @@ async function bajarDeLaNube(){
      precios (ver firestore.rules): un Viewer/Técnico/Reportero recibe un 403
      ahí. Con listarNube a secas eso tumbaba TODO el login de esos roles —
      mismo bug que ya pasó con /proveedores (ver listarNubeSuave arriba). */
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, vi] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
     listarNube('levantamientos', 60), listarNubeSuave('proyectosImagen', 60),
     listarNubeSuave('serviciosExtras', 60), listarNube('activos', 60), listarNube('personal', 200),
     listarNubeSuave('proveedores', 100), listarNubeSuave('gastosProveedor', 100),
-    listarNubeSuave('refacciones', 100)
+    listarNubeSuave('refacciones', 100), listarNubeSuave('visitas', 100)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -3365,7 +3385,8 @@ async function bajarDeLaNube(){
             personal: pe.map(normalizarPersona),
             proveedores: (pv === null ? datos.proveedores : pv.map(normalizarProveedor)),
             gastosProveedor: (gp === null ? datos.gastosProveedor : gp.map(normalizarGastoProveedor)),
-            refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)) };
+            refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
+            visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)) };
   guardarLocal();
   return 'ok';
 }
@@ -4344,6 +4365,167 @@ function normalizarReporte(r){
 function reportePorId(id){ return datos.reportes.find(r => r.id === id); }
 function reportesDeSitio(sitioId){ return datos.reportes.filter(r => r.sitioId === sitioId); }
 function reportesDeCliente(clienteId){ return datos.reportes.filter(r => r.clienteId === clienteId); }
+
+/* ============================ VISITAS (rutas) ============================
+   Programación de la visita de un técnico a un sitio. Nace de dos fuentes
+   que YA existen —nunca se captura "porque sí"—: los servicios de póliza
+   que ya les tocan (mismo criterio que calcularPoliza()/el Gantt) y los
+   reportes todavía abiertos. La idea de "optimizar" es simple y concreta:
+   agrupar por sitio para que una sola visita cubra varios pendientes en
+   vez de mandar al técnico tres veces al mismo lugar (ver
+   gruposPendientesPorSitio() más abajo). */
+const ESTATUS_VISITA = ['programada', 'confirmada', 'en_curso', 'realizada', 'reprogramada', 'cancelada'];
+const ETIQUETA_ESTATUS_VISITA = {
+  programada:'Programada', confirmada:'Confirmada', en_curso:'En curso',
+  realizada:'Realizada', reprogramada:'Reprogramada', cancelada:'Cancelada'
+};
+const TONO_ESTATUS_VISITA = {
+  programada:'alerta', confirmada:'ok', en_curso:'ok',
+  realizada:'ok', reprogramada:'alerta', cancelada:'neutro'
+};
+
+/* Un renglón de "qué se va a atender" dentro de la visita: o un servicio de
+   póliza puntual (equipo + mes) o un reporte completo. Nunca los dos a la
+   vez — por eso `tipo` decide cuáles de los otros campos importan. */
+function normalizarPendienteVisita(x){
+  const tipo = (x && x.tipo === 'reporte') ? 'reporte' : 'poliza';
+  return {
+    tipo,
+    polizaId: (x && x.polizaId) || '',
+    partidaId: (x && x.partidaId) || '',
+    mes: Number.isInteger(x && x.mes) ? x.mes : null,
+    reporteId: (x && x.reporteId) || '',
+    concepto: (x && x.concepto ? String(x.concepto) : '').trim()
+  };
+}
+function normalizarVisita(v){
+  return {
+    id: (v && v.id) || nuevoId(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(v && v.fecha) ? v.fecha : hoyISO(),
+    /* Horario opcional: muchas rutas se arman solo por día, sin hora fija
+       todavía — nunca detiene la captura de la visita. */
+    horaInicio: /^\d{2}:\d{2}$/.test(v && v.horaInicio) ? v.horaInicio : '',
+    horaFin: /^\d{2}:\d{2}$/.test(v && v.horaFin) ? v.horaFin : '',
+    /* tecnicoUid queda vacío cuando se capturó el nombre a mano (un Analyst
+       sin permiso para listar /usuarios, ver modalVisita) — nunca bloquea
+       la captura por falta del id real. */
+    tecnicoUid: (v && v.tecnicoUid ? String(v.tecnicoUid) : '').trim(),
+    tecnicoNombre: (v && v.tecnicoNombre ? String(v.tecnicoNombre) : '').trim(),
+    clienteId: (v && v.clienteId) || '',
+    sitioId: (v && v.sitioId) || '',
+    sitioNombre: (v && v.sitioNombre ? String(v.sitioNombre) : '').trim(),
+    estatus: ESTATUS_VISITA.includes(v && v.estatus) ? v.estatus : 'programada',
+    motivo: (v && v.motivo ? String(v.motivo) : '').trim(),
+    pendientes: (Array.isArray(v && v.pendientes) ? v.pendientes : []).map(normalizarPendienteVisita),
+    notas: (v && v.notas ? String(v.notas) : '').trim(),
+    creado: (v && v.creado) || new Date().toISOString(),
+    creadoPor: (v && v.creadoPor ? String(v.creadoPor) : '').trim(),
+    actualizado: (v && v.actualizado) || ''
+  };
+}
+function visitaPorId(id){ return datos.visitas.find(v => v.id === id); }
+function visitasDeTecnico(uidONombre){
+  return datos.visitas.filter(v => (v.tecnicoUid && v.tecnicoUid === uidONombre) || v.tecnicoNombre === uidONombre);
+}
+function guardarVisita(v, accion, detalle){
+  v.actualizado = new Date().toISOString();
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'visitas', id:v.id, obj:v });
+  anotar(accion || 'editó', 'visita', (v.tecnicoNombre || 'sin técnico asignado') + ' → ' + (v.sitioNombre || 'sin sitio'), detalle);
+}
+function tonoVisita(v){ return TONO_ESTATUS_VISITA[v.estatus] || 'neutro'; }
+
+/* Igual que puedeGestionarReporte()/puedeGestionarActivos(): administración
+   de siempre, más el rol técnico — un técnico programa y ajusta SU PROPIA
+   ruta sin necesitar a un Analyst de por medio. */
+function puedeGestionarVisitas(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function exigirGestionVisitas(){
+  if(puedeGestionarVisitas()) return true;
+  aviso('No tienes permiso para programar visitas.', true);
+  return false;
+}
+
+/* --------------------- Bolsa de "pendientes por programar" ---------------------
+   Nada de esto se guarda aparte: se recalcula al vuelo desde pólizas y
+   reportes, siempre vigente, nunca puede quedar desincronizado de la fuente
+   real. Lo único que SÍ se guarda es qué pendientes ya quedaron cubiertos
+   por una visita (visita.pendientes), para no ofrecer de nuevo algo que ya
+   se programó. */
+function clavePendiente(x){
+  return x.tipo === 'reporte' ? 'reporte:' + x.reporteId : 'poliza:' + x.polizaId + ':' + x.partidaId + ':' + x.mes;
+}
+/* Una visita cancelada libera sus pendientes de vuelta a la bolsa (nunca se
+   atendieron); cualquier otro estatus —incluida reprogramada— los sigue
+   cubriendo, porque el compromiso de atenderlos sigue en pie, solo cambia
+   cuándo. */
+function pendientesCubiertos(){
+  const set = new Set();
+  datos.visitas.forEach(v=>{
+    if(v.estatus === 'cancelada') return;
+    v.pendientes.forEach(x => set.add(clavePendiente(x)));
+  });
+  return set;
+}
+/* Mismo criterio de "ya le toca" que calcularPoliza()/el Gantt de la
+   póliza: mes programado, sin marcar como hecho, mes <= mesActual —
+   excluye seguristas y renglones a cargo del cliente, porque tampoco
+   cuentan ahí. */
+function pendientesDePoliza(){
+  const cubiertos = pendientesCubiertos();
+  const salida = [];
+  const hoy = hoyISO();
+  datos.polizas.forEach(p=>{
+    if(p.estatus !== 'activa') return;
+    if(diasEntre(p.fechaInicio, hoy) < 0) return;   /* todavía no arranca */
+    const mesesCumplidos = mesesTranscurridos(p.fechaInicio, hoy);
+    const mesActual = Math.min(mesesCumplidos, MESES_POLIZA - 1);
+    p.partidas.forEach(x=>{
+      if(esSegurista(x)) return;
+      if(x.alcance === 'cliente') return;
+      x.mesesServicio.forEach(m=>{
+        if(m > mesActual || servicioHecho(p, x, m)) return;
+        const item = {
+          tipo:'poliza', polizaId:p.id, partidaId:x.id, mes:m, concepto:x.concepto,
+          clienteId:p.clienteId, sitioId:p.sitioId, sitioNombre:p.sitioNombre || p.folio || 'Sitio sin nombre',
+          atrasado: m < mesActual
+        };
+        if(!cubiertos.has(clavePendiente(item))) salida.push(item);
+      });
+    });
+  });
+  return salida;
+}
+/* Cualquier reporte que no haya llegado a un estatus final todavía necesita
+   que alguien vaya. */
+function pendientesDeReporte(){
+  const cubiertos = pendientesCubiertos();
+  return datos.reportes
+    .filter(r => !['resuelto','cerrado','cancelado'].includes(r.estatus))
+    .map(r => ({
+      tipo:'reporte', reporteId:r.id, concepto:r.titulo || 'Reporte sin título',
+      clienteId:r.clienteId, sitioId:r.sitioId, sitioNombre:r.sitioNombre || 'Sitio sin nombre',
+      prioridad:r.prioridad, estatus:r.estatus
+    }))
+    .filter(item => !cubiertos.has(clavePendiente(item)));
+}
+/* El corazón de "optimizar visitas" (lo que pidió Victor, 09-sep-2026):
+   agrupar TODO lo pendiente —póliza y reporte revueltos— por sitio, para
+   que sea obvio dónde conviene programar una sola visita que cubra varias
+   cosas en vez de mandar al técnico repetidas veces al mismo lugar. Los
+   sitios con más pendientes van primero: son los que más se ahorran
+   consolidando. */
+function gruposPendientesPorSitio(){
+  const todos = pendientesDePoliza().concat(pendientesDeReporte());
+  const grupos = {};
+  todos.forEach(item=>{
+    const clave = item.clienteId + '|' + (item.sitioId || item.sitioNombre);
+    if(!grupos[clave]){
+      grupos[clave] = { clienteId:item.clienteId, sitioId:item.sitioId, sitioNombre:item.sitioNombre, items:[] };
+    }
+    grupos[clave].items.push(item);
+  });
+  return Object.values(grupos).sort((a,b)=> b.items.length - a.items.length);
+}
 
 function tonoReporte(r){
   const t = TONO_ESTATUS_REPORTE[r.estatus] || 'neutro';
@@ -6990,6 +7172,15 @@ function sumarDias(iso, n){
   const d = new Date(aUTC(iso) + n * 86400000);
   return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
 }
+/* Lunes de la semana que contiene `iso` (AAAA-MM-DD) — ancla del calendario
+   semanal de Visitas. `getUTCDay()` da 0=domingo..6=sábado; se retrocede al
+   lunes más cercano (domingo retrocede 6 días, no se adelanta). */
+function lunesDeLaSemana(iso){
+  const d = new Date(aUTC(iso));
+  const diaSemana = d.getUTCDay();
+  const offset = diaSemana === 0 ? -6 : 1 - diaSemana;
+  return sumarDias(iso, offset);
+}
 /* Meses completos transcurridos entre dos fechas (como DATEDIF "m" de Excel). */
 function mesesTranscurridos(isoIni, isoFin){
   const a = partes(isoIni), b = partes(isoFin);
@@ -8081,7 +8272,18 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
-                 levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null, refaccionId:null,
+                 levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null, refaccionId:null, visitaId:null,
+                 /* Qué pestaña del módulo Visitas está abierta: el calendario
+                    semanal (el default), la bolsa de pendientes por programar,
+                    o la lista completa de visitas ya programadas. */
+                 vistaVisitasTab:'calendario',
+                 /* Lunes de la semana que se ve en el calendario de Visitas
+                    (AAAA-MM-DD). Empieza en el lunes de esta semana. */
+                 semanaVisitas: lunesDeLaSemana(hoyISO()),
+                 /* Qué técnico filtra la lista/calendario ('' = todos). Un
+                    técnico entra con esto ya puesto a su propio nombre, ver
+                    montarVisitas(). */
+                 filtroTecnicoVisita:'',
                  /* Qué estatus de gasto se está viendo en el rastreo de Proveedores
                     ('todos', o una de ESTATUS_GASTO_PROVEEDOR) — misma naturaleza
                     que `filtro` de arriba, nada más aparte para no pisarse con el
@@ -8128,7 +8330,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
 /* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
    pantalla, no información: va en localStorage y no viaja al servidor. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
 function cargarModulo(){
   try{
     const m = localStorage.getItem(LLAVE_MODULO);
@@ -8156,7 +8358,7 @@ function modulosPermitidos(){
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
   if(HAY_NUBE && haySesion() && sesion.rol === 'cliente') return [];
   if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
   /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
      editar precios (ver el comentario arriba de normalizarProyectoImagen())
      — un Viewer sigue viendo Pólizas de solo lectura, pero este módulo ni
@@ -8171,6 +8373,7 @@ function inicioDelModulo(){
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
+       : estado.modulo === 'visitas' ? 'visitas'
        : estado.modulo === 'activos' ? 'activos'
        : estado.modulo === 'proveedores' ? 'gastos-proveedor'
        : estado.modulo === 'organigrama' ? 'organigrama'
@@ -8226,7 +8429,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.visitaId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -8312,6 +8515,19 @@ function entrarReporte(id){
   estado.vista = 'reporte'; estado.reporteId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+/* Salto directo al calendario de Visitas, con la semana actual y sin
+   filtro de técnico — usado por los botones "Programar visita" que
+   aparecen fuera del módulo (ej. desde un reporte o una póliza). */
+function irAVisitas(){
+  if(estado.modulo !== 'visitas'){ estado.modulo = 'visitas'; guardarModulo(); }
+  estado.vista = 'visitas';
+  estado.vistaVisitasTab = 'calendario';
+  estado.semanaVisitas = lunesDeLaSemana(hoyISO());
+  estado.visitaId = null;
+  animarTarjetas = true;
+  render();
 }
 
 function irAActivos(){
@@ -14820,6 +15036,345 @@ function filaCronogramaProyectoSinFecha(p){
        +   '</div>'
        + '</div>';
 }
+
+/* ============================== MÓDULO VISITAS ==============================
+   Tres pestañas: Calendario (semana por técnico), Por programar (la bolsa de
+   pendientes de póliza/reporte agrupada por sitio) y Todas las visitas
+   (tabla). El modelo y los cálculos de "pendiente" viven arriba, junto a
+   normalizarVisita() — aquí solo se pinta. */
+
+/* Caché de cuentas con rol 'tecnico', para el selector de "¿Quién va?" de
+   modalVisita() — MISMO patrón que modalPersonasServicio() en Reportes: se
+   intenta listar /usuarios una vez (falla sola para quien no es Admin/Owner,
+   ver config/firestore.rules) y si no hay nada, el formulario cae solo a un
+   campo de texto libre. null = todavía no se intentó. */
+let tecnicosVisitasCache = null;
+async function montarVisitas(){
+  if(tecnicosVisitasCache !== null) return;
+  if(!HAY_NUBE){ tecnicosVisitasCache = []; return; }
+  try{
+    if(!admin.usuarios) admin.usuarios = await listarNube('usuarios');
+    tecnicosVisitasCache = admin.usuarios.filter(u => u.activo !== false && normalizarRol(u.rol) === 'tecnico');
+  }catch(e){
+    tecnicosVisitasCache = [];
+  }
+  /* Un técnico entra ya filtrado a su propia agenda, sin tener que armar el
+     filtro a mano cada vez. */
+  if(sesion.rol === 'tecnico' && !estado.filtroTecnicoVisita) estado.filtroTecnicoVisita = sesion.nombre;
+  render();
+}
+
+function vistaVisitas(){
+  const grupos = gruposPendientesPorSitio();
+  const totalPendientes = grupos.reduce((t,g)=> t + g.items.length, 0);
+
+  let h = '<div class="titulo-zona"><div><h2>Visitas</h2>'
+    + '<p>Programación de la visita de cada técnico a sus sitios — desde lo que ya toca de póliza y los reportes abiertos.</p></div>'
+    + '<div class="acciones">'
+    +   (puedeGestionarVisitas() ? '<button type="button" class="btn btn-primario" data-accion="nueva-visita">' + ICONO.mas + 'Nueva visita</button>' : '')
+    + '</div></div>';
+
+  h += '<nav class="modulos" role="tablist" aria-label="Visitas" style="margin-bottom:20px; max-width:560px">'
+    +   '<button type="button" class="mod" data-visitas-tab="calendario" role="tab" aria-selected="' + (estado.vistaVisitasTab === 'calendario') + '">Calendario</button>'
+    +   '<button type="button" class="mod" data-visitas-tab="programar" role="tab" aria-selected="' + (estado.vistaVisitasTab === 'programar') + '">Por programar' + (totalPendientes ? ' (' + totalPendientes + ')' : '') + '</button>'
+    +   '<button type="button" class="mod" data-visitas-tab="lista" role="tab" aria-selected="' + (estado.vistaVisitasTab === 'lista') + '">Todas las visitas</button>'
+    + '</nav>';
+
+  h += estado.vistaVisitasTab === 'programar' ? vistaVisitasProgramar(grupos)
+     : estado.vistaVisitasTab === 'lista' ? vistaVisitasLista()
+     : vistaVisitasCalendario();
+  return h;
+}
+
+/* La bolsa de pendientes, agrupada por sitio — mientras más pendientes junte
+   un sitio, más arriba sale: es el que más conviene visitar de una vez. */
+function vistaVisitasProgramar(grupos){
+  if(!grupos.length){
+    return vistaVacia('calendario', 'No hay nada pendiente de programar',
+      'En cuanto un servicio de póliza esté por vencer o se abra un reporte, va a aparecer aquí, agrupado por sitio para programarlo de una vez.', '', '');
+  }
+  return '<p class="pista" style="margin-bottom:14px">Agrupado por sitio: entre más pendientes junte uno, más conviene programar ahí una sola visita en vez de mandar al técnico varias veces.</p>'
+    + grupos.map((g,i)=>{
+        const cli = clientePorId(g.clienteId);
+        return '<div class="bloque" style="margin-bottom:14px">'
+          + '<div class="bloque-cabeza"><div>'
+          +   '<h3>' + esc(g.sitioNombre) + '</h3>'
+          +   '<p>' + esc((cli && cli.nombre) || 'Sin cliente') + ' · ' + g.items.length + ' ' + plural(g.items.length,'pendiente','pendientes') + '</p>'
+          + '</div></div>'
+          + '<div class="lista-pendientes-visita">' + g.items.map((item,j)=>
+              '<label class="casilla" style="align-items:flex-start; margin-bottom:7px">'
+              +   '<input type="checkbox" class="chkPendienteProgramar" data-grupo="' + i + '" data-indice="' + j + '" checked>'
+              +   '<span>' + esc(item.concepto) + ' '
+              +     (item.tipo === 'reporte'
+                    ? '<span class="insignia i-' + (TONO_ESTATUS_REPORTE[item.estatus] || 'neutro') + '">Reporte</span>'
+                    : '<span class="insignia i-' + (item.atrasado ? 'error' : 'alerta') + '">' + (item.atrasado ? 'Póliza atrasada' : 'Póliza este mes') + '</span>')
+              +   '</span>'
+              + '</label>'
+            ).join('') + '</div>'
+          + (puedeGestionarVisitas()
+              ? '<div style="margin-top:8px"><button type="button" class="btn btn-primario btn-mini" data-programar-grupo="' + i + '">' + ICONO.mas + 'Programar visita a este sitio</button></div>'
+              : '')
+          + '</div>';
+      }).join('');
+}
+
+/* Nombres de técnico para las filas del calendario: unión de quien YA tiene
+   una visita esta semana (para que nunca desaparezca alguien capturado a
+   mano) con las cuentas de rol técnico, si se pudieron listar. */
+function tecnicosParaCalendario(visitasSemana){
+  const nombres = new Set(visitasSemana.map(v => v.tecnicoNombre).filter(Boolean));
+  if(tecnicosVisitasCache) tecnicosVisitasCache.forEach(u => nombres.add(nombreDe(u)));
+  return Array.from(nombres).sort((a,b)=> a.localeCompare(b,'es'));
+}
+
+function vistaVisitasCalendario(){
+  const lunes = estado.semanaVisitas;
+  const dias = Array.from({length:7}, (_,i)=> sumarDias(lunes, i));
+  const NOMBRES_DIA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+  const hoy = hoyISO();
+
+  const visitasSemana = datos.visitas.filter(v => dias.includes(v.fecha) && v.estatus !== 'cancelada');
+  let tecnicos = tecnicosParaCalendario(visitasSemana);
+  if(estado.filtroTecnicoVisita) tecnicos = tecnicos.filter(t => t === estado.filtroTecnicoVisita);
+
+  let h = '<div class="cal-cabecera" style="margin-bottom:14px">'
+    + '<button type="button" class="btn btn-suave btn-mini" data-semana-visita="-1">← Semana anterior</button>'
+    + '<div style="font-weight:600">' + fmtFecha(lunes) + ' – ' + fmtFecha(dias[6]) + '</div>'
+    + '<button type="button" class="btn btn-suave btn-mini" data-semana-visita="1">Semana siguiente →</button>'
+    + '</div>';
+
+  if(tecnicosVisitasCache && tecnicosVisitasCache.length > 1){
+    h += '<div class="campo" style="max-width:280px; margin-bottom:14px"><label>Filtrar por técnico</label>'
+      + '<select id="filtroTecnicoVisitaSel"><option value="">Todos</option>'
+      + tecnicosVisitasCache.slice().sort((a,b)=>nombreDe(a).localeCompare(nombreDe(b),'es')).map(u=>{
+          const nom = nombreDe(u);
+          return '<option value="' + esc(nom) + '"' + (estado.filtroTecnicoVisita === nom ? ' selected' : '') + '>' + esc(nom) + '</option>';
+        }).join('') + '</select></div>';
+  }
+
+  if(!tecnicos.length){
+    return h + vistaVacia('persona', 'Todavía no hay técnicos con visitas esta semana',
+      puedeGestionarVisitas() ? 'Usa "Nueva visita" o la bolsa de "Por programar" para programar la primera.' : 'En cuanto te programen una visita, la vas a ver aquí.', '', '');
+  }
+
+  h += '<div class="rodillo"><table class="tabla cal-visitas"><thead><tr><th>Técnico</th>'
+    + dias.map((d,i)=> '<th' + (d === hoy ? ' class="ahora"' : '') + '>' + NOMBRES_DIA[i] + '<br><span class="pista">' + fmtFecha(d).slice(0,6) + '</span></th>').join('')
+    + '</tr></thead><tbody>'
+    + tecnicos.map(tec=>{
+        return '<tr><td class="cal-visitas-tec">' + esc(tec) + '</td>'
+          + dias.map(d=>{
+              const visitasDia = visitasSemana.filter(v => v.tecnicoNombre === tec && v.fecha === d);
+              const chips = visitasDia.map(v =>
+                '<button type="button" class="visita-chip i-' + tonoVisita(v) + '" data-ver-visita="' + esc(v.id) + '" title="' + esc(v.sitioNombre) + ' · ' + esc(ETIQUETA_ESTATUS_VISITA[v.estatus]) + '">'
+                + esc(v.sitioNombre || 'Sin sitio') + (v.pendientes.length > 1 ? ' ×' + v.pendientes.length : '')
+                + '</button>'
+              ).join('');
+              return '<td class="cal-visitas-celda' + (d === hoy ? ' ahora' : '') + '">' + chips
+                + (puedeGestionarVisitas() ? '<button type="button" class="visita-agregar" data-nueva-visita-en="' + esc(tec) + '|' + d + '" title="Programar visita">+</button>' : '')
+                + '</td>';
+            }).join('')
+          + '<td class="cal-visitas-imprimir">' + (puedeGestionarVisitas()
+              ? '<button type="button" class="btn btn-suave btn-mini" data-imprimir-ruta="' + esc(tec) + '" title="Ruta de la semana">' + ICONO.imprimir + '</button>'
+              : '') + '</td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table></div>';
+  return h;
+}
+
+function vistaVisitasLista(){
+  let lista = datos.visitas.slice();
+  if(estado.filtroTecnicoVisita) lista = lista.filter(v => v.tecnicoNombre === estado.filtroTecnicoVisita);
+  lista.sort((a,b)=> b.fecha.localeCompare(a.fecha) || (a.horaInicio||'').localeCompare(b.horaInicio||''));
+  if(!lista.length){
+    return vistaVacia('calendario', 'Todavía no hay visitas programadas',
+      'Usa "Nueva visita" o la bolsa de "Por programar" para crear la primera.', '', '');
+  }
+  return '<div class="rodillo"><table class="tabla"><thead><tr>'
+    + '<th>Fecha</th><th>Técnico</th><th>Sitio</th><th>Cliente</th><th>Pendientes</th><th>Estatus</th>'
+    + '</tr></thead><tbody>'
+    + lista.map(v=>{
+        const cli = clientePorId(v.clienteId);
+        return '<tr class="fila-clic" data-ver-visita="' + esc(v.id) + '" tabindex="0" style="cursor:pointer">'
+          + '<td>' + fmtFecha(v.fecha) + (v.horaInicio ? ' · ' + esc(v.horaInicio) : '') + '</td>'
+          + '<td>' + esc(v.tecnicoNombre || '—') + '</td>'
+          + '<td>' + esc(v.sitioNombre || '—') + '</td>'
+          + '<td>' + esc((cli && cli.nombre) || '—') + '</td>'
+          + '<td>' + numero(v.pendientes.length) + '</td>'
+          + '<td><span class="insignia i-' + tonoVisita(v) + '"><span class="punto p-' + tonoVisita(v) + '"></span>' + esc(ETIQUETA_ESTATUS_VISITA[v.estatus]) + '</span></td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table></div>';
+}
+
+/* ------------------------- Modal: crear/editar visita -------------------------
+   `prellenado` trae lo que ya se sabe al abrir el modal desde otro lado:
+   {clienteId, sitioId, sitioNombre, fecha, tecnicoNombre, pendientes}. Nunca
+   se exige más de lo que ya se tiene — un "+" desde una celda vacía del
+   calendario solo trae técnico+fecha; "Programar visita a este sitio" desde
+   la bolsa de pendientes trae cliente+sitio+la lista completa. */
+function modalVisita(id, prellenado){
+  if(!puedeGestionarVisitas()){ aviso('No tienes permiso para programar visitas.', true); return; }
+  const v = id ? visitaPorId(id) : null;
+  const pre = prellenado || {};
+  const clientesOrdenados = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const clienteInicial = v ? v.clienteId : (pre.clienteId || '');
+  const sitiosIniciales = clienteInicial ? sitiosDe(clienteInicial) : [];
+  const tieneCuentas = tecnicosVisitasCache && tecnicosVisitasCache.length;
+  /* Los pendientes que trae la visita (o los que se le van a adjuntar al
+     crearla) son de solo lectura aquí: se arman desde la bolsa de "Por
+     programar", no se editan renglón por renglón dentro del modal. */
+  const pendientesForm = v ? v.pendientes.slice() : (Array.isArray(pre.pendientes) ? pre.pendientes.slice() : []);
+  const bloqueaSitio = pendientesForm.length > 0;
+
+  abrirModal(v ? 'Editar visita' : 'Nueva visita',
+      '<div class="campo"><label>¿A cuál cliente?' + (bloqueaSitio ? '' : ' *') + '</label>'
+    +   '<select id="vsCliente"' + (bloqueaSitio ? ' disabled' : '') + '>'
+    +     '<option value="">— Elige uno —</option>'
+    +     clientesOrdenados.map(c => '<option value="' + esc(c.id) + '"' + (c.id === clienteInicial ? ' selected' : '') + '>' + esc(c.nombre) + '</option>').join('')
+    +   '</select></div>'
+    + '<div class="campo"><label>¿A cuál sitio?</label>'
+    +   '<select id="vsSitio"' + (bloqueaSitio ? ' disabled' : '') + '>'
+    +     '<option value="">— Elige uno, o escribe abajo —</option>'
+    +     sitiosIniciales.map(s => '<option value="' + esc(s.id) + '"' + (s.id === (v ? v.sitioId : pre.sitioId) ? ' selected' : '') + '>' + esc(s.nombre) + '</option>').join('')
+    +   '</select>'
+    +   '<input type="text" id="vsSitioNombre" placeholder="Nombre del sitio" style="margin-top:6px"'
+    +     (bloqueaSitio ? ' readonly' : '') + ' value="' + esc(v ? v.sitioNombre : (pre.sitioNombre || '')) + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fecha *</label><input type="date" id="vsFecha" value="' + esc(v ? v.fecha : (pre.fecha || hoyISO())) + '"></div>'
+    +   '<div class="campo"><label>Hora (opcional)</label><input type="time" id="vsHora" value="' + esc(v ? v.horaInicio : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>¿Quién va? *</label>'
+    +   (tieneCuentas
+        ? '<select id="vsTecnico"><option value="">— Elige uno —</option>'
+          + tecnicosVisitasCache.slice().sort((a,b)=>nombreDe(a).localeCompare(nombreDe(b),'es')).map(u=>{
+              const nom = nombreDe(u);
+              const marcado = v ? v.tecnicoUid === u.id : (pre.tecnicoNombre === nom);
+              return '<option value="' + esc(u.id) + '" data-nombre="' + esc(nom) + '"' + (marcado ? ' selected' : '') + '>' + esc(nom) + '</option>';
+            }).join('') + '</select>'
+        : '<input type="text" id="vsTecnicoNombre" placeholder="Nombre del técnico" value="' + esc(v ? v.tecnicoNombre : (pre.tecnicoNombre || '')) + '">')
+    + '</div>'
+    + (v ? '<div class="campo"><label>Estatus</label><select id="vsEstatus">'
+        + ESTATUS_VISITA.map(e => '<option value="' + e + '"' + (v.estatus === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_VISITA[e]) + '</option>').join('')
+        + '</select></div>' : '')
+    + (pendientesForm.length
+        ? '<div class="campo"><label>Qué se va a atender (' + pendientesForm.length + ')</label>'
+          + '<div class="pista">' + esc(pendientesForm.map(p=>p.concepto).join(' · ')) + '</div></div>'
+        : '')
+    + '<div class="campo"><label>Notas para el técnico</label>'
+    +   '<textarea id="vsNotas" placeholder="Contacto en sitio, instrucciones especiales, etc.">' + esc(v ? v.notas : '') + '</textarea></div>',
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + (v && esAdmin() ? '<button type="button" class="btn btn-peligro izq" data-borrar-visita="' + esc(v.id) + '">Borrar</button>' : '')
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (v ? 'Guardar cambios' : 'Programar visita') + '</button>');
+
+  if(!bloqueaSitio){
+    $('vsCliente').addEventListener('change', ()=>{
+      const sitios = sitiosDe($('vsCliente').value);
+      $('vsSitio').innerHTML = '<option value="">— Elige uno, o escribe abajo —</option>'
+        + sitios.map(s => '<option value="' + esc(s.id) + '">' + esc(s.nombre) + '</option>').join('');
+      $('vsSitioNombre').value = '';
+    });
+    $('vsSitio').addEventListener('change', ()=>{
+      const s = sitioPorId($('vsSitio').value);
+      if(s) $('vsSitioNombre').value = s.nombre;
+    });
+  }
+
+  cerrarModalActual = async ()=>{
+    const clienteId = bloqueaSitio ? clienteInicial : $('vsCliente').value;
+    const sitioId = bloqueaSitio ? (v ? v.sitioId : (pre.sitioId || '')) : $('vsSitio').value;
+    const sitioNombre = $('vsSitioNombre').value.trim();
+    const fecha = $('vsFecha').value;
+    const horaInicio = $('vsHora').value;
+    let tecnicoUid = '', tecnicoNombre = '';
+    if(tieneCuentas){
+      const sel = $('vsTecnico');
+      tecnicoUid = sel.value;
+      tecnicoNombre = sel.value ? sel.options[sel.selectedIndex].dataset.nombre : '';
+    }else{
+      tecnicoNombre = $('vsTecnicoNombre').value.trim();
+    }
+    if(!fecha){ aviso('Falta la fecha.', true); return; }
+    if(!sitioNombre){ aviso('Falta el sitio: elígelo de la lista o escríbelo.', true); return; }
+    if(!tecnicoNombre){ aviso('Falta quién va a la visita.', true); return; }
+
+    const btn = $('modalPie').querySelector('[data-modal="guardar"]');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+
+    const base = v || {};
+    const obj = normalizarVisita({
+      id: v ? v.id : undefined,
+      clienteId, sitioId, sitioNombre, fecha, horaInicio,
+      tecnicoUid, tecnicoNombre,
+      estatus: v ? $('vsEstatus').value : 'programada',
+      pendientes: pendientesForm,
+      notas: $('vsNotas').value.trim(),
+      creado: base.creado,
+      creadoPor: v ? v.creadoPor : (sesion.nombre || sesion.correo || '')
+    });
+
+    if(v){
+      Object.assign(v, obj);
+      guardarVisita(v, 'editó', sitioNombre);
+    }else{
+      datos.visitas.push(obj);
+      guardarVisita(obj, 'programó', sitioNombre);
+    }
+    cerrarModalActual = null;
+    cerrarModal();
+    animarTarjetas = true;
+    render();
+    aviso(v ? 'Visita actualizada.' : 'Visita programada.');
+  };
+}
+
+/* ------------------------- Hoja de ruta imprimible -------------------------
+   Mismo patrón que abrirDocumentoPoliza(): arma el payload, lo dEja en
+   sessionStorage y abre la plantilla estática en una pestaña nueva —
+   docs/plantilla_ruta_visitas.html SOLO formatea, no calcula nada. */
+function armarPayloadRutaTecnico(tecnicoNombre, dias){
+  const visitas = datos.visitas
+    .filter(v => v.tecnicoNombre === tecnicoNombre && dias.includes(v.fecha) && v.estatus !== 'cancelada')
+    .sort((a,b)=> a.fecha.localeCompare(b.fecha) || (a.horaInicio||'').localeCompare(b.horaInicio||''));
+  return {
+    tecnico: tecnicoNombre,
+    generado: new Date().toISOString(),
+    desde: dias[0], hasta: dias[dias.length - 1],
+    dias: dias.map(d => ({
+      fecha: d,
+      visitas: visitas.filter(v => v.fecha === d).map(v=>{
+        const cli = clientePorId(v.clienteId);
+        const sitio = sitioPorId(v.sitioId);
+        const contactoObj = sitio && Array.isArray(sitio.contactos) ? sitio.contactos[0] : null;
+        return {
+          hora: v.horaInicio || '',
+          sitio: v.sitioNombre,
+          cliente: (cli && cli.nombre) || '',
+          zona: (sitio && sitio.zona) || '',
+          contacto: contactoObj ? (contactoObj.nombre + (contactoObj.telefono ? ' · ' + contactoObj.telefono : '')) : '',
+          estatus: ETIQUETA_ESTATUS_VISITA[v.estatus],
+          pendientes: v.pendientes.map(p => p.concepto),
+          notas: v.notas
+        };
+      })
+    }))
+  };
+}
+const LLAVE_DOC_VISITAS = 'forguard.documento.visitas';
+function abrirDocumentoRutaTecnico(tecnicoNombre, dias){
+  let payload;
+  try{
+    payload = armarPayloadRutaTecnico(tecnicoNombre, dias);
+    sessionStorage.setItem(LLAVE_DOC_VISITAS, JSON.stringify(payload));
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return;
+  }
+  const w = window.open('docs/plantilla_ruta_visitas.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+  return payload;
+}
+
 function vistaCronogramaProyectosImagen(lista){
   const conCalendario = lista.filter(tieneCalendarioProyectoImagen);
   const sinCalendario = lista.filter(p => !tieneCalendarioProyectoImagen(p));
@@ -16312,7 +16867,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.visitaId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -16328,6 +16883,7 @@ function render(){
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
+    : estado.modulo === 'visitas'      ? vistaVisitas()
     : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo() : vistaActivos())
     : estado.modulo === 'proveedores'  ? (estado.vista === 'gasto-proveedor' ? vistaGastoProveedor()
                                     : estado.vista === 'proveedor' ? vistaProveedorDetalle()
@@ -16590,7 +17146,10 @@ function render(){
   if(fs) fs.addEventListener('change', ()=>{ estado.sitioFiltro = fs.value; render(); });
   const fe = $('filtroEncargado');
   if(fe) fe.addEventListener('change', ()=>{ estado.encargadoFiltro = fe.value; render(); });
+  const ftv = $('filtroTecnicoVisitaSel');
+  if(ftv) ftv.addEventListener('change', ()=>{ estado.filtroTecnicoVisita = ftv.value; render(); });
   if(estado.vista === 'admin') montarAdmin();
+  if(estado.modulo === 'visitas') montarVisitas();
   /* Ya se dibujó: los siguientes redibujados de esta misma lista son instantáneos.
      Solo cambiar de vista vuelve a prender la animación. */
   animarTarjetas = false;
@@ -16628,6 +17187,7 @@ function pintarCabecera(){
   const inicio = $('btnInicio');
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
+                 : estado.modulo === 'visitas' ? 'Visitas'
                  : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'proveedores' ? 'Proveedores'
                  : estado.modulo === 'organigrama' ? 'Organigrama'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
@@ -17568,6 +18128,70 @@ $('vista').addEventListener('click', async ev=>{
     if(!cli) return;
     resincronizarCopiasCliente(cli.id);
     aviso('Portal de ' + cli.nombre + ' resincronizado: ' + resumenClienteCorto(cli.id) + '.');
+    return;
+  }
+
+  /* -------------------------- Visitas -------------------------- */
+  const vTab = ev.target.closest('[data-visitas-tab]');
+  if(vTab){ estado.vistaVisitasTab = vTab.dataset.visitasTab; animarTarjetas = true; render(); return; }
+
+  const vSemana = ev.target.closest('[data-semana-visita]');
+  if(vSemana){
+    estado.semanaVisitas = sumarDias(estado.semanaVisitas, 7 * Number(vSemana.dataset.semanaVisita));
+    render();
+    return;
+  }
+
+  const vPrograma = ev.target.closest('[data-programar-grupo]');
+  if(vPrograma){
+    if(!exigirGestionVisitas()) return;
+    const grupos = gruposPendientesPorSitio();
+    const g = grupos[Number(vPrograma.dataset.programarGrupo)];
+    if(!g) return;
+    const marcados = $('vista').querySelectorAll('.chkPendienteProgramar[data-grupo="' + vPrograma.dataset.programarGrupo + '"]:checked');
+    const pendientes = Array.from(marcados).map(chk => g.items[Number(chk.dataset.indice)]).filter(Boolean);
+    if(!pendientes.length){ aviso('Marca al menos un pendiente para programar la visita.', true); return; }
+    modalVisita(null, { clienteId:g.clienteId, sitioId:g.sitioId, sitioNombre:g.sitioNombre, pendientes });
+    return;
+  }
+
+  const vNuevaEn = ev.target.closest('[data-nueva-visita-en]');
+  if(vNuevaEn){
+    const [tecnicoNombre, fecha] = vNuevaEn.dataset.nuevaVisitaEn.split('|');
+    modalVisita(null, { tecnicoNombre, fecha });
+    return;
+  }
+
+  const vVer = ev.target.closest('[data-ver-visita]');
+  if(vVer){ modalVisita(vVer.dataset.verVisita); return; }
+
+  const vImprimir = ev.target.closest('[data-imprimir-ruta]');
+  if(vImprimir){
+    const lunes = estado.semanaVisitas;
+    const dias = Array.from({length:7}, (_,i)=> sumarDias(lunes, i));
+    abrirDocumentoRutaTecnico(vImprimir.dataset.imprimirRuta, dias);
+    return;
+  }
+
+  const vBorrar = ev.target.closest('[data-borrar-visita]');
+  if(vBorrar){
+    if(!exigirAdmin('borrar una visita')) return;
+    const id = vBorrar.dataset.borrarVisita;
+    const v = visitaPorId(id);
+    if(!v) return;
+    confirmar('Borrar visita',
+      'Se borra la visita de <b>' + esc(v.tecnicoNombre || 'sin técnico') + '</b> a <b>' + esc(v.sitioNombre || 'sin sitio') + '</b> el ' + fmtFecha(v.fecha) + '. '
+      + (v.pendientes.length ? 'Sus ' + v.pendientes.length + ' ' + plural(v.pendientes.length,'pendiente','pendientes') + ' vuelve' + (v.pendientes.length===1?'':'n') + ' a la bolsa de "Por programar".' : ''),
+      'Sí, borrar', ()=>{
+        datos.visitas = datos.visitas.filter(x => x.id !== id);
+        borrarRegistro('visitas', id);
+        anotar('borró', 'visita', (v.tecnicoNombre || 'sin técnico') + ' → ' + (v.sitioNombre || 'sin sitio'));
+        cerrarModalActual = null;
+        cerrarModal();
+        animarTarjetas = true;
+        render();
+        aviso('Visita borrada.');
+      });
     return;
   }
 });
@@ -21971,6 +22595,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-atrasados-cliente') modalCobranza(estado.clienteId, 'atrasados');
     else if(a === 'nueva-cuenta') modalCuenta();
     else if(a === 'nueva-cuenta-cliente') modalCrearCuentaCliente();
+    else if(a === 'nueva-visita') modalVisita(null, estado.filtroTecnicoVisita ? { tecnicoNombre: estado.filtroTecnicoVisita } : null);
     else if(a === 'refrescar-admin') montarAdmin(true);
     else if(a === 'agregar-segmento'){
       if(!exigirAdmin('agregar un segmento')) return;
@@ -23302,7 +23927,7 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], visitas:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
     sincronizado = false;
