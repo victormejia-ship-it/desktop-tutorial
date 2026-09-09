@@ -2367,10 +2367,11 @@ const EVIDENCIA_LADO_MAX = 1000;                 /* lado mayor, en px */
 const EVIDENCIA_MAX_ENTRADA = 15 * 1024 * 1024;  /* 15 MB: una foto de celular pesa más que un logo */
 const EVIDENCIA_MAX_GUARDADO = 90 * 1024;        /* ~90 KB ya reducida */
 const EVIDENCIA_MAX_POR_REPORTE = 6;
-/* Evidencia de UN servicio de póliza (un equipo, un mes): menos cupo que un
-   reporte porque aquí es solo "prueba de que se hizo", no una investigación
-   completa. Mismo pipeline de compresión y mismo molde (normalizarEvidencia). */
-const EVIDENCIA_MAX_POR_SERVICIO = 4;
+/* Evidencia de UN servicio de póliza (un equipo, un mes). Antes/después,
+   varios ángulos, refacciones cambiadas, etc. Como ahora se sube a Firebase
+   Storage (no queda embebida en el documento de Firestore), un cupo mayor
+   no vuelve a pesar el documento de la póliza. */
+const EVIDENCIA_MAX_POR_SERVICIO = 8;
 /* Fotos de UN activo: placa de serie, estado físico, alguna evidencia de
    daño — mismo cupo que un reporte, porque un activo también acumula
    evidencia a lo largo de su vida (no solo al darlo de alta). */
