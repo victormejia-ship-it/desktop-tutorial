@@ -2762,11 +2762,30 @@ function puedePolizaCorregirPrecios(p){
    por el "!HAY_NUBE ||" que sí llevan las de arriba. */
 function esCliente(){ return HAY_NUBE && sesion.rol === 'cliente'; }
 
+/* ===================== Timeout compartido para TODO fetch() a la nube =====================
+   fetch() nativo no tiene límite de tiempo propio: en una conexión de datos
+   móviles que se queda a medias —muy común en 4G débil, al cambiar de torre,
+   o al entrar a un elevador/sótano— la promesa no se resuelve NI se rechaza,
+   se queda esperando para siempre. Todo el manejo de "sin conexión" que ya
+   existía (esFalloDeRed(), manejarFalloDeArranque(): sigue con la copia
+   local y reintenta solo) nunca llegaba a correr en ese caso, porque nada
+   fallaba — nada más nunca terminaba. Quien entraba desde el celular se
+   quedaba viendo "Cargando…" sin salida, sin error, sin botón de reintentar.
+   Con este límite, una petición que tarda demasiado se cancela SOLA y cae en
+   el mismo camino ya probado de "sin conexión, reintenta solo". */
+const TIMEOUT_RED_MS = 20000;
+function fetchConTimeout(url, opciones, ms){
+  const control = new AbortController();
+  const reloj = setTimeout(()=> control.abort(), ms || TIMEOUT_RED_MS);
+  return fetch(url, Object.assign({}, opciones, { signal: control.signal }))
+    .finally(()=> clearTimeout(reloj));
+}
+
 function urlAuth(metodo){
   return 'https://identitytoolkit.googleapis.com/v1/accounts:' + metodo + '?key=' + encodeURIComponent(CONFIG_NUBE.apiKey);
 }
 async function pedirAuth(metodo, cuerpo){
-  const r = await fetch(urlAuth(metodo), {
+  const r = await fetchConTimeout(urlAuth(metodo), {
     method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo)
   });
   const d = await r.json().catch(()=>({}));
@@ -2798,7 +2817,7 @@ async function entrar(correo, contrasena){
   await cargarPerfil();
 }
 async function renovarToken(){
-  const r = await fetch('https://securetoken.googleapis.com/v1/token?key=' + encodeURIComponent(CONFIG_NUBE.apiKey), {
+  const r = await fetchConTimeout('https://securetoken.googleapis.com/v1/token?key=' + encodeURIComponent(CONFIG_NUBE.apiKey), {
     method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type:'refresh_token', refresh_token: sesion.refreshToken }).toString()
   });
@@ -2809,9 +2828,21 @@ async function renovarToken(){
   sesion.expira = Date.now() + (Number(d.expires_in) || 3600) * 1000;
   guardarSesion();
 }
+/* Sin _renovandoToken, cada una de las peticiones que arrancan en paralelo
+   (bajarDeLaNube() lanza hasta 17 a la vez) detecta por su cuenta que el
+   token está por vencer y dispara SU PROPIO renovarToken() — hasta 17
+   solicitudes idénticas y simultáneas al mismo endpoint, justo en el
+   momento más común para que esto pase: reabrir la pestaña en el celular
+   después de un rato en segundo plano (el token ya lleva casi una hora),
+   con 4G de por medio. Con la promesa compartida, la primera que nota el
+   vencimiento dispara el refresh y todas las demás esperan esa misma. */
+let _renovandoToken = null;
 async function tokenVigente(){
   if(!haySesion()) throw new Error('SIN_SESION');
-  if(Date.now() > sesion.expira - 60000) await renovarToken();
+  if(Date.now() > sesion.expira - 60000){
+    if(!_renovandoToken) _renovandoToken = renovarToken().finally(()=>{ _renovandoToken = null; });
+    await _renovandoToken;
+  }
   return sesion.idToken;
 }
 
@@ -2849,9 +2880,13 @@ async function subirEvidenciaStorage(dataUrl, carpeta, idArchivo){
   const token = await tokenVigente();
   let r;
   try{
-    r = await fetch(
+    /* Timeout más largo que el general (TIMEOUT_RED_MS): esto sube bytes de
+       verdad, no solo pide un documento chico — en 4G débil puede tardar
+       más sin que signifique que se cayó la conexión. */
+    r = await fetchConTimeout(
       'https://firebasestorage.googleapis.com/v0/b/' + CONFIG_NUBE.storageBucket + '/o?uploadType=media&name=' + encodeURIComponent(ruta),
-      { method:'POST', headers:{ 'Authorization':'Firebase ' + token, 'Content-Type': tipo }, body: bytes }
+      { method:'POST', headers:{ 'Authorization':'Firebase ' + token, 'Content-Type': tipo }, body: bytes },
+      40000
     );
   }catch(e){ throw new Error('Sin conexión: la foto no se pudo subir.'); }
   const d = await r.json().catch(()=>({}));
@@ -3214,7 +3249,7 @@ async function pedirNube(ruta, opciones, permitirVacio, esReintento){
   const t = await tokenVigente();
   const op = Object.assign({}, opciones);
   op.headers = Object.assign({ 'Authorization':'Bearer ' + t, 'Content-Type':'application/json' }, op.headers || {});
-  const r = await fetch(RAIZ_NUBE() + ruta, op);
+  const r = await fetchConTimeout(RAIZ_NUBE() + ruta, op);
   if(r.status === 401 && !esReintento){
     await renovarToken();
     return pedirNube(ruta, opciones, permitirVacio, true);
@@ -24573,6 +24608,10 @@ $('btnAdmin').addEventListener('click', ()=>{
    sería sacar al usuario y pedirle la contraseña por una falla pasajera. */
 function esFalloDeRed(e){
   if(e instanceof TypeError) return true;      /* así se queja fetch cuando no hay red */
+  /* fetchConTimeout() cancela sola una petición que tardó demasiado
+     (AbortError) — no es un rechazo del servidor, es que nunca contestó a
+     tiempo; misma familia que "sin conexión" para todo fin práctico. */
+  if(e && e.name === 'AbortError') return true;
   const m = String((e && e.message) || e || '');
   return /Failed to fetch|NetworkError|Load failed|network error|ERR_INTERNET/i.test(m);
 }
