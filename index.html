@@ -2930,6 +2930,27 @@ function autoMigrarFotosPolizaSiHaceFalta(p){
   _polizasAutoMigrandoFotos.add(p.id);
   migrarFotosPolizaAStorage(p.id, true);
 }
+/* Lo anterior arregla la foto que TODAVÍA está en base64. Pero POL-024 (y
+   cualquier póliza con el mismo historial) puede tener su /polizas_cliente
+   desactualizado por una razón distinta: ese documento se reescribe SOLO
+   cuando alguien guarda la póliza (guardarPoliza) o cuando se vincula la
+   cuenta del cliente (resincronizarCopiasCliente) — un servicio que se
+   marcó una vez, en Feb, y nunca se volvió a tocar, pudo quedarse con su
+   copia de cliente vieja de ANTES de que esa foto llegara a Storage, sin
+   que nada de lo de arriba lo note (aquí ya no hay ningún data: que
+   migrar, polizaTieneFotosSinMigrar ya da falso). La única manera de estar
+   seguros de que /polizas_cliente trae lo mismo que /polizas AHORA MISMO es
+   volver a escribirlo, sin condición, la primera vez que un Admin abre esa
+   póliza en la sesión — es un documento chico (sin costos ni base64), así
+   que reescribirlo de más no cuesta casi nada. */
+const _polizasAutoResincronizadas = new Set();
+function autoResincronizarCopiaClientePoliza(p){
+  if(!esAdmin() || !HAY_NUBE || !haySesion()) return;
+  if(_polizasAutoResincronizadas.has(p.id)) return;
+  _polizasAutoResincronizadas.add(p.id);
+  encolarCopiaCliente('polizas_cliente', p.id, datosClientePoliza(p));
+  guardarLocal();
+}
 
 /* Borra sesión y datos, SIN mostrar el login. Está separado porque la persiana
    de cierre necesita borrar de inmediato pero destapar el login más tarde,
@@ -16217,6 +16238,7 @@ function vistaPoliza(){
   const p = polizaPorId(estado.polizaId);
   if(!p){ estado.vista = 'polizas'; return vistaPolizas(); }
   autoMigrarFotosPolizaSiHaceFalta(p);
+  autoResincronizarCopiaClientePoliza(p);
   const c = calcularPoliza(p);
   const cli = clientePorId(p.clienteId);
   const sitio = p.sitioId ? sitioPorId(p.sitioId) : null;
