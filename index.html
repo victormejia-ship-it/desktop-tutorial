@@ -2952,6 +2952,74 @@ function autoResincronizarCopiaClientePoliza(p){
   guardarLocal();
 }
 
+/* Herramienta temporal de diagnóstico (10-sep-2026): a pesar de los dos
+   arreglos de arriba, se siguió reportando una foto que se ve bien del
+   lado de Forguard pero no en el portal — así que en vez de seguir
+   adivinando la causa, esto compara EN VIVO, directo de Firestore (sin
+   pasar por datos.polizas ni por ninguna caché local), lo que /polizas
+   (el respaldo real) trae contra lo que /polizas_cliente (lo que de
+   verdad lee el portal) trae para cada servicio con evidencia. Deja ver
+   de un vistazo si el problema es que polizas_cliente sigue sin la foto
+   (bug de sincronización) o si la trae y el problema está en cómo el
+   portal la pinta. */
+async function diagnosticarFotosPoliza(polizaId){
+  const p = polizaPorId(polizaId);
+  if(!p) return;
+  aviso('Comparando /polizas contra /polizas_cliente…');
+  let real, cliente;
+  try{
+    [real, cliente] = await Promise.all([
+      pedirNube('/polizas/' + encodeURIComponent(polizaId), { method:'GET' }, true),
+      pedirNube('/polizas_cliente/' + encodeURIComponent(polizaId), { method:'GET' }, true)
+    ]);
+  }catch(e){
+    aviso('No se pudo comparar: ' + e.message, true);
+    return;
+  }
+  const polReal = (real && real.fields) ? normalizarPoliza(Object.assign({ id: polizaId }, deCampos(real.fields))) : null;
+  const polCliente = (cliente && cliente.fields) ? normalizarPoliza(Object.assign({ id: polizaId }, deCampos(cliente.fields))) : null;
+
+  const filas = [];
+  if(polReal){
+    p.partidas.forEach(x=>{
+      Object.keys((polReal.hechos[x.id]) || {}).forEach(mes=>{
+        const detReal = polReal.hechos[x.id][mes];
+        const detCliente = polCliente && polCliente.hechos[x.id] && polCliente.hechos[x.id][mes];
+        if(!(detReal.evidencias || []).length && !(detCliente && (detCliente.evidencias || []).length)) return;
+        filas.push({
+          equipo: x.concepto,
+          mes: etiquetaMesServicio(p.fechaInicio, +mes),
+          fotosReal: (detReal.evidencias || []).map(e => e.dataUrl),
+          fotosCliente: detCliente ? (detCliente.evidencias || []).map(e => e.dataUrl) : null
+        });
+      });
+    });
+  }
+
+  const cuerpo = '<p class="pista">Comparación en vivo, directo de Firestore — ' + fechaHora(new Date().toISOString()) + '</p>'
+    + (!polReal
+        ? '<p style="color:var(--error)"><b>¡/polizas/' + esc(polizaId) + ' no existe o no se pudo leer!</b></p>'
+        : !polCliente
+          ? '<p style="color:var(--error)"><b>¡/polizas_cliente/' + esc(polizaId) + ' NO EXISTE!</b> Nunca se ha escrito para esta póliza, o se borró — por eso el portal no ve nada de nada, no solo esta foto.</p>'
+          : !filas.length
+            ? '<p class="pista">Esta póliza no tiene ningún servicio con evidencia todavía, ni en /polizas ni en /polizas_cliente.</p>'
+            : '<div class="rodillo"><table class="tabla"><thead><tr>'
+              + '<th>Equipo</th><th>Mes</th><th>Fotos en /polizas</th><th>Fotos en /polizas_cliente</th>'
+              + '</tr></thead><tbody>' + filas.map(f=>{
+                  const okReal = f.fotosReal.length;
+                  const okCliente = f.fotosCliente === null ? '(el servicio no existe en /polizas_cliente)' : f.fotosCliente.length;
+                  const distinto = f.fotosCliente === null || f.fotosReal.length !== f.fotosCliente.length;
+                  return '<tr' + (distinto ? ' style="background:var(--alerta-suave)"' : '') + '>'
+                    + '<td>' + esc(f.equipo) + '</td><td>' + esc(f.mes) + '</td>'
+                    + '<td>' + okReal + (f.fotosReal.some(u=>u.startsWith('data:')) ? ' (todavía en base64)' : '') + '</td>'
+                    + '<td>' + okCliente + '</td>'
+                    + '</tr>';
+                }).join('') + '</tbody></table></div>');
+
+  abrirModal('Diagnóstico de fotos · ' + esc(p.sitioNombre || p.folio || 'Póliza'), cuerpo,
+    '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
+}
+
 /* Borra sesión y datos, SIN mostrar el login. Está separado porque la persiana
    de cierre necesita borrar de inmediato pero destapar el login más tarde,
    cuando ya está cubierta la pantalla. */
@@ -16274,6 +16342,15 @@ function vistaPoliza(){
            + 'title="Sube a Storage las fotos que todavía están guardadas dentro del documento">'
            + ICONO.respaldo + 'Migrar fotos a Storage</button>'
          : '')
+     /* Temporal, mientras se sigue investigando por qué una foto que ya
+        está bien del lado de Forguard sigue sin verse en el portal: compara
+        en vivo, directo de Firestore, lo que hay en /polizas contra lo que
+        hay en /polizas_cliente — sin adivinar más. */
+     +   (esAdmin()
+         ? '<button type="button" class="btn btn-suave btn-mini" data-accion="diagnostico-fotos-poliza" '
+           + 'title="Compara en vivo las fotos de /polizas contra /polizas_cliente">'
+           + ICONO.info + 'Diagnóstico de fotos</button>'
+         : '')
      /* Imprimir va en TODOS los estatus y para TODOS los roles: una cotización
         se imprime antes de aprobarse o aunque nunca se venda, y el estatus solo
         cambia el título de portada (eso ya lo resuelve el payload). */
@@ -22953,6 +23030,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
     else if(a === 'migrar-fotos-poliza') migrarFotosPolizaAStorage(estado.polizaId);
+    else if(a === 'diagnostico-fotos-poliza') diagnosticarFotosPoliza(estado.polizaId);
     else if(a === 'migrar-fotos-reporte') migrarFotosReporteAStorage(estado.reporteId);
     /* SIN exigirPermiso, a propósito: imprimir es solo lectura y el Viewer ya
        ve todas estas cifras en pantalla — negarle el botón no protege nada. */
