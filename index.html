@@ -8011,8 +8011,14 @@ function armarPayloadPoliza(p){
    archivo nuestro, del mismo origen. */
 const LLAVE_DOC_POLIZA = 'forguard.documento.poliza';
 
-function abrirDocumentoPoliza(id){
-  const p = polizaPorId(id);
+/* Compartida entre el botón interno (Pólizas → Imprimir) y el del portal de
+   clientes: arma el payload y abre la MISMA plantilla. Es seguro reusarla tal
+   cual para el cliente porque armarPayloadPoliza() JAMÁS mete costoUnitario
+   ni márgenes al payload —a diferencia de armarPayloadCotizacion(), que sí
+   necesita un parámetro `lado` para eso—; el documento de póliza solo
+   imprime precio de venta, nunca costo, sin importar de qué copia de la
+   póliza (completa o la redactada de portalCliente) se le pase. */
+function abrirDocumentoPolizaConDatos(p){
   if(!p) return;
   let payload;
   try{
@@ -8033,6 +8039,14 @@ function abrirDocumentoPoliza(id){
   const w = window.open('docs/plantilla_poliza_forguard.html?v=' + Date.now(), '_blank');
   if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
   return payload;
+}
+function abrirDocumentoPoliza(id){
+  return abrirDocumentoPolizaConDatos(polizaPorId(id));
+}
+/* La misma póliza, vista desde el portal: sale de portalCliente.polizas, no
+   de datos.polizas —esa colección ni siquiera se baja para un cliente. */
+function abrirDocumentoPolizaPortal(id){
+  return abrirDocumentoPolizaConDatos(portalCliente.polizas.find(x => x.id === id));
 }
 
 /* --------------------- Documento imprimible de cotización ---------------------
@@ -18074,6 +18088,8 @@ $('vista').addEventListener('click', async ev=>{
   if(pVerRep){ estado.reportePortalId = pVerRep.dataset.verReportePortal; render(); return; }
   const pCal = ev.target.closest('[data-calendario-portal]');
   if(pCal){ modalCalendarioPortal(pCal.dataset.calendarioPortal); return; }
+  const pImpP = ev.target.closest('[data-imprimir-poliza-portal]');
+  if(pImpP){ abrirDocumentoPolizaPortal(pImpP.dataset.imprimirPolizaPortal); return; }
 
   const bor = ev.target.closest('[data-borrar-usuario]');
   if(bor){
@@ -24469,7 +24485,11 @@ function vistaPortalPolizas(){
       +   '<h3>' + esc(p.sitioNombre || (s && s.nombre) || 'Tu sitio') + '</h3>'
       +   '<p><span class="insignia i-' + c.tono + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></p>'
       + '</div>'
-      +   '<div class="der"><button type="button" class="btn btn-suave btn-mini" data-calendario-portal="' + esc(p.id) + '">' + ICONO.calendario + 'Calendario</button></div>'
+      +   '<div class="der">'
+      +     '<button type="button" class="btn btn-suave btn-mini" data-calendario-portal="' + esc(p.id) + '">' + ICONO.calendario + 'Calendario</button>'
+      +     '<button type="button" class="btn btn-suave btn-mini" data-imprimir-poliza-portal="' + esc(p.id) + '" '
+      +       'title="Abre el documento de tu póliza en otra pestaña, listo para guardarse como PDF">' + ICONO.imprimir + 'Ver póliza</button>'
+      +   '</div>'
       + '</div>'
       + '<div class="kpis">'
       +   tarjetaKpi('Mensualidad', dinero(c.precioMensual), 'Vigente hasta ' + fmtFecha(sumarMeses(p.fechaInicio, MESES_POLIZA)))

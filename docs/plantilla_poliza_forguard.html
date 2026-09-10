@@ -300,6 +300,11 @@
   .clause .two-col{width:100%;border-collapse:collapse;}
   .clause .two-col td{width:50%;vertical-align:top;padding-right:16px;font-size:8.5px;line-height:1.5;color:#2E353E;}
   .clause .two-col b{display:block;color:#2B3341;padding-bottom:3px;}
+  /* Mismo ámbar (#FDF4E5) que tr.fuera-alcance en la tabla de equipos, arriba
+     — para que esta cláusula se lea como "responsabilidad del cliente" al
+     primer vistazo, igual que un renglón marcado así en la tabla. */
+  .aviso-exclusion{background:#FDF4E5;border:1px solid #F0DCB0;border-radius:4px;padding:8px 11px;}
+  .aviso-exclusion p{margin:0;}
 
   /* ---- Descripción de trabajos ---- */
   table.desc tbody td{font-size:8.5px;line-height:1.45;padding:6px 7px;}
@@ -671,6 +676,22 @@ function pageConsideraciones(){
      esta cláusula simplemente no aparece. */
   const notas = POLIZA && POLIZA.notas ? String(POLIZA.notas).trim() : '';
   const c=[
+    /* Fija, en TODA póliza, sin depender de ningún dato capturado — a
+       diferencia de "EXCLUSIONES DE INFRAESTRUCTURA" de abajo (que habla en
+       general de cableado/tuberías/estructuras), esta cláusula nombra de
+       forma explícita los cuatro rubros que Victor pidió dejar Siempre muy
+       claros: piso, paredes, techos e instalaciones hidrosanitarias/
+       hidráulicas son 100% responsabilidad del cliente, nunca de Forguard.
+       Va primero, antes incluso de las notas propias del contrato, y con el
+       mismo ámbar (#FDF4E5) que ya usa la tabla para marcar un renglón
+       "responsabilidad del cliente" — para que salte a la vista igual que en
+       el tablero. */
+    {h:"OBRA CIVIL E INSTALACIONES: RESPONSABILIDAD 100% DEL CLIENTE",
+     t:`<div class="aviso-exclusion"><p><b>Piso, paredes, techos, e instalaciones hidrosanitarias e hidráulicas del inmueble
+        corresponden al 100% al cliente</b> — quedan siempre fuera del alcance de esta póliza, sin excepción. Forguard da
+        mantenimiento únicamente a los equipos contratados que se listan en esta póliza; cualquier daño, falla, fuga o
+        mantenimiento de la obra civil o de las instalaciones hidrosanitarias/hidráulicas del sitio corre por cuenta del
+        cliente.</p></div>`},
     ...(notas ? [{h:"NOTAS DE ESTA PÓLIZA", p:`<b>${esc(notas).replace(/\n/g,'<br>')}</b>`}] : []),
     {h:"VISITAS NO PLANEADAS O PACTADAS (PRECIO ADICIONAL)",
      p:`<b>Aplicación:</b> toda visita solicitada por el cliente fuera del cronograma preventivo tendrá un precio adicional, excepto que sea por falla cubierta bajo garantía de reparación reciente (por ejemplo, dentro de los 15 días posteriores a una visita programada).`},
