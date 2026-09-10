@@ -2873,8 +2873,13 @@ function polizaTieneFotosSinMigrar(p){
    nuevas— y deja en su lugar la URL. Es lo que de verdad soluciona a
    POL-024 (y cualquier otra póliza vieja en la misma situación): mientras
    el documento siga cargando esas fotos en base64, cada guardado corre el
-   riesgo de volver a pasarse del 1 MiB de Firestore. */
-async function migrarFotosPolizaAStorage(polizaId){
+   riesgo de volver a pasarse del 1 MiB de Firestore.
+
+   `silencioso` es el modo que usa autoMigrarFotosPolizaSiHaceFalta(): sin
+   confirm() ni avisos de "ya no hay nada que migrar"/"subidas con éxito"
+   —solo se avisa si algo de verdad falló—, para poder dispararse solo al
+   abrir la póliza sin interrumpir a quien la está viendo. */
+async function migrarFotosPolizaAStorage(polizaId, silencioso){
   const p = polizaPorId(polizaId);
   if(!p) return;
   const pendientes = [];
@@ -2885,12 +2890,12 @@ async function migrarFotosPolizaAStorage(polizaId){
       });
     });
   });
-  if(!pendientes.length){ aviso('Esta póliza ya no tiene fotos guardadas dentro del documento.'); return; }
-  if(!window.confirm(
+  if(!pendientes.length){ if(!silencioso) aviso('Esta póliza ya no tiene fotos guardadas dentro del documento.'); return; }
+  if(!silencioso && !window.confirm(
     'Se van a subir ' + pendientes.length + ' ' + plural(pendientes.length,'foto','fotos') + ' a Storage y a quitarlas '
     + 'del documento de la póliza (nunca se borran, solo cambian de lugar). Puede tardar un momento.\n\n¿Continuar?'
   )) return;
-  aviso('Subiendo ' + pendientes.length + ' ' + plural(pendientes.length,'foto','fotos') + '…');
+  if(!silencioso) aviso('Subiendo ' + pendientes.length + ' ' + plural(pendientes.length,'foto','fotos') + '…');
   let ok = 0, fallo = 0;
   for(const { partidaId, mes, i } of pendientes){
     const e = p.hechos[partidaId][mes].evidencias[i];
@@ -2901,8 +2906,29 @@ async function migrarFotosPolizaAStorage(polizaId){
     guardarPoliza(p, 'migró fotos de', ok + ' ' + plural(ok,'foto','fotos') + ' a Storage' + (fallo ? ' · ' + fallo + ' no se pudieron subir' : ''));
     render();
   }
-  aviso(ok + ' ' + plural(ok,'foto','fotos') + ' subidas a Storage.'
-    + (fallo ? ' ' + fallo + ' no se pudieron subir — vuelve a intentar.' : ''), fallo > 0);
+  if(!silencioso || fallo){
+    aviso(ok + ' ' + plural(ok,'foto','fotos') + ' subidas a Storage.'
+      + (fallo ? ' ' + fallo + ' no se pudieron subir — vuelve a intentar.' : ''), fallo > 0);
+  }
+}
+/* Un intento por póliza por sesión: sin esto, cada render() de vistaPoliza()
+   (que puede repetirse muchas veces mientras la migración sigue en curso)
+   volvería a disparar la subida de las mismas fotos. */
+const _polizasAutoMigrandoFotos = new Set();
+/* La razón de ser de todo esto: una póliza vieja con fotos en base64 se
+   queda para siempre sin esas fotos en el portal del cliente
+   (datosClientePoliza las quita, ver ese comentario) hasta que alguien
+   note y le dé clic al botón "Migrar fotos a Storage" — que solo ve un
+   Admin, y solo si abre justo esa póliza. En la práctica nadie se acuerda,
+   y el cliente se queda viendo "no se subieron fotos con este servicio"
+   en fotos que sí existen, solo que atrapadas del lado equivocado. Disparar
+   la migración sola, en cuanto un Admin abre el detalle, es lo que de
+   verdad la resuelve sin depender de que nadie se acuerde de nada. */
+function autoMigrarFotosPolizaSiHaceFalta(p){
+  if(!esAdmin() || !HAY_NUBE || !haySesion()) return;
+  if(_polizasAutoMigrandoFotos.has(p.id) || !polizaTieneFotosSinMigrar(p)) return;
+  _polizasAutoMigrandoFotos.add(p.id);
+  migrarFotosPolizaAStorage(p.id, true);
 }
 
 /* Borra sesión y datos, SIN mostrar el login. Está separado porque la persiana
@@ -16066,6 +16092,7 @@ function modalProyectoImagen(id, datosImportados){
 function vistaPoliza(){
   const p = polizaPorId(estado.polizaId);
   if(!p){ estado.vista = 'polizas'; return vistaPolizas(); }
+  autoMigrarFotosPolizaSiHaceFalta(p);
   const c = calcularPoliza(p);
   const cli = clientePorId(p.clienteId);
   const sitio = p.sitioId ? sitioPorId(p.sitioId) : null;
@@ -24494,7 +24521,13 @@ async function arrancarNubePortal(){
 function vistaPortalCliente(){
   if(!portalCliente.cargado) return '<div class="vacio-chico">Cargando tu información…</div>';
   const nombreCliente = portalCliente.cliente ? portalCliente.cliente.nombre : sesion.nombre || 'tu cuenta';
-  let h = '<div class="titulo-zona"><div><h2>' + esc(nombreCliente) + '</h2>'
+  /* Solo si el cliente YA tiene su logo cargado (desde Clientes, del lado de
+     Forguard) — sin logo, se deja el encabezado como estaba, sin poner un
+     avatar de iniciales genérico que nadie pidió. Mismo avatarCliente() que
+     ya usan todas las listas internas, solo que más grande para encabezado. */
+  const logoCliente = portalCliente.cliente && portalCliente.cliente.logo
+    ? avatarCliente(portalCliente.cliente, 60) : '';
+  let h = '<div class="titulo-zona">' + logoCliente + '<div><h2>' + esc(nombreCliente) + '</h2>'
         +   '<p>Portal de cliente — consulta tu póliza, tus cotizaciones, tu Forpass y tus reportes de mantenimiento.</p></div></div>';
   h += '<nav class="modulos" role="tablist" aria-label="Portal" style="margin-bottom:22px; max-width:640px">'
      +   '<button type="button" class="mod" data-portal="consideraciones" role="tab" aria-selected="' + (estado.vistaPortal === 'consideraciones') + '">Consideraciones de póliza</button>'
