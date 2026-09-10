@@ -8344,15 +8344,19 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     llenarían la pantalla de trabajo que no es de ahora. */
                  horizonte:2 };
 
-/* Se recuerda el último módulo para abrir donde te quedaste. Es preferencia de
-   pantalla, no información: va en localStorage y no viaja al servidor. */
+/* Antes se recordaba el último módulo para abrir donde te quedaste. A pedido
+   explícito de Victor (10-sep-2026) se quitó: cada entrada a la app abre
+   SIEMPRE en 'resultados' —el primero de MODULOS, el tablero principal—,
+   nunca en el módulo donde se haya quedado la sesión anterior. guardarModulo()
+   y LLAVE_MODULO se dejan tal cual (no estorban, y revertir este cambio es
+   con solo volver a leer el valor guardado aquí) por si hiciera falta
+   reactivarlo más adelante. Si el rol de la cuenta no puede ver 'resultados',
+   el candado de permisos de render() ya lo manda solo a modulosPermitidos()[0]
+   — no hace falta duplicar esa lógica aquí. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
 const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
 function cargarModulo(){
-  try{
-    const m = localStorage.getItem(LLAVE_MODULO);
-    if(MODULOS.includes(m)) estado.modulo = m;
-  }catch(e){}
+  estado.modulo = 'resultados';
   estado.vista = inicioDelModulo();
 }
 function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo); }catch(e){} }
@@ -21049,11 +21053,15 @@ function modalCotizacion(id, origenReporte){
     +       '<input type="text" id="qFolio" value="' + esc(q ? q.folio : generarFolioCotizacion(hoyISO())) + '"></div>'
     +     '<div class="campo"><label>Estatus</label><select id="qEstatus">'
     +       '<optgroup label="Cotización">'
-    +         ['borrador','enviada','aprobada','rechazada','cancelada'].map(e => '<option value="' + e + '"' + ((q ? q.estatus : 'borrador') === e ? ' selected' : '') + '>'
+        /* Nueva cotización: arranca en "Enviada" y no en "Borrador" — a
+           pedido explícito, la mayoría sale de aquí derecho al cliente, no a
+           engavetarse. Al editar una ya existente, se respeta su estatus
+           real tal cual (q.estatus), nunca se le pisa. */
+    +         ['borrador','enviada','aprobada','rechazada','cancelada'].map(e => '<option value="' + e + '"' + ((q ? q.estatus : 'enviada') === e ? ' selected' : '') + '>'
                 + esc(ETIQUETA_ESTATUS_COTIZACION[e]) + '</option>').join('')
     +       '</optgroup>'
     +       '<optgroup label="Pipeline del tablero (13 etapas)">'
-    +         ETAPAS_TABLERO_COTIZACION.map(e => '<option value="' + e + '"' + ((q ? q.estatus : 'borrador') === e ? ' selected' : '') + '>'
+    +         ETAPAS_TABLERO_COTIZACION.map(e => '<option value="' + e + '"' + ((q ? q.estatus : 'enviada') === e ? ' selected' : '') + '>'
                 + esc(ETIQUETA_ESTATUS_COTIZACION[e]) + '</option>').join('')
     +       '</optgroup>'
     +     '</select></div>'
@@ -21110,7 +21118,11 @@ function modalCotizacion(id, origenReporte){
     +     '<div class="campo"><label>Margen sobre costo (%)</label>'
     +       '<input type="number" id="qMargen" min="0" step="0.01" value="' + (q ? q.margen : 15) + '"></div>'
     +   '</div>'
-    +   '<label class="casilla"><input type="checkbox" id="qInstIncluir"' + (q && q.instalacion.incluir ? ' checked' : '') + '> '
+    /* Nueva cotización: la casilla arranca marcada — a pedido explícito, el
+       sobrecosto de instalación/mano de obra siempre debe considerarse por
+       default, no dejarse fuera por olvido. Al editar una ya existente se
+       respeta lo que de verdad tiene guardado (q.instalacion.incluir). */
+    +   '<label class="casilla"><input type="checkbox" id="qInstIncluir"' + ((q ? q.instalacion.incluir : true) ? ' checked' : '') + '> '
     +     'Incluir instalación / mano de obra</label>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>% sobre el subtotal de conceptos</label>'
