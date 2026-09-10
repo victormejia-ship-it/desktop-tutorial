@@ -55,6 +55,24 @@ service firebase.storage {
       allow delete: if puedeRegistrarServicio();
     }
 
+    /* --- Evidencias de reportes de mantenimiento (agregado 10-sep-2026) ---
+       Mismo candado que /reportes en firestore.rules: capturar y corregir,
+       cualquiera con acceso que no sea cliente (create/update ahí es
+       "conAcceso() && !esCliente()"). A diferencia de pólizas, el portal de
+       cliente SÍ enseña estas fotos (vistaPortalReporte() las pinta
+       directo) — pero eso no depende de esta regla: el <img> del navegador
+       pide la URL con el downloadToken ya incluido, sin mandar el token de
+       Firebase Auth, y Storage sirve el archivo con solo ese token válido
+       sin evaluar esta regla. "allow read" aquí protege nada más contra
+       quien intente leer por otra vía (el SDK, gsutil) sin ese token. */
+    match /evidencias/reportes/{reporteId}/{archivo} {
+      allow read: if conAcceso();
+      allow write: if conAcceso() && rol() != 'cliente'
+                   && request.resource.size < 2 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if conAcceso() && rol() != 'cliente';
+    }
+
     /* Candado general: cualquier ruta que no se haya marcado explícito
        arriba queda cerrada. */
     match /{allPaths=**} {

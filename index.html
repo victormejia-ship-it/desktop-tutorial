@@ -4598,6 +4598,64 @@ function anotarReporte(r, texto, accionGlobal, detalleGlobal){
   guardarReporte(r, accionGlobal, detalleGlobal);
 }
 
+/* ¿Este reporte todavía trae fotos guardadas a la antigua —completas, en
+   base64, dentro del propio documento—? Mismo problema exacto que ya tronó
+   a POL-024 en Pólizas (ver polizaTieneFotosSinMigrar): a diferencia de
+   "Registrar servicio" de pólizas, hasta el 10-sep-2026 Reportes guardaba
+   la foto completa en el documento en vez de subirla a Storage, así que
+   cualquier reporte con varias fotos corría el riesgo de pasarse del 1 MiB
+   que permite un documento de Firestore — y cuando eso pasa, la escritura
+   a la nube falla EN SILENCIO para quien no esté viendo el aviso justo en
+   ese momento: la copia local de quien guardó se ve bien porque nunca dejó
+   de estar en memoria, pero el documento real del servidor se queda con la
+   versión vieja. Así es como un cliente se queda sin poder ver una foto
+   que "sí estaba" del lado de Forguard. modalReporte()/modalResolverReporte()
+   ya suben a Storage al guardar de ahora en adelante; esto es para lo que
+   ya se había guardado antes, a la antigua. */
+function reporteTieneFotosSinMigrar(r){
+  return (r.evidencias || []).some(e => e.dataUrl && e.dataUrl.startsWith('data:'));
+}
+/* Sube a Storage, una por una, las fotos que este reporte todavía trae
+   embebidas, y deja en su lugar la URL — mismo camino que
+   migrarFotosPolizaAStorage(). `silencioso` es el modo que usa
+   autoMigrarFotosReporteSiHaceFalta(): sin avisos de "nada que migrar" ni
+   de éxito, solo si algo de verdad falló, para poder dispararse solo al
+   abrir el reporte sin interrumpir a quien lo está viendo. */
+async function migrarFotosReporteAStorage(reporteId, silencioso){
+  const r = reportePorId(reporteId);
+  if(!r) return;
+  const pendientes = r.evidencias.filter(e => e.dataUrl && e.dataUrl.startsWith('data:'));
+  if(!pendientes.length){ if(!silencioso) aviso('Este reporte ya no tiene fotos guardadas dentro del documento.'); return; }
+  if(!silencioso && !window.confirm(
+    'Se van a subir ' + pendientes.length + ' ' + plural(pendientes.length,'foto','fotos') + ' a Storage y a quitarlas '
+    + 'del documento del reporte (nunca se borran, solo cambian de lugar). Puede tardar un momento.\n\n¿Continuar?'
+  )) return;
+  if(!silencioso) aviso('Subiendo ' + pendientes.length + ' ' + plural(pendientes.length,'foto','fotos') + '…');
+  let ok = 0, fallo = 0;
+  for(const e of pendientes){
+    try{ e.dataUrl = await subirEvidenciaStorage(e.dataUrl, 'evidencias/reportes/' + r.id, e.id); ok++; }
+    catch(err){ fallo++; }
+  }
+  if(ok){
+    guardarReporte(r, 'migró fotos de', ok + ' ' + plural(ok,'foto','fotos') + ' a Storage' + (fallo ? ' · ' + fallo + ' no se pudieron subir' : ''));
+    render();
+  }
+  if(!silencioso || fallo){
+    aviso(ok + ' ' + plural(ok,'foto','fotos') + ' subidas a Storage.'
+      + (fallo ? ' ' + fallo + ' no se pudieron subir — vuelve a intentar.' : ''), fallo > 0);
+  }
+}
+/* Un intento por reporte por sesión — mismo candado que
+   _polizasAutoMigrandoFotos, misma razón: sin esto cada render() de
+   vistaReporte() volvería a disparar la subida de las mismas fotos. */
+const _reportesAutoMigrandoFotos = new Set();
+function autoMigrarFotosReporteSiHaceFalta(r){
+  if(!esAdmin() || !HAY_NUBE || !haySesion()) return;
+  if(_reportesAutoMigrandoFotos.has(r.id) || !reporteTieneFotosSinMigrar(r)) return;
+  _reportesAutoMigrandoFotos.add(r.id);
+  migrarFotosReporteAStorage(r.id, true);
+}
+
 /* =============================== Activos ================================
    Módulo de control de activos: junta en un solo catálogo el equipo
    instalado en casa del cliente (freidoras, refrigeradores — lo que antes
@@ -11780,6 +11838,7 @@ function tablaReportes(lista){
 function vistaReporte(){
   const rp = reportePorId(estado.reporteId);
   if(!rp){ estado.vista = 'reportes'; return vistaReportes(); }
+  autoMigrarFotosReporteSiHaceFalta(rp);
   const cli = clientePorId(rp.clienteId);
   const tono = tonoReporte(rp);
   const cotizacionLigada = rp.cotizacionId ? cotizacionPorId(rp.cotizacionId) : null;
@@ -11877,6 +11936,13 @@ function vistaReporte(){
      mueve su estatus. Eso lo deciden técnico o administración (ver
      puedeGestionarReporte()). */
   if(puedeGestionarReporte()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-reporte">' + ICONO.lapiz + 'Editar</button>';
+  /* Solo aparece si de verdad hay algo que migrar — mismo respaldo manual
+     que ya tiene Pólizas, por si autoMigrarFotosReporteSiHaceFalta() no
+     pudo sola (por ejemplo, un 403 de Storage). */
+  if(esAdmin() && reporteTieneFotosSinMigrar(rp))
+    h += '<button type="button" class="btn btn-suave btn-mini" data-accion="migrar-fotos-reporte" '
+       + 'title="Sube a Storage las fotos que todavía están guardadas dentro del documento">'
+       + ICONO.respaldo + 'Migrar fotos a Storage</button>';
   if(puedeGestionarReporte()){
     if(rp.estatus === 'abierto' || rp.estatus === 'asignado'){
       h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="en_proceso">Marcar en proceso</button>';
@@ -14076,12 +14142,38 @@ function modalReporte(id){
     pintarGaleriaTmp();
   });
 
-  cerrarModalActual = ()=>{
+  cerrarModalActual = async ()=>{
     const clienteId = $('rCliente').value;
     const sitioId = $('rSitio').value;
     const titulo = $('rTitulo').value.trim();
     if(!sitioId){ aviso('Elige un sitio: el reporte necesita saber dónde fue.', true); return; }
     if(!titulo){ $('rTitulo').setAttribute('aria-invalid','true'); $('rTitulo').focus(); aviso('El reporte necesita un título.', true); return; }
+
+    /* Las fotos nuevas (staging, todavía en base64) se suben a Storage justo
+       aquí, al guardar de verdad — mismo criterio que "Registrar servicio"
+       de pólizas (ver subirEvidenciaStorage()): un reporte que guardara las
+       fotos completas embebidas corre el mismo riesgo que ya tronó a
+       POL-024, pasarse del 1 MiB que permite un documento de Firestore, y
+       encima en silencio para quien no esté viendo el aviso justo en ese
+       momento. reporteId se calcula AQUÍ, antes de existir el registro
+       (nuevoId() en vez de esperar a normalizarReporte), para que la
+       carpeta de Storage sea la misma sin importar si el reporte es nuevo o
+       ya existía. */
+    const reporteId = rp ? rp.id : nuevoId();
+    const btnGuardar = $('modalPie').querySelector('[data-modal="guardar"]');
+    const pendientes = evidenciasTmp.filter(e => e.dataUrl.startsWith('data:'));
+    if(pendientes.length){
+      btnGuardar.disabled = true; btnGuardar.textContent = 'Subiendo fotos…';
+      try{
+        for(const e of pendientes){
+          e.dataUrl = await subirEvidenciaStorage(e.dataUrl, 'evidencias/reportes/' + reporteId, e.id);
+        }
+      }catch(err){
+        btnGuardar.disabled = false; btnGuardar.textContent = rp ? 'Guardar cambios' : 'Levantar reporte';
+        aviso('No se pudieron subir las fotos: ' + err.message, true);
+        return;
+      }
+    }
 
     const equipoId = $('rEquipoId').value;
     let equipoCatalogoId = '', equipoNombre = '';
@@ -14119,7 +14211,7 @@ function modalReporte(id){
       reg = rp;
     }else{
       reg = normalizarReporte({
-        id:nuevoId(), folio: generarFolioReporte(hoyISO()),
+        id:reporteId, folio: generarFolioReporte(hoyISO()),
         clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : '',
         equipoCatalogoId, equipoNombre, titulo,
         descripcion: $('rDescripcion').value.trim(), prioridad: $('rPrioridad').value,
@@ -14264,7 +14356,7 @@ function modalResolverReporte(id){
     pintarGaleria();
   });
 
-  cerrarModalActual = ()=>{
+  cerrarModalActual = async ()=>{
     const texto = $('raTexto').value.trim();
     if(!texto){
       $('raTexto').setAttribute('aria-invalid','true'); $('raTexto').focus();
@@ -14275,6 +14367,26 @@ function modalResolverReporte(id){
       aviso('Agrega al menos una foto de evidencia antes de marcarlo resuelto.', true);
       return;
     }
+
+    /* Mismo criterio que modalReporte()/"Registrar servicio" de pólizas:
+       subir a Storage justo aquí, al guardar de verdad, para que el
+       documento del reporte nunca vuelva a arriesgarse a pasarse del 1 MiB
+       de Firestore por traer las fotos completas embebidas. */
+    const btnGuardar = $('modalPie').querySelector('[data-modal="guardar"]');
+    const pendientes = evidenciasTmp.filter(e => e.dataUrl.startsWith('data:'));
+    if(pendientes.length){
+      btnGuardar.disabled = true; btnGuardar.textContent = 'Subiendo fotos…';
+      try{
+        for(const e of pendientes){
+          e.dataUrl = await subirEvidenciaStorage(e.dataUrl, 'evidencias/reportes/' + rp.id, e.id);
+        }
+      }catch(err){
+        btnGuardar.disabled = false; btnGuardar.textContent = 'Marcar resuelto';
+        aviso('No se pudieron subir las fotos: ' + err.message, true);
+        return;
+      }
+    }
+
     rp.reporteAtencion = texto;
     rp.evidencias = evidenciasTmp;
     rp.estatus = 'resuelto';
@@ -17171,7 +17283,11 @@ function render(){
     fpI.addEventListener('change', ()=>{ estado.filtro = fpI.value; render(); });
   }
   /* Subir evidencia directo desde el detalle del reporte, sin abrir el modal
-     completo de edición: la foto se comprime y se agrega de inmediato. */
+     completo de edición: la foto se comprime y se sube a Storage de una vez
+     —mismo criterio que modalReporte()/modalResolverReporte()—, nunca se
+     guarda embebida en el documento: es justo la vía más rápida (un solo
+     tap desde el detalle) y por eso la más usada en campo, así que era la
+     más peligrosa de dejar sin este arreglo. */
   const aeR = $('archivoEvidencia');
   if(aeR){
     aeR.addEventListener('change', async ev=>{
@@ -17182,15 +17298,21 @@ function render(){
       if(!rp) return;
       const cupo = EVIDENCIA_MAX_POR_REPORTE - rp.evidencias.length;
       if(cupo <= 0){ aviso('Ya tiene ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Quita alguna para agregar otra.', true); return; }
+      let subidas = 0;
       for(const archivo of archivos.slice(0, cupo)){
         try{
           const img = await leerEvidencia(archivo);
           const dataUrl = comprimirEvidencia(img);
-          rp.evidencias.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+          const evidencia = normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' });
+          evidencia.dataUrl = await subirEvidenciaStorage(dataUrl, 'evidencias/reportes/' + rp.id, evidencia.id);
+          rp.evidencias.push(evidencia);
+          subidas++;
         }catch(e){ aviso(e.message, true); }
       }
-      anotarReporte(rp, 'Agregó ' + plural(archivos.length,'una foto','fotos') + ' de evidencia.', 'agregó evidencia a', rp.folio);
-      render(); aviso('Foto agregada.');
+      if(subidas){
+        anotarReporte(rp, 'Agregó ' + plural(subidas,'una foto','fotos') + ' de evidencia.', 'agregó evidencia a', rp.folio);
+        render(); aviso('Foto agregada.');
+      }
     });
   }
   /* Respaldo de costo: la cotización de un proveedor externo que sustenta el
@@ -22795,6 +22917,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
     else if(a === 'migrar-fotos-poliza') migrarFotosPolizaAStorage(estado.polizaId);
+    else if(a === 'migrar-fotos-reporte') migrarFotosReporteAStorage(estado.reporteId);
     /* SIN exigirPermiso, a propósito: imprimir es solo lectura y el Viewer ya
        ve todas estas cifras en pantalla — negarle el botón no protege nada. */
     else if(a === 'imprimir-poliza') abrirDocumentoPoliza(estado.polizaId);
