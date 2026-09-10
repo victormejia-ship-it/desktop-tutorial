@@ -150,10 +150,20 @@
   .cv-logo{position:absolute;left:154pt;top:196.8pt;color:#fff;line-height:0;}
   .cv-titulo{position:absolute;left:145.6pt;color:#E8E8E8;font-size:72pt;font-weight:400;}
   .cv-titulo div{line-height:72pt;white-space:nowrap;}
-  .cv-meta{position:absolute;top:528.2pt;left:0;font-size:6.7pt;color:#5FAFF9;line-height:1.26;}
-  .cv-meta span{position:absolute;white-space:nowrap;}
+  /* Antes cada campo (Cliente/Fecha/Proyecto) iba con su propio left:XXXpt fijo,
+     medido para nombres de cliente cortos — con uno largo ("STELLANTIS
+     CAMIONES") el campo se salía de su cajón y se encimaba con "Fecha:" justo
+     a su derecha, ilegible. Ahora es un renglón flex: cada campo empuja al
+     siguiente en vez de invadirlo, y si no cabe todo junto (cliente larguísimo,
+     o la pantalla angosta de un celular) el que sigue baja de línea solo — se
+     ve idéntico a la medición original cuando el nombre es corto, y nunca se
+     encima cuando no lo es. */
+  .cv-meta{position:absolute;top:528.2pt;left:153.3pt;right:50.6pt;
+    display:flex;flex-wrap:wrap;align-items:baseline;column-gap:15pt;row-gap:5pt;
+    font-size:6.7pt;color:#5FAFF9;line-height:1.3;}
+  .cv-meta .campo{white-space:nowrap;padding-left:15pt;border-left:.55pt solid #F6F1D8;}
+  .cv-meta .campo:first-child{padding-left:0;border-left:none;}
   .cv-meta i{font-style:italic;}
-  .cv-sep{width:.55pt;height:8.4pt;background:#F6F1D8;}
   .cv-cinta{position:absolute;left:-7.1pt;top:547.4pt;width:21.4pt;height:252.8pt;}
   .cv-tagline{position:absolute;right:50.6pt;top:745.6pt;font-size:8.2pt;color:#fff;}
 
@@ -501,11 +511,9 @@ function pageCover(){
     <div class="cv-logo">${logotipo(143.9)}</div>
     <div class="cv-titulo" style="top:${topTitulo}pt">${lineas}</div>
     <div class="cv-meta">
-      <span style="left:153.3pt"><i>Cliente</i>: ${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio ? `<br>${esc(POLIZA.cliente.sitio)}` : ''}</span>
-      <span class="cv-sep" style="left:237.4pt"></span>
-      <span style="left:256.3pt"><i>Fecha</i>:&nbsp; ${esc(POLIZA.fechas.cotizacion)}</span><!-- doble espacio: así lo trae la referencia, en las dos variantes -->
-      <span class="cv-sep" style="left:351.3pt"></span>
-      <span style="left:365.7pt"><i>Proyecto:</i> Póliza de Mantenimiento Preventivo</span>
+      <span class="campo"><i>Cliente</i>: ${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio ? `<br>${esc(POLIZA.cliente.sitio)}` : ''}</span>
+      <span class="campo"><i>Fecha</i>:&nbsp; ${esc(POLIZA.fechas.cotizacion)}</span><!-- doble espacio: así lo trae la referencia, en las dos variantes -->
+      <span class="campo"><i>Proyecto:</i> Póliza de Mantenimiento Preventivo</span>
     </div>
     <div class="cv-tagline">Sostenemos a los que sostienen todo.</div>
   </section>`;
