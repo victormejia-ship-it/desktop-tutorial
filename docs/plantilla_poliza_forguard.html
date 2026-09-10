@@ -250,6 +250,17 @@
   table.grid:not(.desc) tbody tr.fuera-alcance{background:#FDF4E5;}
   table.grid:not(.desc) tbody tr.fuera-alcance td.ix{font-weight:700;}
 
+  /* Aviso de obra civil, PEGADO al listado de conceptos —a diferencia de la
+     cláusula gemela en Consideraciones Relevantes (8.5pt, ver .clause), aquí
+     va en 12.5pt y en mayúsculas: se pidió que se note de mejor manera justo
+     donde el cliente está mirando la lista de equipos y precios, no solo en
+     la letra chica de varias hojas después. Se repite en CADA hoja de la
+     tabla (si el listado no cabe en una sola), nunca solo en la última. */
+  .aviso-exclusion-tabla{margin-top:10px;background:#FDF4E5;border:1.5px solid #E8B74C;
+    border-radius:4px;padding:9px 12px;font-size:12.5px;font-weight:600;
+    line-height:1.4;color:#5C3B00;}
+  .aviso-exclusion-tabla b{color:#3A2600;text-transform:uppercase;letter-spacing:.2px;}
+
   /* ---- Totales ---- */
   .totals{margin-top:16px;width:100%;}
   .totals td{font-size:11px;padding:6px 9px;}
@@ -579,10 +590,24 @@ function pagePoliza(){
           <li>La póliza se contrata y se presta por un periodo anual de doce (12) meses, independientemente de que la facturación se realice de forma anual o mensual.</li>
           ${fueraDeAlcance.length ? `<li>† Responsabilidad del cliente, fuera del alcance de este mantenimiento preventivo — no incluido en el Precio Anual ni en el Precio Mensual de arriba: ${fueraDeAlcance.map(r => `#${r.n} ${esc(r.concepto)}`).join(', ')}.</li>` : ''}
         </ul>` : '';
+    /* Va ANTES de la tabla, en CADA hoja del listado (no solo en la que trae el
+       cierre) — el pedido fue que se note "en el listado de los conceptos" en
+       vez de quedar solo en la letra chica de Consideraciones Relevantes,
+       varias hojas después. Se apoya a propósito en evitarTraslapeConPie():
+       ese corrector mide lo YA DIBUJADO y no asume los 23 renglones por hoja
+       de arriba, así que si este aviso empuja la tabla y ya no caben las 23
+       filas completas, el sobrante se corre solo a la hoja siguiente —igual
+       que ya hace con cualquier diferencia de métricas de fuente entre
+       máquinas—, sin que haya que recalibrar ningún tope a mano. */
+    const avisoExclusion = `<div class="aviso-exclusion-tabla">
+      <b>Exclusión:</b> piso, paredes, techos e instalaciones hidrosanitarias e hidráulicas del inmueble
+      corresponden al 100% al cliente — no forman parte de este listado ni de esta póliza.
+    </div>`;
     return `<section class="page">
     <div class="sheet">
       ${sheetHead("Póliza de Mantenimiento")}
       <div class="body">
+        ${avisoExclusion}
         <table class="grid" data-filas="${grupo.length}">
           <colgroup>
             <col style="width:22.6pt"><col style="width:126.6pt"><col style="width:51.2pt">
