@@ -172,15 +172,16 @@ service cloud.firestore {
 
     /* --- Imagen / Aperturas (proyectos de remodelación, apertura o cambio
            de imagen) ---
-       Octavo módulo: a diferencia de /levantamientos ("para todos los
-       perfiles"), este queda para quien ya puede editar precios — son
-       costos y proyectos comerciales, algunos todavía de un prospecto que
-       ni siquiera es cliente formal, no un registro de campo abierto a
-       cualquiera (decisión de Victor, 27-ago-2026). Mismo candado que
-       /cotizaciones: capturar y corregir, cualquiera que edite; borrar,
-       solo Admin. */
+       Octavo módulo. Capturar y corregir sigue siendo de quien ya puede
+       editar precios — son costos y proyectos comerciales, algunos todavía
+       de un prospecto que ni siquiera es cliente formal (decisión de
+       Victor, 27-ago-2026); borrar, solo Admin. LEER, en cambio, se abrió
+       a cualquier cuenta interna (10-sep-2026): el perfil "Viewer" —ve
+       todo, no edita nada— ahora también ve este módulo, mismo candado que
+       ya usan /cotizaciones y /polizas (conAcceso() && !esCliente(): el
+       portal de clientes nunca toca esta colección, tiene la suya). */
     match /proyectosImagen/{id} {
-      allow read:   if puedeEditar();
+      allow read:   if conAcceso() && !esCliente();
       allow create: if puedeEditar();
       allow update: if puedeEditar();
       allow delete: if esAdmin();

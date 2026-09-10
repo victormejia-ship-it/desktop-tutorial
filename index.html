@@ -8415,11 +8415,15 @@ function modulosPermitidos(){
   if(HAY_NUBE && haySesion() && sesion.rol === 'cliente') return [];
   if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
   if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
-  /* Imagen/Aperturas, al revés de Levantamientos: cerrado a quien no puede
-     editar precios (ver el comentario arriba de normalizarProyectoImagen())
-     — un Viewer sigue viendo Pólizas de solo lectura, pero este módulo ni
-     se le enseña. */
-  return puedeEditar() ? MODULOS : MODULOS.filter(m => m !== 'imagen');
+  /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
+     incluido Imagen/Aperturas —antes se le escondía entero—, porque el
+     perfil que se pidió es "ve toda la funcionalidad, no edita nada", y no
+     tendría sentido dejarle justo uno a oscuras. Sigue siendo de solo
+     lectura: vistaProyectosImagen()/vistaProyectoImagen() esconden sus
+     botones de crear/editar/importar detrás de puedeEditar(), igual que ya
+     hacían Pólizas y Cotizaciones, y exigirPermiso() los bloquea aunque
+     alguien fuerce el clic. */
+  return MODULOS;
 }
 
 /* La pantalla de arranque de cada módulo. Una sola función para que el logo, el
@@ -15522,16 +15526,24 @@ function vistaProyectosImagen(){
      +   '<h2>Imagen / Aperturas</h2>'
      +   '<p>' + numero(lista.length) + ' ' + plural(lista.length,'proyecto','proyectos') + '</p>'
      + '</div><div class="acciones">'
-     +   '<button type="button" class="btn btn-suave" data-accion="importar-proyecto-imagen-excel" '
-     +     'title="Sube un Excel con el desglose de costos (proveedor, concepto, cantidad, precio) y prellena un proyecto nuevo">'
-     +     ICONO.excel + 'Importar desde Excel</button>'
-     +   '<button type="button" class="btn btn-primario" data-accion="nuevo-proyecto-imagen">' + ICONO.mas + 'Nuevo proyecto</button>'
+     /* Mismo criterio que ya usan Pólizas y Cotizaciones: un Viewer ve el
+        módulo completo, pero sin los botones que llevan a crear/importar —
+        exigirPermiso() los bloquea de todos modos, esto es solo para no
+        enseñar un botón que va a rebotar. */
+     +   (puedeEditar()
+          ? '<button type="button" class="btn btn-suave" data-accion="importar-proyecto-imagen-excel" '
+            + 'title="Sube un Excel con el desglose de costos (proveedor, concepto, cantidad, precio) y prellena un proyecto nuevo">'
+            + ICONO.excel + 'Importar desde Excel</button>'
+          : '')
+     +   (puedeEditar()
+          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-proyecto-imagen">' + ICONO.mas + 'Nuevo proyecto</button>'
+          : '')
      + '</div></div>';
 
   if(!lista.length){
     h += vistaVacia('reporte', 'Todavía no hay proyectos de imagen',
           'Registra una apertura, remodelación o cambio de imagen: cliente o prospecto, el desglose de costos y las imágenes (renders, planos) para presentarlo.',
-          'nuevo-proyecto-imagen', 'Nuevo proyecto');
+          puedeEditar() ? 'nuevo-proyecto-imagen' : '', 'Nuevo proyecto');
     return h;
   }
 
