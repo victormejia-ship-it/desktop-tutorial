@@ -2875,7 +2875,7 @@ function polizaTieneFotosSinMigrar(p){
    el documento siga cargando esas fotos en base64, cada guardado corre el
    riesgo de volver a pasarse del 1 MiB de Firestore.
 
-   `silencioso` es el modo que usa autoMigrarFotosPolizaSiHaceFalta(): sin
+   `silencioso` es el modo que usa autoSincronizarPolizaCliente(): sin
    confirm() ni avisos de "ya no hay nada que migrar"/"subidas con éxito"
    —solo se avisa si algo de verdad falló—, para poder dispararse solo al
    abrir la póliza sin interrumpir a quien la está viendo. */
@@ -2914,41 +2914,32 @@ async function migrarFotosPolizaAStorage(polizaId, silencioso){
 /* Un intento por póliza por sesión: sin esto, cada render() de vistaPoliza()
    (que puede repetirse muchas veces mientras la migración sigue en curso)
    volvería a disparar la subida de las mismas fotos. */
-const _polizasAutoMigrandoFotos = new Set();
-/* La razón de ser de todo esto: una póliza vieja con fotos en base64 se
-   queda para siempre sin esas fotos en el portal del cliente
-   (datosClientePoliza las quita, ver ese comentario) hasta que alguien
-   note y le dé clic al botón "Migrar fotos a Storage" — que solo ve un
-   Admin, y solo si abre justo esa póliza. En la práctica nadie se acuerda,
-   y el cliente se queda viendo "no se subieron fotos con este servicio"
-   en fotos que sí existen, solo que atrapadas del lado equivocado. Disparar
-   la migración sola, en cuanto un Admin abre el detalle, es lo que de
-   verdad la resuelve sin depender de que nadie se acuerde de nada. */
-function autoMigrarFotosPolizaSiHaceFalta(p){
+const _polizasAutoSincronizadas = new Set();
+/* Todo esto en UNA sola función async, con el resync DESPUÉS de esperar
+   (await) a que la migración termine — no en dos funciones separadas
+   llamadas una tras otra. Así se llamaban antes:
+
+     autoMigrarFotosPolizaSiHaceFalta(p);        // dispara la subida, SIN awaitarla
+     autoResincronizarCopiaClientePoliza(p);     // corre en el mismo tick
+
+   migrarFotosPolizaAStorage() es async: corre síncrono solo hasta el
+   PRIMER `await subirEvidenciaStorage(...)` dentro de su for — ahí le
+   devuelve el control a quien la llamó SIN haber tocado todavía ni una
+   sola evidencia. Eso significa que la segunda línea de arriba se
+   ejecutaba con `p.hechos` completo, TODAVÍA en base64: datosClientePoliza()
+   filtraba TODO (nada empieza con "http" aún) y mandaba a /polizas_cliente
+   una copia con las evidencias vacías — justo lo que se vio en el
+   diagnóstico (0 fotos en /polizas_cliente en cada renglón, aunque /polizas
+   sí las traía). Con esto resuelto: se espera a que termine de migrar
+   (si había algo que migrar) y HASTA ENTONCES se arma y manda el resync,
+   con el `p` ya actualizado. */
+async function autoSincronizarPolizaCliente(p){
   if(!esAdmin() || !HAY_NUBE || !haySesion()) return;
-  if(_polizasAutoMigrandoFotos.has(p.id) || !polizaTieneFotosSinMigrar(p)) return;
-  _polizasAutoMigrandoFotos.add(p.id);
-  migrarFotosPolizaAStorage(p.id, true);
-}
-/* Lo anterior arregla la foto que TODAVÍA está en base64. Pero POL-024 (y
-   cualquier póliza con el mismo historial) puede tener su /polizas_cliente
-   desactualizado por una razón distinta: ese documento se reescribe SOLO
-   cuando alguien guarda la póliza (guardarPoliza) o cuando se vincula la
-   cuenta del cliente (resincronizarCopiasCliente) — un servicio que se
-   marcó una vez, en Feb, y nunca se volvió a tocar, pudo quedarse con su
-   copia de cliente vieja de ANTES de que esa foto llegara a Storage, sin
-   que nada de lo de arriba lo note (aquí ya no hay ningún data: que
-   migrar, polizaTieneFotosSinMigrar ya da falso). La única manera de estar
-   seguros de que /polizas_cliente trae lo mismo que /polizas AHORA MISMO es
-   volver a escribirlo, sin condición, la primera vez que un Admin abre esa
-   póliza en la sesión — es un documento chico (sin costos ni base64), así
-   que reescribirlo de más no cuesta casi nada. */
-const _polizasAutoResincronizadas = new Set();
-function autoResincronizarCopiaClientePoliza(p){
-  if(!esAdmin() || !HAY_NUBE || !haySesion()) return;
-  if(_polizasAutoResincronizadas.has(p.id)) return;
-  _polizasAutoResincronizadas.add(p.id);
-  encolarCopiaCliente('polizas_cliente', p.id, datosClientePoliza(p));
+  if(_polizasAutoSincronizadas.has(p.id)) return;
+  _polizasAutoSincronizadas.add(p.id);
+  if(polizaTieneFotosSinMigrar(p)) await migrarFotosPolizaAStorage(p.id, true);
+  const actual = polizaPorId(p.id) || p;
+  encolarCopiaCliente('polizas_cliente', actual.id, datosClientePoliza(actual));
   guardarLocal();
 }
 
@@ -11255,7 +11246,7 @@ function vistaPolizas(){
      cliente solo para "por si acaso". Aquí se hace de una vez para TODAS
      las que aparecen en esta lista, la primera vez que un Admin la abre en
      la sesión — que es, con mucho, la pantalla que sí se visita siempre. */
-  if(esAdmin() && HAY_NUBE && haySesion()) datos.polizas.forEach(autoResincronizarCopiaClientePoliza);
+  if(esAdmin() && HAY_NUBE && haySesion()) datos.polizas.forEach(autoSincronizarPolizaCliente);
   const r = resumirPolizas(datos.polizas);
   let h = '';
 
@@ -16312,8 +16303,7 @@ function modalProyectoImagen(id, datosImportados){
 function vistaPoliza(){
   const p = polizaPorId(estado.polizaId);
   if(!p){ estado.vista = 'polizas'; return vistaPolizas(); }
-  autoMigrarFotosPolizaSiHaceFalta(p);
-  autoResincronizarCopiaClientePoliza(p);
+  autoSincronizarPolizaCliente(p);
   const c = calcularPoliza(p);
   const cli = clientePorId(p.clienteId);
   const sitio = p.sitioId ? sitioPorId(p.sitioId) : null;
