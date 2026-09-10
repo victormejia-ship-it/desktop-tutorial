@@ -958,9 +958,11 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
    imprimible y las filas "fuera de alcance" — para el aviso de exclusión de
    obra civil que ahora también se ve directo en el portal, arriba de "Mi
    póliza". */
-.aviso-exclusion-portal{background:var(--alerta-suave); color:#8A5A0B; border:1px solid #F0DCB4;
-  border-radius:11px; padding:12px 14px; margin-bottom:16px; font-size:12.5px; line-height:1.6;}
-.aviso-exclusion-portal b{color:#6E480A;}
+.aviso-exclusion-portal{background:var(--alerta-suave); color:#7A4E0A; border:1.5px solid #E8B74C;
+  border-radius:13px; padding:18px 20px; margin-bottom:18px; font-size:14.5px; line-height:1.65;
+  display:flex; gap:14px; align-items:flex-start;}
+.aviso-exclusion-portal svg{width:26px; height:26px; flex:0 0 auto; color:#C8850F; margin-top:1px;}
+.aviso-exclusion-portal b{display:block; color:#6E480A; font-size:15.5px; margin-bottom:3px;}
 /* Un campo que el servidor no va a dejar guardar se ve claramente inerte, para
    que nadie teclee ahí y crea que se perdió su cambio. Solo :disabled, que es
    exclusivamente este candado: los readonly de siempre —quién capturó un cobro o
@@ -8331,7 +8333,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                  /* Qué pestaña ve un cliente dentro de SU portal (no es un
                     módulo de MODULOS — ver esCliente() en render()), y cuál
                     póliza/cotización/reporte tiene abierto en el detalle. */
-                 vistaPortal:'poliza', polizaPortalId:null, cotizacionPortalId:null, reportePortalId:null,
+                 vistaPortal:'consideraciones', polizaPortalId:null, cotizacionPortalId:null, reportePortalId:null,
                  /* Cómo se ve cada lista: en tarjetas (el default de siempre) o en
                     tabla, más compacta para revisar muchas de un vistazo. Es
                     preferencia de pantalla, no dato — por eso vive aquí y no en
@@ -8783,6 +8785,7 @@ const ICONO = {
   organigrama:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/></svg>',
   duplicar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   ojo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>',
+  alerta:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   ojoTachado:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 4.22-5.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
   listaSerie:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg>'
 };
@@ -24494,8 +24497,8 @@ function vistaPortalCliente(){
   let h = '<div class="titulo-zona"><div><h2>' + esc(nombreCliente) + '</h2>'
         +   '<p>Portal de cliente — consulta tu póliza, tus cotizaciones, tu Forpass y tus reportes de mantenimiento.</p></div></div>';
   h += '<nav class="modulos" role="tablist" aria-label="Portal" style="margin-bottom:22px; max-width:640px">'
-     +   '<button type="button" class="mod" data-portal="poliza" role="tab" aria-selected="' + (estado.vistaPortal === 'poliza') + '">Mi póliza</button>'
      +   '<button type="button" class="mod" data-portal="consideraciones" role="tab" aria-selected="' + (estado.vistaPortal === 'consideraciones') + '">Consideraciones de póliza</button>'
+     +   '<button type="button" class="mod" data-portal="poliza" role="tab" aria-selected="' + (estado.vistaPortal === 'poliza') + '">Mi póliza</button>'
      +   '<button type="button" class="mod" data-portal="cotizaciones" role="tab" aria-selected="' + (estado.vistaPortal === 'cotizaciones') + '">Mis cotizaciones</button>'
      +   '<button type="button" class="mod" data-portal="forpass" role="tab" aria-selected="' + (estado.vistaPortal === 'forpass') + '">Mi Forpass</button>'
      +   '<button type="button" class="mod" data-portal="reportes" role="tab" aria-selected="' + (estado.vistaPortal === 'reportes') + '">Mis reportes</button>'
@@ -24555,7 +24558,7 @@ function vistaPortalConsideraciones(){
   let h = '<div class="titulo-zona"><div><h2>Consideraciones de tu póliza</h2>'
         +   '<p>Qué cubre tu mantenimiento preventivo y qué queda siempre fuera de nuestro alcance.</p></div></div>';
   h += clausulas.map(c => c.destacada
-    ? '<div class="aviso-exclusion-portal" style="font-size:13px"><b>Obra civil e instalaciones:</b> ' + esc(c.texto) + '</div>'
+    ? '<div class="aviso-exclusion-portal">' + ICONO.alerta + '<div><b>Obra civil e instalaciones</b>' + esc(c.texto) + '</div></div>'
     : '<div class="bloque"><h3 style="margin-bottom:8px">' + esc(c.titulo) + '</h3>'
       + '<p style="font-size:13px; color:var(--gray); line-height:1.65; margin:0">' + esc(c.texto) + '</p></div>'
   ).join('');
@@ -24580,9 +24583,9 @@ function vistaPortalPolizas(){
      arriba del todo — a pedido explícito, para que el cliente lo vea sin
      tener que entrar a "Ver póliza". Una sola vez para todas sus pólizas:
      la cláusula es la misma sin importar cuál se esté viendo. */
-  const avisoExclusion = '<div class="aviso-exclusion-portal">'
-    + '<b>Exclusión:</b> piso, paredes, techos e instalaciones hidrosanitarias/hidráulicas — 100% responsabilidad '
-    + 'del cliente, fuera de esta póliza.'
+  const avisoExclusion = '<div class="aviso-exclusion-portal">' + ICONO.alerta
+    + '<div><b>Exclusión de responsabilidad</b>Piso, paredes, techos e instalaciones hidrosanitarias/hidráulicas del '
+    + 'inmueble son 100% responsabilidad del cliente — quedan fuera de esta póliza.</div>'
     + '</div>';
   return avisoExclusion + portalCliente.polizas.map(p=>{
     const c = calcularPoliza(p);
