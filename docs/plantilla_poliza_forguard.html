@@ -607,9 +607,12 @@ function pagePoliza(){
        filas completas, el sobrante se corre solo a la hoja siguiente —igual
        que ya hace con cualquier diferencia de métricas de fuente entre
        máquinas—, sin que haya que recalibrar ningún tope a mano. */
+    /* Acortada a propósito para caber en DOS renglones del recuadro, no tres
+       — la versión larga y completa sigue en Consideraciones Relevantes
+       (pageConsideraciones), esta es solo el aviso rápido junto al listado. */
     const avisoExclusion = `<div class="aviso-exclusion-tabla">
-      <b>Exclusión:</b> piso, paredes, techos e instalaciones hidrosanitarias e hidráulicas del inmueble
-      corresponden al 100% al cliente — no forman parte de este listado ni de esta póliza.
+      <b>Exclusión:</b> piso, paredes, techos e instalaciones hidrosanitarias/hidráulicas — 100% responsabilidad
+      del cliente, fuera de esta póliza.
     </div>`;
     return `<section class="page">
     <div class="sheet">

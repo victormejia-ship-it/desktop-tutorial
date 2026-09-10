@@ -954,6 +954,13 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .aviso-congelada{background:var(--alerta-suave); color:#8A5A0B; border:1px solid #F0DCB4;
   border-radius:11px; padding:12px 14px; margin-bottom:16px; font-size:12.5px; line-height:1.6;}
 .aviso-congelada b{color:#6E480A;}
+/* Mismo tono ámbar de "responsabilidad del cliente" que ya usan el documento
+   imprimible y las filas "fuera de alcance" — para el aviso de exclusión de
+   obra civil que ahora también se ve directo en el portal, arriba de "Mi
+   póliza". */
+.aviso-exclusion-portal{background:var(--alerta-suave); color:#8A5A0B; border:1px solid #F0DCB4;
+  border-radius:11px; padding:12px 14px; margin-bottom:16px; font-size:12.5px; line-height:1.6;}
+.aviso-exclusion-portal b{color:#6E480A;}
 /* Un campo que el servidor no va a dejar guardar se ve claramente inerte, para
    que nadie teclee ahí y crea que se perdió su cambio. Solo :disabled, que es
    exclusivamente este candado: los readonly de siempre —quién capturó un cobro o
@@ -24488,25 +24495,96 @@ function vistaPortalCliente(){
         +   '<p>Portal de cliente — consulta tu póliza, tus cotizaciones, tu Forpass y tus reportes de mantenimiento.</p></div></div>';
   h += '<nav class="modulos" role="tablist" aria-label="Portal" style="margin-bottom:22px; max-width:640px">'
      +   '<button type="button" class="mod" data-portal="poliza" role="tab" aria-selected="' + (estado.vistaPortal === 'poliza') + '">Mi póliza</button>'
+     +   '<button type="button" class="mod" data-portal="consideraciones" role="tab" aria-selected="' + (estado.vistaPortal === 'consideraciones') + '">Consideraciones de póliza</button>'
      +   '<button type="button" class="mod" data-portal="cotizaciones" role="tab" aria-selected="' + (estado.vistaPortal === 'cotizaciones') + '">Mis cotizaciones</button>'
      +   '<button type="button" class="mod" data-portal="forpass" role="tab" aria-selected="' + (estado.vistaPortal === 'forpass') + '">Mi Forpass</button>'
      +   '<button type="button" class="mod" data-portal="reportes" role="tab" aria-selected="' + (estado.vistaPortal === 'reportes') + '">Mis reportes</button>'
      + '</nav>';
-  h += estado.vistaPortal === 'cotizaciones' ? vistaPortalCotizaciones()
-     : estado.vistaPortal === 'reportes'     ? vistaPortalReportes()
-     : estado.vistaPortal === 'forpass'      ? vistaPortalForpass()
+  h += estado.vistaPortal === 'consideraciones' ? vistaPortalConsideraciones()
+     : estado.vistaPortal === 'cotizaciones'    ? vistaPortalCotizaciones()
+     : estado.vistaPortal === 'reportes'        ? vistaPortalReportes()
+     : estado.vistaPortal === 'forpass'         ? vistaPortalForpass()
      : vistaPortalPolizas();
+  return h;
+}
+
+/* Lo mismo que ya se imprime en "Consideraciones Relevantes" del documento
+   de la póliza (ver pageConsideraciones() en docs/plantilla_poliza_forguard.html),
+   pero como su propia pestaña del portal — a pedido explícito, para que el
+   cliente lo tenga siempre visible sin tener que abrir el PDF. El texto se
+   mantiene igual a propósito entre los dos lugares: si se cambia uno, hay
+   que revisar el otro. La primera —obra civil— va destacada en ámbar, igual
+   que en el documento y que el aviso de arriba de "Mi póliza": es la que
+   más se pidió dejar clara. */
+function vistaPortalConsideraciones(){
+  const clausulas = [
+    { texto: 'Piso, paredes, techos, e instalaciones hidrosanitarias e hidráulicas del inmueble corresponden al 100% al cliente '
+        + '— quedan siempre fuera del alcance de esta póliza, sin excepción. Forguard da mantenimiento únicamente a los equipos '
+        + 'contratados que se listan en tu póliza; cualquier daño, falla, fuga o mantenimiento de la obra civil o de las '
+        + 'instalaciones hidrosanitarias/hidráulicas del sitio corre por cuenta del cliente.', destacada: true },
+    { titulo: 'Visitas no planeadas o pactadas (precio adicional)',
+      texto: 'Toda visita solicitada fuera del cronograma preventivo tendrá un precio adicional, excepto que sea por falla '
+        + 'cubierta bajo garantía de reparación reciente (por ejemplo, dentro de los 15 días posteriores a una visita programada).' },
+    { titulo: 'Exclusiones de infraestructura',
+      texto: 'No están cubiertos bajo esta póliza: daños a infraestructura ajena al equipo, como cableado eléctrico externo, '
+        + 'tuberías y estructuras arquitectónicas; software no incluido en el Anexo Técnico; equipos periféricos no contratados, '
+        + 'como sensores externos o UPS no cubiertos. Tampoco fallas por voltaje inestable, inundaciones, incendios, vandalismo o '
+        + 'fuerza mayor.' },
+    { titulo: 'Cumplimiento de normativas específicas',
+      texto: 'Esta póliza asegura el mantenimiento para la correcta operación de los equipos. No incluye servicios específicos '
+        + 'requeridos para el cumplimiento de normativas locales o certificaciones particulares (por ejemplo, pruebas de '
+        + 'emisiones, calibración de equipos de medición con certificación externa o inspecciones de seguridad especializadas) '
+        + 'que no formen parte del mantenimiento preventivo estándar. Estos servicios pueden gestionarse por separado bajo '
+        + 'solicitud.' },
+    { titulo: 'Reparaciones mayores o sustitución completa de componentes principales',
+      texto: 'Esta póliza cubre el mantenimiento preventivo y las reparaciones correctivas menores destinadas a mantener la '
+        + 'operatividad básica de los equipos. No incluye la sustitución completa de componentes principales como compresores '
+        + 'de refrigeración, quemadores industriales completos, tarjetas electrónicas principales (PLC, unidades de control), '
+        + 'motores de gran potencia, ni cualquier otro componente cuyo precio individual exceda el monto acordado entre las '
+        + 'partes. Estas sustituciones se cotizarán por separado y requerirán una orden de compra adicional aprobada por el '
+        + 'cliente.' },
+    { titulo: 'Trabajos estéticos o de acabado',
+      texto: 'Esta póliza se enfoca en el mantenimiento funcional de los equipos. No incluye trabajos estéticos como pintura, '
+        + 'limpieza profunda no rutinaria, pulido de acero inoxidable ni la reparación de daños superficiales que no afecten la '
+        + 'operatividad del equipo.' },
+    { titulo: 'Actualización y vigencia',
+      texto: 'En caso de que se solicite la incorporación o el retiro de equipos durante la vigencia, la póliza será '
+        + 'actualizada para reflejar dichos cambios, lo cual podrá implicar un ajuste en el alcance y en el precio del '
+        + 'servicio. Toda modificación deberá quedar debidamente documentada y aceptada por ambas partes.' }
+  ];
+  let h = '<div class="titulo-zona"><div><h2>Consideraciones de tu póliza</h2>'
+        +   '<p>Qué cubre tu mantenimiento preventivo y qué queda siempre fuera de nuestro alcance.</p></div></div>';
+  h += clausulas.map(c => c.destacada
+    ? '<div class="aviso-exclusion-portal" style="font-size:13px"><b>Obra civil e instalaciones:</b> ' + esc(c.texto) + '</div>'
+    : '<div class="bloque"><h3 style="margin-bottom:8px">' + esc(c.titulo) + '</h3>'
+      + '<p style="font-size:13px; color:var(--gray); line-height:1.65; margin:0">' + esc(c.texto) + '</p></div>'
+  ).join('');
   return h;
 }
 
 function sitioPortalPorId(id){ return portalCliente.sitios.find(s => s.id === id); }
 
+/* Por pedido explícito (10-sep-2026): por el momento el portal NO debe
+   mostrar ningún precio (ni la Mensualidad, ni la columna de precio por
+   equipo, ni Cobranza —trae montos—), ni tampoco el conteo de "Servicios
+   este contrato". Se deja como un interruptor aparte y no se borra el
+   código de cada tarjeta, para poder reactivarlo con un solo cambio el día
+   que se decida mostrar precios de nuevo. */
+const PORTAL_OCULTAR_PRECIOS = true;
 function vistaPortalPolizas(){
   if(!portalCliente.polizas.length){
     return vistaVacia('edificio', 'Todavía no hay una póliza a tu nombre',
       'En cuanto Forguard te dé de alta una póliza de mantenimiento, la vas a ver aquí.', '', '');
   }
-  return portalCliente.polizas.map(p=>{
+  /* Mismo aviso que ya se ve al abrir el documento imprimible, pero AQUÍ
+     arriba del todo — a pedido explícito, para que el cliente lo vea sin
+     tener que entrar a "Ver póliza". Una sola vez para todas sus pólizas:
+     la cláusula es la misma sin importar cuál se esté viendo. */
+  const avisoExclusion = '<div class="aviso-exclusion-portal">'
+    + '<b>Exclusión:</b> piso, paredes, techos e instalaciones hidrosanitarias/hidráulicas — 100% responsabilidad '
+    + 'del cliente, fuera de esta póliza.'
+    + '</div>';
+  return avisoExclusion + portalCliente.polizas.map(p=>{
     const c = calcularPoliza(p);
     const s = sitioPortalPorId(p.sitioId);
     return '<div class="bloque">'
@@ -24521,31 +24599,33 @@ function vistaPortalPolizas(){
       +   '</div>'
       + '</div>'
       + '<div class="kpis">'
-      +   tarjetaKpi('Mensualidad', dinero(c.precioMensual), 'Vigente hasta ' + fmtFecha(sumarMeses(p.fechaInicio, MESES_POLIZA)))
-      +   tarjetaKpi('Servicios este contrato', c.hechos + ' de ' + c.programados, c.pendientes ? c.pendientes + ' ' + plural(c.pendientes,'pendiente','pendientes') : 'Al corriente')
+      +   (PORTAL_OCULTAR_PRECIOS ? '' : tarjetaKpi('Mensualidad', dinero(c.precioMensual), 'Vigente hasta ' + fmtFecha(sumarMeses(p.fechaInicio, MESES_POLIZA))))
+      +   (PORTAL_OCULTAR_PRECIOS ? '' : tarjetaKpi('Servicios este contrato', c.hechos + ' de ' + c.programados, c.pendientes ? c.pendientes + ' ' + plural(c.pendientes,'pendiente','pendientes') : 'Al corriente'))
       /* Mismos dos anillos de cumplimiento (total y del mes) que ya se ven
          internamente al abrir la póliza y dentro del Calendario — el cliente
-         pidió poder revisarlos sin tener que entrar al Calendario primero. */
+         pidió poder revisarlos sin tener que entrar al Calendario primero.
+         No son precio, así que se quedan aunque PORTAL_OCULTAR_PRECIOS
+         esté activo. */
       +   tarjetaCumplimiento('Cumplimiento a la fecha', c.cumplimientoPct, c.hechosDebidos, c.serviciosDebidos,
             c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Al corriente',
             'Aún no le toca nada', 'ya debidos')
       +   tarjetaCumplimiento('Cumplimiento del mes', c.cumplimientoMesPct, c.hechosMes, c.programadosMes,
             c.tocanEsteMes ? c.tocanEsteMes + ' ' + plural(c.tocanEsteMes,'pendiente','pendientes') + ' este mes' : 'Mes al corriente',
             'Nada programado este mes', 'de este mes')
-      +   tarjetaKpi('Cobranza', c.cobrados + ' de ' + c.montos.length, c.adeudo ? 'Adeudo: ' + dinero(c.adeudo) : 'Sin adeudo')
+      +   (PORTAL_OCULTAR_PRECIOS ? '' : tarjetaKpi('Cobranza', c.cobrados + ' de ' + c.montos.length, c.adeudo ? 'Adeudo: ' + dinero(c.adeudo) : 'Sin adeudo'))
       +   tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
             c.vigente ? 'Faltan ' + c.diasVigencia + ' ' + plural(c.diasVigencia,'día','días') : 'Terminada')
       + '</div>'
       + '<div class="rodillo"><table class="tabla"><thead><tr>'
-      +   '<th>Equipo</th><th>Marca</th><th>Cant.</th><th>Visitas/año</th><th>Precio mensual*</th>'
+      +   '<th>Equipo</th><th>Marca</th><th>Cant.</th><th>Visitas/año</th>' + (PORTAL_OCULTAR_PRECIOS ? '' : '<th>Precio mensual*</th>')
       + '</tr></thead><tbody>'
       +   p.partidas.map(x=>
             '<tr><td>' + esc(x.concepto) + '</td><td>' + esc(x.marca || '—') + '</td>'
           +   '<td>' + numero(x.cantidad) + '</td><td>' + numero(x.frecuencia) + '</td>'
-          +   '<td>' + dinero(totalRenglon(x) / MESES_POLIZA) + '</td></tr>'
+          +   (PORTAL_OCULTAR_PRECIOS ? '' : '<td>' + dinero(totalRenglon(x) / MESES_POLIZA) + '</td>') + '</tr>'
           ).join('')
       + '</tbody></table></div>'
-      + '<p class="pista" style="margin-top:10px">*Prorrateado del total anual del renglón entre los ' + MESES_POLIZA + ' meses del contrato.</p>'
+      + (PORTAL_OCULTAR_PRECIOS ? '' : '<p class="pista" style="margin-top:10px">*Prorrateado del total anual del renglón entre los ' + MESES_POLIZA + ' meses del contrato.</p>')
       + '</div>';
   }).join('');
 }
