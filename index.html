@@ -11181,6 +11181,13 @@ function tablaPolizas(lista){
 }
 
 function vistaPolizas(){
+  /* Mismo resync forzado que ya dispara vistaPoliza() al abrir el detalle de
+     UNA póliza — pero depender de que alguien abra cada póliza una por una
+     es justo lo que no está pasando: nadie visita las 20+ pólizas de un
+     cliente solo para "por si acaso". Aquí se hace de una vez para TODAS
+     las que aparecen en esta lista, la primera vez que un Admin la abre en
+     la sesión — que es, con mucho, la pantalla que sí se visita siempre. */
+  if(esAdmin() && HAY_NUBE && haySesion()) datos.polizas.forEach(autoResincronizarCopiaClientePoliza);
   const r = resumirPolizas(datos.polizas);
   let h = '';
 
