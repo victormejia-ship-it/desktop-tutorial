@@ -24701,34 +24701,35 @@ function vistaPortalForpass(){
   }).join('') + '</div>';
 }
 
-/* Por pedido explícito (10-sep-2026): por el momento STELLANTIS no debe ver
-   sus cotizaciones en el portal — sin quitarle el módulo, la pestaña "Mis
-   cotizaciones" se queda, solo que vacía. Va por NOMBRE (con "includes",
-   no exacto: el cliente se llama solo "STELLANTIS" — "CAMIONES" es el
-   nombre del SITIO, no del cliente, y aparece nada más como subtítulo de
-   cada tarjeta) porque este archivo no trae cargada la lista real de
-   clientes de producción; para aplicar lo mismo a otro cliente, o para
-   quitar esto cuando ya no haga falta, solo se toca esta lista. */
-const CLIENTES_OCULTAR_COTIZACIONES_PORTAL = ['stellantis'];
-function ocultarCotizacionesPortal(){
-  const nombre = ((portalCliente.cliente && portalCliente.cliente.nombre) || '').trim().toLowerCase();
-  return CLIENTES_OCULTAR_COTIZACIONES_PORTAL.some(x => nombre.includes(x));
+/* Por pedido explícito (10-sep-2026): por el momento el SITIO STELLANTIS
+   CAMIONES —una de las 7 plantas del cliente STELLANTIS (VAN, CAMIONES,
+   INGENIERIAS, SANTA FE, TOLUCA, MOTORES SUR, MOTORES NORTE)— no debe ver
+   sus cotizaciones en el portal. Es A PROPÓSITO por SITIO y no por cliente:
+   una cuenta que vea varias plantas de Stellantis (o todas, si no está
+   acotada por sitio) sigue viendo las cotizaciones de las demás, nada más
+   se le quitan las de esta planta. La pestaña "Mis cotizaciones" se queda
+   donde estaba. Va por NOMBRE DE SITIO porque este archivo no trae cargada
+   la lista real de sitios de producción; para aplicar lo mismo a otro
+   sitio, o para quitar esto cuando ya no haga falta, solo se toca esta
+   lista. */
+const SITIOS_OCULTAR_COTIZACIONES_PORTAL = ['stellantis camiones'];
+function cotizacionOcultaPorSitioPortal(q){
+  const s = sitioPortalPorId(q.sitioId);
+  const nombre = ((s && s.nombre) || '').trim().toLowerCase();
+  return !!nombre && SITIOS_OCULTAR_COTIZACIONES_PORTAL.some(x => nombre.includes(x));
 }
 function vistaPortalCotizaciones(){
-  if(ocultarCotizacionesPortal()){
-    return vistaVacia('credencial', 'Todavía no tienes cotizaciones',
-      'En cuanto Forguard te comparta una cotización, la vas a ver aquí.', '', '');
-  }
   if(estado.cotizacionPortalId){
     const q = portalCliente.cotizaciones.find(x => x.id === estado.cotizacionPortalId);
-    if(!q){ estado.cotizacionPortalId = null; }
+    if(!q || cotizacionOcultaPorSitioPortal(q)){ estado.cotizacionPortalId = null; }
     else return vistaPortalCotizacion(q);
   }
-  if(!portalCliente.cotizaciones.length){
+  const cotizacionesVisibles = portalCliente.cotizaciones.filter(q => !cotizacionOcultaPorSitioPortal(q));
+  if(!cotizacionesVisibles.length){
     return vistaVacia('credencial', 'Todavía no tienes cotizaciones',
       'En cuanto Forguard te comparta una cotización, la vas a ver aquí.', '', '');
   }
-  return '<div class="grid">' + portalCliente.cotizaciones.map(q=>{
+  return '<div class="grid">' + cotizacionesVisibles.map(q=>{
     const c = calcularCotizacion(q);
     const s = sitioPortalPorId(q.sitioId);
     const tono = ESTATUS_COTIZACION_PERDIDA.includes(q.estatus) ? 'neutro' : ESTATUS_COTIZACION_INGRESO.includes(q.estatus) ? 'ok' : 'alerta';
