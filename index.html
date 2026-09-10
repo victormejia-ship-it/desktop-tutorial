@@ -24701,16 +24701,18 @@ function vistaPortalForpass(){
   }).join('') + '</div>';
 }
 
-/* Por pedido explícito (10-sep-2026): por el momento STELLANTIS CAMIONES no
-   debe ver sus cotizaciones en el portal — sin quitarle el módulo, la
-   pestaña "Mis cotizaciones" se queda, solo que vacía. Va por NOMBRE y no
-   por id de cliente porque este archivo no trae cargada la lista real de
+/* Por pedido explícito (10-sep-2026): por el momento STELLANTIS no debe ver
+   sus cotizaciones en el portal — sin quitarle el módulo, la pestaña "Mis
+   cotizaciones" se queda, solo que vacía. Va por NOMBRE (con "includes",
+   no exacto: el cliente se llama solo "STELLANTIS" — "CAMIONES" es el
+   nombre del SITIO, no del cliente, y aparece nada más como subtítulo de
+   cada tarjeta) porque este archivo no trae cargada la lista real de
    clientes de producción; para aplicar lo mismo a otro cliente, o para
    quitar esto cuando ya no haga falta, solo se toca esta lista. */
-const CLIENTES_OCULTAR_COTIZACIONES_PORTAL = ['stellantis camiones'];
+const CLIENTES_OCULTAR_COTIZACIONES_PORTAL = ['stellantis'];
 function ocultarCotizacionesPortal(){
   const nombre = ((portalCliente.cliente && portalCliente.cliente.nombre) || '').trim().toLowerCase();
-  return CLIENTES_OCULTAR_COTIZACIONES_PORTAL.includes(nombre);
+  return CLIENTES_OCULTAR_COTIZACIONES_PORTAL.some(x => nombre.includes(x));
 }
 function vistaPortalCotizaciones(){
   if(ocultarCotizacionesPortal()){
