@@ -24701,7 +24701,22 @@ function vistaPortalForpass(){
   }).join('') + '</div>';
 }
 
+/* Por pedido explícito (10-sep-2026): por el momento STELLANTIS CAMIONES no
+   debe ver sus cotizaciones en el portal — sin quitarle el módulo, la
+   pestaña "Mis cotizaciones" se queda, solo que vacía. Va por NOMBRE y no
+   por id de cliente porque este archivo no trae cargada la lista real de
+   clientes de producción; para aplicar lo mismo a otro cliente, o para
+   quitar esto cuando ya no haga falta, solo se toca esta lista. */
+const CLIENTES_OCULTAR_COTIZACIONES_PORTAL = ['stellantis camiones'];
+function ocultarCotizacionesPortal(){
+  const nombre = ((portalCliente.cliente && portalCliente.cliente.nombre) || '').trim().toLowerCase();
+  return CLIENTES_OCULTAR_COTIZACIONES_PORTAL.includes(nombre);
+}
 function vistaPortalCotizaciones(){
+  if(ocultarCotizacionesPortal()){
+    return vistaVacia('credencial', 'Todavía no tienes cotizaciones',
+      'En cuanto Forguard te comparta una cotización, la vas a ver aquí.', '', '');
+  }
   if(estado.cotizacionPortalId){
     const q = portalCliente.cotizaciones.find(x => x.id === estado.cotizacionPortalId);
     if(!q){ estado.cotizacionPortalId = null; }
