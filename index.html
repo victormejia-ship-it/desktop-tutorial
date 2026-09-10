@@ -184,6 +184,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .k-anillo{display:flex; align-items:center; gap:10px; margin-top:5px;}
 .k-anillo svg{flex:0 0 auto;}
 .k-anillo-txt{font-size:15px; font-weight:700; color:var(--navy); line-height:1.2;}
+.k-anillo-sufijo{font-size:10.5px; font-weight:600; color:var(--gray); text-transform:none; letter-spacing:0;}
 
 /* Indicadores que se pueden abrir para ver el detalle */
 button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
@@ -9167,13 +9168,20 @@ const COLOR_TONO = { ok:'var(--ok)', alerta:'var(--alerta)', error:'var(--error)
    contrato y para el mes en curso — mismo formato, mismo criterio de color
    (100% ok, 80-99% alerta, menos de 80% error) para que las dos se lean
    igual y el ojo no tenga que aprender dos convenciones. */
-function tarjetaCumplimiento(label, pct, hechosN, totalN, piePositivo, piePendiente){
+/* `sufijo` (opcional) se imprime junto al "N de M" del anillo — se usa para
+   aclarar DE QUÉ es ese N de M cuando no es obvio por el label. Sin esto,
+   "Cumplimiento total: 100% (38 de 38)" junto a la tarjeta "Servicios: 39 de
+   57" se leía como una contradicción: el 38/38 no es de los 57 servicios del
+   año, es de los que YA le tocaban a esta fecha (ver hechosDebidos/
+   serviciosDebidos en calcularPoliza) — dos denominadores distintos con
+   pinta de ser el mismo número. */
+function tarjetaCumplimiento(label, pct, hechosN, totalN, piePositivo, piePendiente, sufijo){
   const tono = pct === 100 ? 'ok' : pct >= 80 ? 'alerta' : 'error';
   return '<div class="kpi k-' + tono + '">'
     +   '<div class="k-label">' + esc(label) + '</div>'
     +   '<div class="k-anillo">'
     +     anilloProgresoSVG(pct, 54, 7, COLOR_TONO[tono])
-    +     '<div><div class="k-anillo-txt">' + hechosN + ' de ' + totalN + '</div>'
+    +     '<div><div class="k-anillo-txt">' + hechosN + ' de ' + totalN + (sufijo ? ' <span class="k-anillo-sufijo">' + esc(sufijo) + '</span>' : '') + '</div>'
     +       '<div class="k-pie">' + (totalN ? piePositivo : piePendiente) + '</div></div>'
     +   '</div>'
     + '</div>';
@@ -16099,12 +16107,19 @@ function vistaPoliza(){
         Dos tarjetas: el TOTAL acumulado de toda la vigencia, y el del MES en
         curso —que se resetea cada mes— para poder ver "vamos bien este mes"
         sin que un mes anterior ya superado lo siga arrastrando. */
-     +   tarjetaCumplimiento('Cumplimiento total', c.cumplimientoPct, c.hechosDebidos, c.serviciosDebidos,
+     /* "Cumplimiento total" confundía junto a la tarjeta "Servicios" de
+        arriba: un 38 de 38 al 100% al lado de un 39 de 57 se lee como
+        contradicción si no se sabe que son dos denominadores distintos —
+        acá solo cuenta lo que YA le tocaba a la fecha, no el total del año.
+        Renombrada a "Cumplimiento a la fecha" y con el sufijo "ya debidos"
+        pegado al propio número, para que la aclaración esté justo donde se
+        genera la duda y no se pierda en un tooltip que nadie abre. */
+     +   tarjetaCumplimiento('Cumplimiento a la fecha', c.cumplimientoPct, c.hechosDebidos, c.serviciosDebidos,
            c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Al corriente',
-           'Aún no le toca nada')
+           'Aún no le toca nada', 'ya debidos')
      +   tarjetaCumplimiento('Cumplimiento del mes', c.cumplimientoMesPct, c.hechosMes, c.programadosMes,
            c.tocanEsteMes ? c.tocanEsteMes + ' ' + plural(c.tocanEsteMes,'pendiente','pendientes') + ' este mes' : 'Mes al corriente',
-           'Nada programado este mes')
+           'Nada programado este mes', 'de este mes')
      + tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
          c.vigente ? 'Faltan ' + c.diasVigencia + ' ' + plural(c.diasVigencia,'día','días') : 'Terminada')
      + '</div>';
@@ -19724,14 +19739,16 @@ function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular, verDetalle){
     +       ' · ' + c.hechos + ' ' + plural(c.hechos,'hecho','hechos') + '</b></div>'
     +     '<div class="c-fila"><span>Mes más cargado:</span><b>' + pico + ' ' + plural(pico,'equipo','equipos') + '</b></div>'
     +   '</div>'
-    /* Mismos % que ya se ven al abrir la póliza (KPI "Cumplimiento total" y
-       "Cumplimiento del mes") — aquí en grande, junto al Gantt, para no
-       tener que ir y venir entre las dos pantallas para relacionar el
-       número con el detalle mes por mes. */
+    /* Mismos % que ya se ven al abrir la póliza (KPI "Cumplimiento a la
+       fecha" y "Cumplimiento del mes") — aquí en grande, junto al Gantt,
+       para no tener que ir y venir entre las dos pantallas para relacionar
+       el número con el detalle mes por mes. "ya debidos" pegado al número:
+       ver el comentario junto a tarjetaCumplimiento() sobre por qué este N
+       de M no es el mismo denominador que "Servicios" en la vista principal. */
     +   '<div class="cal-cumplimiento">'
     +     anilloProgresoSVG(c.cumplimientoPct, 76, 9, COLOR_TONO[tonoCal])
-    +     '<div><div class="cal-cumplimiento-label">Cumplimiento total</div>'
-    +       '<div class="cal-cumplimiento-txt">' + c.hechosDebidos + ' de ' + c.serviciosDebidos + ' al corriente</div>'
+    +     '<div><div class="cal-cumplimiento-label">Cumplimiento a la fecha</div>'
+    +       '<div class="cal-cumplimiento-txt">' + c.hechosDebidos + ' de ' + c.serviciosDebidos + ' ya debidos</div>'
     +       (c.atrasados
              ? '<div class="cal-cumplimiento-txt" style="color:var(--error)">' + c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') + '</div>'
              : '<div class="cal-cumplimiento-txt" style="color:var(--ok)">Sin atrasos</div>')
@@ -24497,12 +24514,12 @@ function vistaPortalPolizas(){
       /* Mismos dos anillos de cumplimiento (total y del mes) que ya se ven
          internamente al abrir la póliza y dentro del Calendario — el cliente
          pidió poder revisarlos sin tener que entrar al Calendario primero. */
-      +   tarjetaCumplimiento('Cumplimiento total', c.cumplimientoPct, c.hechosDebidos, c.serviciosDebidos,
+      +   tarjetaCumplimiento('Cumplimiento a la fecha', c.cumplimientoPct, c.hechosDebidos, c.serviciosDebidos,
             c.atrasados ? c.atrasados + ' ' + plural(c.atrasados,'atrasado','atrasados') : 'Al corriente',
-            'Aún no le toca nada')
+            'Aún no le toca nada', 'ya debidos')
       +   tarjetaCumplimiento('Cumplimiento del mes', c.cumplimientoMesPct, c.hechosMes, c.programadosMes,
             c.tocanEsteMes ? c.tocanEsteMes + ' ' + plural(c.tocanEsteMes,'pendiente','pendientes') + ' este mes' : 'Mes al corriente',
-            'Nada programado este mes')
+            'Nada programado este mes', 'de este mes')
       +   tarjetaKpi('Cobranza', c.cobrados + ' de ' + c.montos.length, c.adeudo ? 'Adeudo: ' + dinero(c.adeudo) : 'Sin adeudo')
       +   tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
             c.vigente ? 'Faltan ' + c.diasVigencia + ' ' + plural(c.diasVigencia,'día','días') : 'Terminada')
