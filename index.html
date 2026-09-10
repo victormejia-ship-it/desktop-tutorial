@@ -18280,6 +18280,13 @@ $('vista').addEventListener('click', async ev=>{
   if(pCal){ modalCalendarioPortal(pCal.dataset.calendarioPortal); return; }
   const pImpP = ev.target.closest('[data-imprimir-poliza-portal]');
   if(pImpP){ abrirDocumentoPolizaPortal(pImpP.dataset.imprimirPolizaPortal); return; }
+  /* Mismo botón "ver detalle de un servicio ya hecho" del Gantt, ahora
+     también inline en "Mi póliza" (ver vistaPortalPolizas()) y no solo
+     dentro del modal de Calendario — modalCalendarioPortal() ata este
+     mismo data-ver-servicio a SU propio $('modalCuerpo'), que no existe
+     cuando el Gantt vive directo en #vista. */
+  const pVerServ = ev.target.closest('[data-ver-servicio]');
+  if(pVerServ){ modalDetalleServicioPortal(pVerServ.dataset.verServicio, pVerServ.dataset.verPartida, +pVerServ.dataset.verMes); return; }
 
   const bor = ev.target.closest('[data-borrar-usuario]');
   if(bor){
@@ -24758,6 +24765,12 @@ function vistaPortalPolizas(){
   return avisoExclusion + portalCliente.polizas.map(p=>{
     const c = calcularPoliza(p);
     const s = sitioPortalPorId(p.sitioId);
+    /* Mismo cálculo de "en qué mes de la vigencia estamos" que ya usa
+       cuerpoCalendarioPoliza(), para que el Gantt de aquí resalte el mismo
+       mes que el del modal de Calendario. */
+    const hoy = hoyISO();
+    const trans = mesesTranscurridos(p.fechaInicio, hoy);
+    const mesActual = (diasEntre(p.fechaInicio, hoy) < 0 || trans >= MESES_POLIZA) ? -1 : trans;
     return '<div class="bloque">'
       + '<div class="bloque-cabeza"><div>'
       +   '<h3>' + esc(p.sitioNombre || (s && s.nombre) || 'Tu sitio') + '</h3>'
@@ -24787,6 +24800,16 @@ function vistaPortalPolizas(){
       +   tarjetaKpi('Vigencia', fmtFecha(p.fechaInicio) + ' → ' + fmtFecha(c.fin),
             c.vigente ? 'Faltan ' + c.diasVigencia + ' ' + plural(c.diasVigencia,'día','días') : 'Terminada')
       + '</div>'
+      /* Por pedido explícito (10-sep-2026): el mismo Gantt del botón
+         "Calendario" (modalCalendarioPortal/cuerpoCalendarioPoliza), ahora
+         también aquí, justo después de los anillos de cumplimiento, sin
+         tener que abrir el modal para verlo. Mismos parámetros que ya usa
+         el modal del portal: sin marcar (marcable=false, es de solo
+         lectura) y con verDetalle=true para poder picarle a un servicio ya
+         hecho y ver cuándo, quién y sus fotos — el clic lo atiende el
+         delegado de #vista (ver data-ver-servicio más arriba), no el de
+         modalCalendarioPortal(), que solo existe dentro del modal. */
+      + '<div class="cal-gantt-caja" style="margin-top:16px">' + ganttCalendarioHTML(p, mesActual, false, true) + '</div>'
       + '<div class="rodillo"><table class="tabla"><thead><tr>'
       +   '<th>Equipo</th><th>Marca</th><th>Cant.</th><th>Visitas/año</th>' + (PORTAL_OCULTAR_PRECIOS ? '' : '<th>Precio mensual*</th>')
       + '</tr></thead><tbody>'
