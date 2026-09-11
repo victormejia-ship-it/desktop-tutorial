@@ -1062,6 +1062,34 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .correo-sesion{font-size:12.5px; font-weight:600; color:var(--tinta, var(--ink)); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 @media (max-width:900px){ .correo-sesion{display:none;} }
 
+/* Campanita de notificaciones (agregado 12-sep-2026): a diferencia de
+   aviso() —un toast que se esfuma y nadie más ve—, esto es un buzón
+   durable por cuenta (ver crearNotificacion() en el JS). */
+.notif-zona{position:relative;}
+#btnNotificaciones{position:relative; padding:7px 9px;}
+#btnNotificaciones .punto-alerta{position:absolute; top:5px; right:5px; width:auto; height:auto; min-width:16px;
+  border-radius:9px; padding:0 4px; font-size:10px; line-height:16px; font-weight:800; color:#fff;
+  background:var(--error); box-shadow:0 0 0 2px #fff; text-align:center;}
+.notif-panel{position:absolute; top:calc(100% + 8px); right:0; width:340px; max-width:calc(100vw - 24px);
+  max-height:70vh; overflow-y:auto; background:#fff; border:1px solid var(--line); border-radius:12px;
+  box-shadow:0 14px 34px rgba(10,27,77,.16); z-index:60;}
+.notif-cabeza{display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:12px 14px; border-bottom:1px solid var(--line); position:sticky; top:0; background:#fff;}
+.notif-cabeza h4{margin:0; font-size:13.5px; color:var(--navy);}
+.notif-cabeza button{all:unset; cursor:pointer; font-size:11.5px; font-weight:700; color:var(--accent);}
+.notif-fila{display:flex; gap:10px; align-items:flex-start; padding:11px 14px; border-bottom:1px solid var(--line);
+  cursor:pointer; transition:background .12s;}
+.notif-fila:last-child{border-bottom:none;}
+.notif-fila:hover{background:var(--bg);}
+.notif-fila.no-leida{background:#eef4ff;}
+.notif-fila .notif-icono{width:30px; height:30px; border-radius:50%; flex-shrink:0; display:flex; align-items:center;
+  justify-content:center; background:var(--bg); color:var(--navy);}
+.notif-fila .notif-icono svg{width:15px; height:15px;}
+.notif-fila.no-leida .notif-icono{background:var(--accent); color:#fff;}
+.notif-fila .notif-texto{flex:1; min-width:0; font-size:12.5px; line-height:1.45; color:var(--ink);}
+.notif-fila .notif-cuando{font-size:11px; color:var(--gray); margin-top:2px;}
+.notif-vacio{padding:26px 16px; text-align:center; color:var(--gray); font-size:12.5px;}
+
 /* ---------- Etiquetas de permiso, con su color ---------- */
 .rol{
   display:inline-flex; align-items:center; font-size:11px; font-weight:700; letter-spacing:.02em;
@@ -1286,6 +1314,11 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
 .seguimiento-item b{color:var(--navy);}
 .seguimiento-item .pista{margin-left:6px;}
 .seguimiento-item > div{margin-top:2px; white-space:pre-wrap;}
+/* Un comentario de verdad (alguien lo escribió a propósito) se distingue de
+   las líneas automáticas del sistema (asignó técnicos, cambió estatus…)
+   con un acento de color a la izquierda — que no se pierda entre puro
+   registro. */
+.seguimiento-item.es-comentario{background:var(--bg); border-left:3px solid var(--accent); border-radius:0 7px 7px 0; padding-left:10px; margin:4px 0;}
 
 /* ---------- Organigrama: árbol jerárquico con solo CSS ---------- */
 /* Método clásico de "org chart" con bordes de <li> en vez de SVG o una
@@ -1402,6 +1435,13 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     <span class="correo-sesion" id="nombreSesion"></span>
     <span id="rolSesion"></span>
     <span class="pastilla" id="estadoNube"></span>
+    <div class="notif-zona">
+      <button type="button" class="btn-cabeza" id="btnNotificaciones" style="display:none" title="Notificaciones">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="punto-alerta" id="puntoNotificaciones" hidden></span>
+      </button>
+      <div class="notif-panel" id="panelNotificaciones" hidden></div>
+    </div>
     <button type="button" class="btn-cabeza" id="btnAdmin" style="display:none" title="Panel de administración">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 4v6c0 4.2-2.9 7.9-7 10-4.1-2.1-7-5.8-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       <span class="txt">Admin</span>
@@ -4524,7 +4564,15 @@ function normalizarSeguimientoReporte(s){
   return {
     cuando: (s && s.cuando) || new Date().toISOString(),
     quien: (s && s.quien ? String(s.quien) : '').trim(),
-    texto: (s && s.texto ? String(s.texto) : '').trim()
+    quienUid: (s && s.quienUid ? String(s.quienUid) : '').trim(),
+    texto: (s && s.texto ? String(s.texto) : '').trim(),
+    /* 'sistema' (el de siempre: lo escribe anotarReporte() solo, al
+       asignar/cambiar estatus/subir evidencia) vs 'comentario' (agregado
+       12-sep-2026: alguien —oficina central o el técnico— escribe algo a
+       propósito, ver agregarComentarioReporte()). La vista los pinta
+       distinto para que un comentario de verdad no se pierda entre puras
+       líneas automáticas. */
+    tipo: (s && s.tipo === 'comentario') ? 'comentario' : 'sistema'
   };
 }
 
@@ -4773,8 +4821,70 @@ function guardarReporte(r, accion, detalle){
    acción que cambia algo importante (asignar técnico, cambiar estatus, subir
    evidencia) para que abrir el reporte cuente su historia completa. */
 function anotarReporte(r, texto, accionGlobal, detalleGlobal){
-  r.seguimiento.push(normalizarSeguimientoReporte({ quien: nombreDe(sesion) || 'Alguien del equipo', texto }));
+  r.seguimiento.push(normalizarSeguimientoReporte({ quien: nombreDe(sesion) || 'Alguien del equipo', quienUid: sesion.uid || '', texto }));
   guardarReporte(r, accionGlobal, detalleGlobal);
+}
+
+/* Alguien escribe algo A PROPÓSITO en el reporte —no es un renglón que el
+   sistema arma solo por un cambio de estatus— para preguntar, avisar o dar
+   seguimiento. Es el canal de ida y vuelta entre oficina central y el
+   técnico en campo que antes no existía: todo lo que había en seguimiento
+   eran líneas automáticas (ver normalizarSeguimientoReporte). */
+function agregarComentarioReporte(id, texto){
+  const rp = reportePorId(id);
+  const limpio = (texto || '').trim();
+  if(!rp || !limpio) return;
+  rp.seguimiento.push(normalizarSeguimientoReporte({
+    quien: nombreDe(sesion) || 'Alguien del equipo', quienUid: sesion.uid || '', texto: limpio, tipo:'comentario'
+  }));
+  guardarReporte(rp, 'comentó', rp.folio);
+  notificarInteresadosReporte(rp, sesion.uid, 'comentario',
+    (nombreDe(sesion) || 'Alguien') + ' comentó en el reporte de ' + (rp.sitioNombre || 'un sitio') + ': "' + limpio.slice(0, 120) + (limpio.length > 120 ? '…' : '') + '"');
+  render();
+}
+
+/* ==================== Notificaciones ====================
+   Un aviso durable —a diferencia de aviso(), que es un toast que desaparece
+   y nadie más ve— dirigido a UNA cuenta (destinatarioUid), para que quien
+   no tenía el tablero abierto en el momento se entere igual la próxima vez
+   que entre. Vive en Firestore para que sobreviva a cerrar la pestaña;
+   no se guarda nada de esto en modo local (!HAY_NUBE), donde no hay ni
+   cuentas que notificar.
+
+   Este mismo documento es a propósito el gancho para el día que se agregue
+   una notificación push de verdad (Firebase Cloud Messaging + una Cloud
+   Function): la función solo tendría que escuchar el alta de un documento
+   aquí y mandarle el push a destinatarioUid — el modelo de datos ya queda
+   listo, no hay que rediseñar nada para ese día. */
+function normalizarNotificacion(n){
+  return {
+    destinatarioUid: (n && n.destinatarioUid ? String(n.destinatarioUid) : '').trim(),
+    tipo: (n && n.tipo ? String(n.tipo) : '').trim() || 'reporte',
+    reporteId: (n && n.reporteId ? String(n.reporteId) : '').trim(),
+    folio: (n && n.folio ? String(n.folio) : '').trim(),
+    titulo: (n && n.titulo ? String(n.titulo) : '').trim(),
+    texto: (n && n.texto ? String(n.texto) : '').trim(),
+    leida: !!(n && n.leida),
+    creadoEn: (n && n.creadoEn) || new Date().toISOString()
+  };
+}
+function crearNotificacion(datos){
+  if(!HAY_NUBE || !haySesion() || !datos.destinatarioUid) return;
+  encolar({ tipo:'poner', coleccion:'notificaciones', id:nuevoId(), obj: normalizarNotificacion(datos) });
+}
+/* Los "interesados" de un reporte: los técnicos asignados y quien lo
+   levantó (si tiene cuenta interna — reportadoPor.uid queda vacío para el
+   formulario público). excluirUid es casi siempre sesion.uid: quien acaba
+   de comentar/resolver ya lo sabe, no hace falta avisarle de su propia
+   acción. */
+function notificarInteresadosReporte(r, excluirUid, tipo, texto){
+  const uids = new Set();
+  r.tecnicos.forEach(t => { if(t.uid) uids.add(t.uid); });
+  if(r.reportadoPor && r.reportadoPor.uid) uids.add(r.reportadoPor.uid);
+  uids.delete(excluirUid || '');
+  uids.forEach(uid => crearNotificacion({
+    destinatarioUid: uid, tipo, reporteId: r.id, folio: r.folio, titulo: r.titulo, texto
+  }));
 }
 
 /* ¿Este reporte todavía trae fotos guardadas a la antigua —completas, en
@@ -12170,12 +12280,23 @@ function resumirReportes(lista){
 }
 
 function vistaReportes(){
-  const r = resumirReportes(datos.reportes);
+  /* Un técnico entra viendo SOLO lo suyo por omisión (igual que ya hace
+     Visitas con estado.filtroTecnicoVisita) — antes veía el mismo listado
+     completo de toda la empresa que un Admin, y tenía que escribir su
+     propio nombre en el buscador para encontrar sus asignaciones. El "una
+     sola vez" (el `if`, no reasignar siempre) es a propósito: si el técnico
+     le da a "Todos" para revisar algo, un re-render no se lo revierte solo. */
+  const esTecnico = sesion.rol === 'tecnico';
+  if(esTecnico && !estado.vistaReportesTecnico) estado.vistaReportesTecnico = 'mios';
+  const soloMios = esTecnico && estado.vistaReportesTecnico === 'mios';
+  const baseReportes = soloMios ? datos.reportes.filter(rp => rp.tecnicos.some(t => t.uid === sesion.uid)) : datos.reportes;
+
+  const r = resumirReportes(baseReportes);
   let h = '';
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Reportes</h2>'
-     +   '<p>' + numero(r.total) + ' ' + plural(r.total,'reporte','reportes') + '</p>'
+     +   '<p>' + numero(r.total) + ' ' + plural(r.total, soloMios ? 'reporte asignado a ti' : 'reporte') + '</p>'
      + '</div><div class="acciones">'
      +   (puedeReportar()
           ? '<button type="button" class="btn btn-primario" data-accion="nuevo-reporte">' + ICONO.mas + 'Nuevo reporte</button>'
@@ -12198,6 +12319,12 @@ function vistaReportes(){
 
   const vistaTabla = estado.vistaReportes === 'tabla';
   h += '<div class="barra-busca">'
+     +   (esTecnico
+        ? '<div class="alterna-vista" role="group" aria-label="Qué reportes ver">'
+          +   '<button type="button" data-accion="vista-lista" data-campo="vistaReportesTecnico" data-modo="mios" aria-pressed="' + soloMios + '">Mis reportes</button>'
+          +   '<button type="button" data-accion="vista-lista" data-campo="vistaReportesTecnico" data-modo="todos" aria-pressed="' + !soloMios + '">Todos</button>'
+          + '</div>'
+        : '')
      +   '<input type="search" id="buscaReporte" placeholder="Buscar por folio, sitio, cliente o técnico…" value="' + esc(estado.busca) + '">'
      +   '<select id="filtroReporte">'
      +     '<option value="todos">Todos</option>'
@@ -12208,7 +12335,7 @@ function vistaReportes(){
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
-  const lista = datos.reportes.filter(rp=>{
+  const lista = baseReportes.filter(rp=>{
     if(q){
       const enTecnicos = rp.tecnicos.some(t => t.nombre.toLowerCase().includes(q));
       if(!(rp.folio||'').toLowerCase().includes(q) && !(rp.sitioNombre||'').toLowerCase().includes(q)
@@ -12223,7 +12350,10 @@ function vistaReportes(){
   });
 
   if(!lista.length){
-    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún reporte coincide con la búsqueda o el filtro.</p></div>';
+    h += soloMios
+      ? '<div class="vacio"><h3>No tienes reportes asignados</h3><p>Cuando la oficina central te asigne uno, va a aparecer aquí. '
+        + '<button type="button" class="btn btn-suave btn-mini" data-accion="vista-lista" data-campo="vistaReportesTecnico" data-modo="todos">Ver todos los reportes</button></p></div>'
+      : '<div class="vacio"><h3>Sin resultados</h3><p>Ningún reporte coincide con la búsqueda o el filtro.</p></div>';
     return h;
   }
 
@@ -12370,14 +12500,25 @@ function vistaReporte(){
        + '</div>';
   }
 
-  if(rp.seguimiento.length){
-    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Seguimiento</h3></div></div>'
-       +   '<div class="lista-seguimiento">' + rp.seguimiento.slice().reverse().map(s=>
-             '<div class="seguimiento-item"><b>' + esc(s.quien || 'Alguien del equipo') + '</b> '
-             + '<span class="pista">' + esc(fechaHora(s.cuando)) + '</span><div>' + esc(s.texto) + '</div></div>'
-           ).join('') + '</div>'
-       + '</div>';
-  }
+  /* Siempre se dibuja el bloque, aunque todavía no haya nada: es donde vive
+     el cuadro de "Agregar comentario" — el canal de ida y vuelta entre
+     oficina central y el técnico en campo (ver agregarComentarioReporte()
+     y notificarInteresadosReporte()). Antes esto era puro registro
+     automático de lectura, sin forma de preguntar o avisar algo. */
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Seguimiento</h3></div></div>'
+     +   (rp.seguimiento.length
+        ? '<div class="lista-seguimiento">' + rp.seguimiento.slice().reverse().map(s=>
+              '<div class="seguimiento-item' + (s.tipo === 'comentario' ? ' es-comentario' : '') + '">'
+              + '<b>' + esc(s.quien || 'Alguien del equipo') + '</b> '
+              + '<span class="pista">' + esc(fechaHora(s.cuando)) + '</span><div>' + esc(s.texto) + '</div></div>'
+            ).join('') + '</div>'
+        : '<p class="pista" style="margin:0">Todavía no hay nada registrado.</p>')
+     +   (puedeReportar()
+        ? '<div class="campo" style="margin-top:12px"><label>Agregar comentario</label>'
+          +   '<textarea id="nuevoComentarioReporte" placeholder="Pregunta, avisa o da seguimiento a quien esté en este reporte…"></textarea></div>'
+          + '<button type="button" class="btn btn-suave btn-mini" data-accion="comentar-reporte">' + ICONO.mas + 'Enviar comentario</button>'
+        : '')
+     + '</div>';
 
   h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
   /* Un reportero levanta el ticket y de ahí en fuera solo lo ve: ni edita, ni
@@ -15072,12 +15213,22 @@ async function modalTecnicosReporte(id){
     }else if($('tecNombres')){
       nuevos = $('tecNombres').value.split(',').map(n => n.trim()).filter(Boolean).map(n => ({ uid:'', nombre:n }));
     }
+    const uidsAntes = new Set(rp.tecnicos.map(t=>t.uid).filter(Boolean));
     const antes = rp.tecnicos.map(t=>t.nombre).join(', ') || 'nadie';
     rp.tecnicos = nuevos.map(normalizarTecnicoAsignado);
     if(rp.tecnicos.length && rp.estatus === 'abierto') rp.estatus = 'asignado';
     const despues = rp.tecnicos.map(t=>t.nombre).join(', ') || 'nadie';
     anotarReporte(rp, 'Cambió los técnicos asignados: ' + antes + ' → ' + despues + '.',
                   'asignó técnicos a', rp.folio + ': ' + despues);
+    /* Solo se notifica a quien se AGREGA, no a todo el que ya estaba —
+       reasignar/actualizar la lista no debe repetir el mismo aviso a quien
+       ya sabía que este reporte era suyo. */
+    rp.tecnicos.filter(t => t.uid && !uidsAntes.has(t.uid)).forEach(t=>{
+      crearNotificacion({
+        destinatarioUid: t.uid, tipo:'asignacion', reporteId: rp.id, folio: rp.folio,
+        titulo: rp.titulo, texto: 'Se te asignó el reporte de ' + (rp.sitioNombre || 'un sitio') + '.'
+      });
+    });
     cerrarModal(); render();
     aviso(rp.tecnicos.length ? 'Técnico(s) asignado(s): ' + despues + '.' : 'Reporte sin técnicos asignados.');
   };
@@ -15185,6 +15336,8 @@ function modalResolverReporte(id){
     rp.fechaCierre = '';
     anotarReporte(rp, 'Marcó el reporte como resuelto, con reporte de atención y ' + evidenciasTmp.length + ' ' + plural(evidenciasTmp.length,'foto','fotos') + '.',
                   'resolvió', rp.folio);
+    notificarInteresadosReporte(rp, sesion.uid, 'resuelto',
+      nombreDe(sesion) + ' marcó como resuelto el reporte de ' + (rp.sitioNombre || 'un sitio') + '.');
     cerrarModal(); render();
     aviso('Reporte marcado como resuelto.');
   };
@@ -18192,12 +18345,114 @@ function render(){
   animarTarjetas = false;
 }
 
+/* ==================== Centro de notificaciones ====================
+   El buzón que llenan crearNotificacion()/notificarInteresadosReporte()
+   (ver la sección de Reportes): asignaciones, resueltos y comentarios,
+   por cuenta. Se recarga al arrancar y cada vez que refrescarDesdeNube()
+   sincroniza (mismo intervalo de 30s de siempre) — no hace falta abrir el
+   panel para que el número de la campanita se actualice solo. */
+const notif = { lista: [], cargando:false, abierto:false };
+
+const ICONO_NOTIF = {
+  asignacion: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  resuelto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  comentario: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
+};
+
+function tiempoRelativoDesde(iso){
+  const ms = Date.now() - new Date(iso).getTime();
+  if(!isFinite(ms) || ms < 0) return '';
+  const min = Math.floor(ms / 60000);
+  if(min < 1) return 'hace un momento';
+  if(min < 60) return 'hace ' + min + ' ' + plural(min,'minuto','minutos');
+  const hor = Math.floor(min / 60);
+  if(hor < 24) return 'hace ' + hor + ' ' + plural(hor,'hora','horas');
+  const dias = Math.floor(hor / 24);
+  if(dias < 7) return 'hace ' + dias + ' ' + plural(dias,'día','días');
+  return fmtFecha(iso.slice(0,10));
+}
+
+async function cargarNotificaciones(){
+  if(!HAY_NUBE || !haySesion() || esCliente() || notif.cargando) return;
+  notif.cargando = true;
+  try{
+    notif.lista = (await consultarNubePorCampo('notificaciones', 'destinatarioUid', sesion.uid))
+      .sort((a,b)=> (b.creadoEn||'').localeCompare(a.creadoEn||''));
+  }catch(e){ /* silencioso: un buzón que no cargó no debe tronar nada más */ }
+  notif.cargando = false;
+  pintarNotificaciones();
+}
+
+function pintarNotificaciones(){
+  const btn = $('btnNotificaciones');
+  if(!btn) return;
+  const noLeidas = notif.lista.filter(n => !n.leida).length;
+  let punto = btn.querySelector('.punto-alerta');
+  if(!punto){
+    punto = document.createElement('span');
+    punto.className = 'punto-alerta';
+    btn.appendChild(punto);
+  }
+  punto.hidden = !noLeidas;
+  punto.textContent = noLeidas > 9 ? '9+' : String(noLeidas);
+
+  const panel = $('panelNotificaciones');
+  if(!panel || !notif.abierto) return;
+  panel.innerHTML =
+      '<div class="notif-cabeza"><h4>Notificaciones</h4>'
+    +   (noLeidas ? '<button type="button" id="btnMarcarTodasLeidas">Marcar todas leídas</button>' : '')
+    + '</div>'
+    + (notif.lista.length
+        ? notif.lista.slice(0, 30).map(n => '<div class="notif-fila' + (n.leida ? '' : ' no-leida') + '" data-notif-id="' + esc(n.id) + '" data-notif-reporte="' + esc(n.reporteId) + '">'
+            +   '<div class="notif-icono">' + (ICONO_NOTIF[n.tipo] || ICONO.info) + '</div>'
+            +   '<div><div class="notif-texto">' + esc(n.texto) + '</div><div class="notif-cuando">' + tiempoRelativoDesde(n.creadoEn) + '</div></div>'
+            + '</div>').join('')
+        : '<div class="notif-vacio">Sin notificaciones por ahora.</div>');
+
+  const btnTodas = $('btnMarcarTodasLeidas');
+  if(btnTodas) btnTodas.addEventListener('click', ()=>{
+    notif.lista.forEach(n=>{
+      if(n.leida) return;
+      n.leida = true;
+      encolar({ tipo:'poner', coleccion:'notificaciones', id:n.id, obj:n });
+    });
+    pintarNotificaciones();
+  });
+  panel.querySelectorAll('[data-notif-id]').forEach(fila=>{
+    fila.addEventListener('click', ()=>{
+      const n = notif.lista.find(x => x.id === fila.dataset.notifId);
+      if(n && !n.leida){
+        n.leida = true;
+        encolar({ tipo:'poner', coleccion:'notificaciones', id:n.id, obj:n });
+        pintarNotificaciones();
+      }
+      cerrarPanelNotificaciones();
+      if(fila.dataset.notifReporte) entrarReporte(fila.dataset.notifReporte);
+    });
+  });
+}
+
+function abrirPanelNotificaciones(){
+  notif.abierto = true;
+  $('panelNotificaciones').hidden = false;
+  if(!notif.lista.length) cargarNotificaciones(); else pintarNotificaciones();
+}
+function cerrarPanelNotificaciones(){
+  notif.abierto = false;
+  const panel = $('panelNotificaciones');
+  if(panel) panel.hidden = true;
+}
+
 function pintarCabecera(){
   const dentro = HAY_NUBE && haySesion();
   const nom = $('nombreSesion');
   nom.textContent = dentro ? nombreDe(sesion) : '';
   nom.title = dentro ? sesion.correo : '';          /* el correo queda al pasar el mouse */
   $('rolSesion').innerHTML = (dentro && sesion.rol) ? etiquetaRol(sesion.rol) : '';
+  /* La campanita es del personal de Forguard, no del portal de clientes:
+     esCliente() nunca tiene técnicos que le asignen ni comentarios que le
+     lleguen — ver notificarInteresadosReporte(). */
+  $('btnNotificaciones').style.display = (dentro && !esCliente()) ? '' : 'none';
   $('btnAdmin').style.display = (dentro && esAdmin()) ? '' : 'none';
   $('btnPerfil').style.display = dentro ? '' : 'none';
   $('btnSalir').style.display = dentro ? '' : 'none';
@@ -23369,6 +23624,12 @@ $('vista').addEventListener('click', ev=>{
       render(); aviso('Foto eliminada.');
     }
     else if(a === 'resolver-reporte'){ if(exigirGestionReporte()) modalResolverReporte(estado.reporteId); }
+    else if(a === 'comentar-reporte'){
+      if(!exigirReportar()) return;
+      const campo = $('nuevoComentarioReporte');
+      if(!campo || !campo.value.trim()){ aviso('Escribe algo antes de enviar.', true); return; }
+      agregarComentarioReporte(estado.reporteId, campo.value);
+    }
     else if(a === 'cambiar-estatus-reporte'){
       if(!exigirGestionReporte()) return;
       const rp = reportePorId(estado.reporteId);
@@ -25350,6 +25611,20 @@ document.addEventListener('wheel', ev=>{
   nav.scrollLeft += ev.deltaY;
 }, { passive:false });
 
+$('btnNotificaciones').addEventListener('click', ()=>{
+  if(notif.abierto) cerrarPanelNotificaciones();
+  else abrirPanelNotificaciones();
+});
+/* Clic fuera del panel: se cierra solo, mismo comportamiento esperado de
+   cualquier menú desplegable. mousedown y no click, para que el propio
+   clic que ABRE la campanita (que también dispara en document) no la
+   vuelva a cerrar en el mismo instante. */
+document.addEventListener('mousedown', ev=>{
+  if(!notif.abierto) return;
+  if(ev.target.closest('.notif-zona')) return;
+  cerrarPanelNotificaciones();
+});
+
 $('btnPerfil').addEventListener('click', ()=> modalPerfil());
 
 $('btnAdmin').addEventListener('click', ()=>{
@@ -25402,6 +25677,7 @@ async function refrescarDesdeNube(){
       if(foco && BUSCADORES.includes(foco.id)) renderConservandoFoco(foco, foco.id);
       else render();
     }
+    cargarNotificaciones();
   }catch(e){
     if(/SIN_SESION|SESION_VENCIDA/.test(String(e.message))) salir(true);
   }
@@ -25481,6 +25757,7 @@ async function arrancarNube(){
       if(estado.vista === 'clientes' && avisos() !== avisosAntes) render();
     });
     arrancarVigilancia();
+    cargarNotificaciones();
     /* Primera conexión: el servidor está vacío y aquí ya había capturas. Se suben. */
     if(r === 'vacia'){
       if(puedeEditar()){

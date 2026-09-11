@@ -245,6 +245,27 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Notificaciones (agregado 12-sep-2026) ---
+       El buzón por cuenta que llenan crearNotificacion()/
+       notificarInteresadosReporte() en index.html: "se te asignó un
+       reporte", "se resolvió", "hay un comentario nuevo". Cada documento
+       es de UN destinatario (destinatarioUid) — nadie más que esa cuenta
+       puede leerlo, ni siquiera Admin desde aquí (si algún día hace falta
+       un panel de todas las notificaciones, sería su propia excepción
+       explícita, no un descuido de esta regla). Solo se puede tocar el
+       campo `leida` al marcarla vista — nada más se vuelve a escribir un
+       aviso ya mandado. Crear uno es tan abierto como crear un reporte
+       (conAcceso() && !esCliente()): cualquier acción interna que dispare
+       un aviso —asignar, resolver, comentar— lo hace con el mismo permiso
+       con el que ya toca /reportes. */
+    match /notificaciones/{id} {
+      allow read: if conAcceso() && resource.data.destinatarioUid == request.auth.uid;
+      allow create: if conAcceso() && !esCliente() && request.resource.data.destinatarioUid is string;
+      allow update: if conAcceso() && resource.data.destinatarioUid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leida']);
+      allow delete: if esAdmin();
+    }
+
     /* --- Levantamientos (recorridos de sitio) ---
        Séptimo módulo: el registro de una visita completa, con varios
        hallazgos (correctivos o preventivos) dentro. A propósito "para todos
