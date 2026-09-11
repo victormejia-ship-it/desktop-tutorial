@@ -796,6 +796,15 @@ button.mes{cursor:pointer;}
 .fp-exito{text-align:center;}
 .fp-exito-icono{width:44px; height:44px; margin:0 auto 10px; padding:10px; border-radius:50%;
   background:#e4f5ec; color:var(--ok); box-sizing:border-box;}
+.fp-lista{max-height:220px; overflow-y:auto; margin-top:-8px;}
+.fp-fila-cliente{display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line);
+  border-top:none; background:#fff; font:inherit; font-size:14px; cursor:pointer;}
+.fp-fila-cliente:first-child{border-top:1px solid var(--line); border-radius:8px 8px 0 0;}
+.fp-fila-cliente:last-child{border-radius:0 0 8px 8px;}
+.fp-fila-cliente:only-child{border-radius:8px;}
+.fp-fila-cliente:hover{background:var(--bg);}
+.fp-cliente-fila{display:flex; align-items:center; justify-content:space-between; gap:10px;
+  border:1px solid var(--line); border-radius:8px; padding:9px 12px; background:var(--bg);}
 
 /* Fusionar clientes: tarjetas de radio para elegir cuál de los dos se conserva. */
 .fc-opciones{display:flex; flex-direction:column; gap:8px;}
@@ -2600,15 +2609,32 @@ function avatarCliente(c, tamano){
     : '<div class="t-avatar"' + estilo + '>' + esc(iniciales(c.nombre)) + '</div>';
 }
 
+/* Copias mínimas y públicas de clientes/sitios (agregado 12-sep-2026): el
+   directorio que usa el formulario público de reportes (ver
+   arrancarFormularioPublicoReportesSiAplica()) para que alguien SIN sesión
+   pueda buscar su cliente y su sitio de una lista, con el link general de
+   la empresa — nunca el documento completo (nada de contacto, notas,
+   mensualidad, campos personalizados). Mismo espíritu exacto que
+   datosClientePoliza()/datosClienteCotizacion(): la copia reducida es lo
+   único que las reglas de Firestore dejan leer sin cuenta. */
+function datosDirectorioCliente(c){
+  return { nombre: c.nombre };
+}
+function datosDirectorioSitio(s){
+  return { nombre: s.nombre, clienteId: s.clienteId, activo: s.estado === 'activo' };
+}
+
 /* ---- Guardado de un registro: local siempre, y a la nube si está activa ---- */
 function guardarCliente(c, accion){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'clientes', id:c.id, obj:c });
+  encolarCopiaCliente('directorio_reportes_clientes', c.id, datosDirectorioCliente(c));
   anotar(accion || 'editó', 'cliente', c.nombre);
 }
 function guardarSitio(s, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'sitios', id:s.id, obj:s });
+  encolarCopiaCliente('directorio_reportes_sitios', s.id, datosDirectorioSitio(s));
   anotar(accion || 'editó', 'sitio', s.nombre, detalle);
 }
 /* ===================== Portal de clientes: copias seguras =====================
@@ -2684,7 +2710,8 @@ function guardarPoliza(p, accion, detalle){
   encolarCopiaCliente('polizas_cliente', p.id, datosClientePoliza(p));
   anotar(accion || 'editó', 'póliza', p.sitioNombre || p.folio || 'sin nombre', detalle);
 }
-const COPIA_CLIENTE_DE = { polizas:'polizas_cliente', cotizaciones:'cotizaciones_cliente' };
+const COPIA_CLIENTE_DE = { polizas:'polizas_cliente', cotizaciones:'cotizaciones_cliente',
+  clientes:'directorio_reportes_clientes', sitios:'directorio_reportes_sitios' };
 
 /* La copia de portal (polizas_cliente/cotizaciones_cliente) solo se pone al
    día CUANDO se guarda la póliza/cotización original (ver guardarPoliza,
@@ -6471,11 +6498,17 @@ async function importarCotizacionesDesdeExcel(archivo){
         const sitiosNuevos = Array.from(new Set(nuevos.map(cot => cot.sitioId))).map(sitioPorId).filter(Boolean);
         const LOTE = 150;
         for(let i = 0; i < clientesNuevos.length; i += LOTE){
-          clientesNuevos.slice(i, i + LOTE).forEach(c => encolar({ tipo:'poner', coleccion:'clientes', id:c.id, obj:c }));
+          clientesNuevos.slice(i, i + LOTE).forEach(c => {
+            encolar({ tipo:'poner', coleccion:'clientes', id:c.id, obj:c });
+            encolarCopiaCliente('directorio_reportes_clientes', c.id, datosDirectorioCliente(c));
+          });
           await new Promise(res => setTimeout(res, 0));
         }
         for(let i = 0; i < sitiosNuevos.length; i += LOTE){
-          sitiosNuevos.slice(i, i + LOTE).forEach(s => encolar({ tipo:'poner', coleccion:'sitios', id:s.id, obj:s }));
+          sitiosNuevos.slice(i, i + LOTE).forEach(s => {
+            encolar({ tipo:'poner', coleccion:'sitios', id:s.id, obj:s });
+            encolarCopiaCliente('directorio_reportes_sitios', s.id, datosDirectorioSitio(s));
+          });
           await new Promise(res => setTimeout(res, 0));
         }
         for(let i = 0; i < nuevos.length; i += LOTE){
@@ -6939,8 +6972,14 @@ function avisoRespaldo(){
    Encolarlas era sembrarle 403 en la primera conexión, con el aviso culpando a
    las reglas. Se avisa qué se quedó local para que un Admin haga esa subida. */
 function subirTodo(){
-  datos.clientes.forEach(c => encolar({ tipo:'poner', coleccion:'clientes', id:c.id, obj:c }));
-  datos.sitios.forEach(s => encolar({ tipo:'poner', coleccion:'sitios', id:s.id, obj:s }));
+  datos.clientes.forEach(c => {
+    encolar({ tipo:'poner', coleccion:'clientes', id:c.id, obj:c });
+    encolarCopiaCliente('directorio_reportes_clientes', c.id, datosDirectorioCliente(c));
+  });
+  datos.sitios.forEach(s => {
+    encolar({ tipo:'poner', coleccion:'sitios', id:s.id, obj:s });
+    encolarCopiaCliente('directorio_reportes_sitios', s.id, datosDirectorioSitio(s));
+  });
   /* Las cotizaciones no tienen congelado por rol: cualquiera que edite puede
      subir las suyas, igual que clientes y sitios. */
   datos.cotizaciones.forEach(q => encolar({ tipo:'poner', coleccion:'cotizaciones', id:q.id, obj:q }));
@@ -8639,10 +8678,13 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    logo, alta, fusión) se editan solo desde 'clientes'
    (vistaResumenCliente) — Forpass sigue siendo la pantalla de sus sitios/
    kioscos y su cobranza, no un segundo lugar para tocar al cliente.
-   "Excel de este cliente" y "Link para levantar reportes" también viven
-   solo en 'clientes' por la misma razón. Desde la ficha de un cliente en
-   Clientes se puede seguir saltando directo a su Forpass con "Ver en
-   Forpass" (ver irAlClienteEnForpass()) — un atajo, no la única puerta. */
+   "Excel de este cliente" vive por la misma razón solo en la ficha del
+   cliente dentro de 'clientes'. El link para levantar reportes (12-sep-2026:
+   uno solo general para toda la empresa, no uno por cliente) se administra
+   desde el listado de 'clientes', ver abrirGestionLinkGeneralReportes().
+   Desde la ficha de un cliente en Clientes se puede seguir saltando
+   directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
+   — un atajo, no la única puerta. */
 const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
 function cargarModulo(){
   estado.modulo = 'resultados';
@@ -9526,6 +9568,15 @@ function vistaResumenClientes(){
         +   ' · ' + numero(datos.sitios.length) + ' ' + plural(datos.sitios.length,'sitio','sitios') + ' registrados</p>'
         + '</div><div class="acciones">'
         +   barraHerramientas()
+        /* Un solo link para TODA la empresa (agregado 12-sep-2026): antes
+           era uno por cliente (había que entrar a cada ficha y generarlo),
+           ahora es una sola acción aquí — el formulario público arma su
+           propio directorio de clientes y sitios (ver
+           abrirGestionLinkGeneralReportes()). */
+        +   (esAdmin() && HAY_NUBE
+            ? '<button type="button" class="btn btn-suave btn-mini" data-accion="gestion-link-general-reportes" '
+              + 'title="Un link para que cualquiera —sin cuenta— busque su sitio y levante un reporte">' + ICONO.reporte + 'Link para levantar reportes</button>'
+            : '')
         +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nuevo-cliente">' + ICONO.mas + 'Agregar cliente</button>' : '')
         + '</div></div>';
 
@@ -9606,18 +9657,15 @@ function vistaResumenCliente(){
      +     '</div>'
      +   '</div>'
      +   '<div class="acciones">'
-       /* Excel y Link para reportes son acciones DEL CLIENTE, no de un
-          módulo en particular — viven aquí (movido 11-sep-2026 desde
-          vistaCliente()/Forpass, que ya no es puerta de entrada) para que
-          "Clientes" sea de verdad el único lugar de donde se gestiona un
-          cliente. Sin candado de puedeEditar(): un Viewer también podía
-          descargar este Excel desde Forpass, y mover el botón de lugar no
-          le tiene por qué quitar algo que ya podía hacer. */
+       /* Excel es una acción DEL CLIENTE, no de un módulo en particular —
+          vive aquí (movido 11-sep-2026 desde vistaCliente()/Forpass) para
+          que "Clientes" sea el lugar de donde se gestiona un cliente. Sin
+          candado de puedeEditar(): un Viewer también podía descargar este
+          Excel desde Forpass, y mover el botón de lugar no le tiene por
+          qué quitar algo que ya podía hacer. El link para levantar
+          reportes YA NO es por cliente (12-sep-2026): es uno solo general
+          para toda la empresa, administrado desde vistaResumenClientes(). */
        +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-cliente">' + ICONO.excel + 'Excel de este cliente</button>'
-       +   (esAdmin() && HAY_NUBE
-           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="gestion-link-reportes" data-cliente-liga="' + esc(c.id) + '" '
-             + 'title="Un link para que cualquiera —sin cuenta— levante un reporte de este cliente">' + ICONO.reporte + 'Link para levantar reportes</button>'
-           : '')
        +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave btn-mini" data-editar-cliente="' + esc(c.id) + '">' + ICONO.lapiz + 'Editar cliente</button>'
             /* Fusionar toca de golpe sitios+pólizas+cotizaciones+reportes+
@@ -14366,110 +14414,93 @@ function modalPersona(id){
 }
 
 /* ---------------------------- Modal: reporte ---------------------------- */
-/* ==================== Link público para levantar reportes sin sesión ====================
-   Un link (con QR) que cualquiera —el cliente, un guardia, quien esté en
-   sitio— puede abrir SIN cuenta ni contraseña para levantar un reporte de
-   mantenimiento de UN cliente en concreto. Vive en la colección
-   `enlaces_publicos_reportes`, con el propio token como id del documento:
-   así que(index.html)?levantar=TOKEN puede leerlo con un solo GET, sin
-   necesitar una consulta que las reglas de Firestore tendrían que dejar
-   pasar a alguien sin cuenta (ver arrancarFormularioPublicoReportes()).
-
-   El token es el único candado real —nadie lo puede adivinar—, así que
-   tiene que ser largo y de verdad aleatorio: crypto.getRandomValues(), no
-   Math.random() (que no es criptográficamente seguro y sí se ha llegado a
-   predecir). 18 bytes = 36 caracteres hexadecimales, 144 bits de entropía. */
-function generarTokenSeguro(){
-  const bytes = new Uint8Array(18);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, b => b.toString(16).padStart(2,'0')).join('');
-}
+/* ==================== Link público general para levantar reportes sin sesión ====================
+   UN solo link (con QR) para TODA la empresa —no uno por cliente—: cualquiera
+   que lo abra sin cuenta ni contraseña busca su cliente y su sitio en un
+   directorio en vivo (ver arrancarFormularioPublicoReportesSiAplica() y las
+   colecciones directorio_reportes_clientes/directorio_reportes_sitios) y
+   levanta su reporte. Un solo documento fijo, con id literal 'general', en
+   `enlaces_publicos_reportes` — no hace falta generar ni administrar un
+   token por cliente: se genera una vez y (index.html)?levantar=general
+   sirve para siempre, hasta que se desactive. */
 function urlLinkPublicoReportes(token){
   return location.origin + location.pathname + '?levantar=' + token;
 }
 
-async function abrirGestionLinkReportes(clienteId){
-  if(!exigirAdmin('generar links públicos para levantar reportes')) return;
-  const c = clientePorId(clienteId);
-  if(!c) return;
+async function abrirGestionLinkGeneralReportes(){
+  if(!exigirAdmin('gestionar el link general para levantar reportes')) return;
   if(!HAY_NUBE){ aviso('Esta función necesita estar conectado a la nube.', true); return; }
 
-  abrirModal('Link para levantar reportes — ' + c.nombre,
+  abrirModal('Link general para levantar reportes',
     '<div class="vacio-chico">Cargando…</div>',
     '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
 
-  let ligas;
+  let liga;
   try{
-    ligas = await consultarNubePorCampo('enlaces_publicos_reportes', 'clienteId', clienteId);
+    const d = await pedirNube('/enlaces_publicos_reportes/general', { method:'GET' }, true);
+    liga = d ? Object.assign({ id:'general' }, deCampos(d.fields || {})) : null;
   }catch(e){
-    if($('modalCuerpo')) $('modalCuerpo').innerHTML = '<div class="vacio-chico">No se pudieron cargar los links: ' + esc(e.message) + '</div>';
+    if($('modalCuerpo')) $('modalCuerpo').innerHTML = '<div class="vacio-chico">No se pudo cargar: ' + esc(e.message) + '</div>';
     return;
   }
-  ligas.sort((a,b)=> (b.creadoEn || '').localeCompare(a.creadoEn || ''));
 
   function pintar(){
     const cuerpo = $('modalCuerpo');
     if(!cuerpo) return;   /* el modal se pudo haber cerrado mientras cargaba */
-    cuerpo.innerHTML =
-        '<p class="pista">Cualquiera con este link —sin cuenta ni contraseña— puede levantar un reporte para <b>' + esc(c.nombre) + '</b>. '
-      + 'Compártelo con el cliente, el guardia o quien esté en sitio; desactívalo cuando ya no haga falta.</p>'
-      + (ligas.length ? ligas.map(liga=>
-          '<div class="liga-publica' + (liga.activo ? '' : ' liga-inactiva') + '">'
-          + '<div class="liga-publica-cab">'
-          +   '<span class="insignia i-' + (liga.activo ? 'ok' : 'error') + '"><span class="punto p-' + (liga.activo ? 'ok' : 'error') + '"></span>' + (liga.activo ? 'Activo' : 'Desactivado') + '</span>'
-          +   '<span class="pista">Creado ' + (liga.creadoEn ? fmtFecha(liga.creadoEn.slice(0,10)) : '—') + (liga.creadoPorNombre ? ' por ' + esc(liga.creadoPorNombre) : '') + '</span>'
-          + '</div>'
-          + '<div class="liga-publica-cuerpo">'
-          +   '<div class="liga-publica-qr">' + svgCodigoQr(urlLinkPublicoReportes(liga.id)) + '</div>'
-          +   '<div class="liga-publica-datos">'
-          +     '<input type="text" readonly value="' + esc(urlLinkPublicoReportes(liga.id)) + '" class="liga-publica-input">'
-          +     '<div class="liga-publica-botones">'
-          +       '<button type="button" class="btn btn-suave btn-mini" data-copiar-liga="' + esc(liga.id) + '">Copiar link</button>'
-          +       '<button type="button" class="btn btn-suave btn-mini" data-alternar-liga="' + esc(liga.id) + '">' + (liga.activo ? 'Desactivar' : 'Reactivar') + '</button>'
-          +     '</div>'
-          +   '</div>'
-          + '</div>'
-        + '</div>').join('')
-        : '<div class="vacio-chico">Todavía no hay ningún link generado para este cliente.</div>')
-      + '<button type="button" class="btn btn-primario btn-mini" id="btnCrearLigaReportes" style="margin-top:12px">' + ICONO.mas + 'Generar link nuevo</button>';
+    const url = urlLinkPublicoReportes('general');
 
-    cuerpo.querySelectorAll('[data-copiar-liga]').forEach(b=>{
-      b.addEventListener('click', ()=>{
-        navigator.clipboard.writeText(urlLinkPublicoReportes(b.dataset.copiarLiga))
-          .then(()=> aviso('Link copiado.'))
-          .catch(()=> aviso('No se pudo copiar. Selecciona el texto a mano.', true));
-      });
-    });
-    cuerpo.querySelectorAll('[data-alternar-liga]').forEach(b=>{
-      b.addEventListener('click', ()=>{
-        const liga = ligas.find(l => l.id === b.dataset.alternarLiga);
-        if(!liga) return;
-        liga.activo = !liga.activo;
-        encolar({ tipo:'poner', coleccion:'enlaces_publicos_reportes', id:liga.id, obj:liga });
-        aviso(liga.activo ? 'Link reactivado.' : 'Link desactivado.');
+    if(!liga){
+      cuerpo.innerHTML =
+          '<p class="pista">Todavía no existe. Al generarlo, cualquiera que lo abra —sin cuenta ni contraseña— va a poder '
+        + 'buscar su cliente y su sitio en una lista, y levantar un reporte para cualquiera de ellos.</p>'
+        + '<button type="button" class="btn btn-primario" id="btnCrearLigaGeneral">' + ICONO.mas + 'Generar link general</button>';
+      $('btnCrearLigaGeneral').addEventListener('click', ()=>{
+        $('btnCrearLigaGeneral').disabled = true; $('btnCrearLigaGeneral').textContent = 'Generando…';
+        liga = { id:'general', general:true, activo:true,
+                 creadoPorUid: sesion.uid || '', creadoPorNombre: nombreDe(sesion) || '',
+                 creadoEn: new Date().toISOString() };
+        encolar({ tipo:'poner', coleccion:'enlaces_publicos_reportes', id:'general', obj:liga });
+        /* Primera vez: siembra el directorio con TODO lo que ya existe.
+           guardarCliente()/guardarSitio() lo mantienen al día de aquí en
+           adelante, pero un cliente o sitio de antes de este cambio nunca
+           pasó por ahí — sin esto, se quedaría invisible para el
+           formulario público hasta que alguien lo vuelva a guardar. */
+        datos.clientes.forEach(c => encolarCopiaCliente('directorio_reportes_clientes', c.id, datosDirectorioCliente(c)));
+        datos.sitios.forEach(s => encolarCopiaCliente('directorio_reportes_sitios', s.id, datosDirectorioSitio(s)));
+        aviso('Link general generado.');
         pintar();
       });
+      return;
+    }
+
+    cuerpo.innerHTML =
+        '<p class="pista">Cualquiera con este link —sin cuenta ni contraseña— busca su cliente y su sitio en una lista y levanta '
+      + 'un reporte. Compártelo ampliamente (recepción, kioscos, WhatsApp); desactívalo si hace falta pausarlo.</p>'
+      + '<div class="liga-publica' + (liga.activo ? '' : ' liga-inactiva') + '">'
+      +   '<div class="liga-publica-cab">'
+      +     '<span class="insignia i-' + (liga.activo ? 'ok' : 'error') + '"><span class="punto p-' + (liga.activo ? 'ok' : 'error') + '"></span>' + (liga.activo ? 'Activo' : 'Desactivado') + '</span>'
+      +     '<span class="pista">Creado ' + (liga.creadoEn ? fmtFecha(liga.creadoEn.slice(0,10)) : '—') + (liga.creadoPorNombre ? ' por ' + esc(liga.creadoPorNombre) : '') + '</span>'
+      +   '</div>'
+      +   '<div class="liga-publica-cuerpo">'
+      +     '<div class="liga-publica-qr">' + svgCodigoQr(url) + '</div>'
+      +     '<div class="liga-publica-datos">'
+      +       '<input type="text" readonly value="' + esc(url) + '" class="liga-publica-input">'
+      +       '<div class="liga-publica-botones">'
+      +         '<button type="button" class="btn btn-suave btn-mini" id="btnCopiarLigaGeneral">Copiar link</button>'
+      +         '<button type="button" class="btn btn-suave btn-mini" id="btnAlternarLigaGeneral">' + (liga.activo ? 'Desactivar' : 'Reactivar') + '</button>'
+      +       '</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+
+    $('btnCopiarLigaGeneral').addEventListener('click', ()=>{
+      navigator.clipboard.writeText(url).then(()=> aviso('Link copiado.')).catch(()=> aviso('No se pudo copiar. Selecciona el texto a mano.', true));
     });
-    const btnCrear = $('btnCrearLigaReportes');
-    if(btnCrear) btnCrear.addEventListener('click', ()=>{
-      btnCrear.disabled = true; btnCrear.textContent = 'Generando…';
-      const nueva = {
-        id: generarTokenSeguro(),
-        clienteId, clienteNombre: c.nombre,
-        /* Los sitios del cliente se guardan AQUÍ, en el propio link, en vez
-           de que el formulario público los consulte en vivo: alguien sin
-           sesión no tiene por qué poder leer /sitios completo, y así el
-           formulario no necesita ninguna regla nueva de lectura para nadie
-           sin cuenta — solo lee ESTE documento, por su id. */
-        sitios: sitiosDe(clienteId).map(s=> ({ id:s.id, nombre:s.nombre })),
-        activo: true,
-        creadoPorUid: sesion.uid || '', creadoPorNombre: nombreDe(sesion) || '',
-        creadoEn: new Date().toISOString()
-      };
-      encolar({ tipo:'poner', coleccion:'enlaces_publicos_reportes', id:nueva.id, obj:nueva });
-      ligas.unshift(nueva);
+    $('btnAlternarLigaGeneral').addEventListener('click', ()=>{
+      liga.activo = !liga.activo;
+      encolar({ tipo:'poner', coleccion:'enlaces_publicos_reportes', id:'general', obj:liga });
+      aviso(liga.activo ? 'Link reactivado.' : 'Link desactivado.');
       pintar();
-      aviso('Link generado.');
     });
   }
   pintar();
@@ -14514,37 +14545,92 @@ function pintarFormPublicoExito(folio){
   $('fpOtroReporte').addEventListener('click', ()=> location.reload());
 }
 
-function pintarFormPublico(enlace){
+function pintarFormPublico(enlace, clientes, sitios){
   const raiz = $('formPublicoReporte');
   if(!raiz) return;
-  const sitios = Array.isArray(enlace.sitios) ? enlace.sitios : [];
+
+  let clienteElegido = null;   /* { id, nombre } — null hasta que se busca y se elige */
 
   raiz.innerHTML =
       '<div class="fp-tarjeta">'
     +   '<div class="fp-marca">FORGUARD</div>'
     +   '<h2>Levantar un reporte</h2>'
-    +   '<p class="pista">Para <b>' + esc(enlace.clienteNombre || 'este cliente') + '</b>. No necesitas cuenta ni contraseña — llena lo que sepas y envíalo.</p>'
-    +   (sitios.length > 1
-         ? '<div class="campo"><label>Sitio *</label><select id="fpSitio"><option value="">— Elegir —</option>'
-           + sitios.map(s => '<option value="' + esc(s.id) + '">' + esc(s.nombre) + '</option>').join('') + '</select></div>'
-         : '')
-    +   '<div class="campo"><label>¿Qué pasa? *</label><input type="text" id="fpTitulo" placeholder="Ej. Refrigerador no enfría"></div>'
-    +   '<div class="campo"><label>Cuéntanos más (opcional)</label><textarea id="fpDescripcion" placeholder="Desde cuándo, cualquier detalle que ayude al técnico…"></textarea></div>'
-    +   '<div class="campo"><label>¿Qué tan urgente es?</label><select id="fpPrioridad">'
-    +     PRIORIDAD_REPORTE.map(p => '<option value="' + p + '"' + (p === 'media' ? ' selected' : '') + '>' + esc(ETIQUETA_PRIORIDAD[p]) + '</option>').join('')
-    +   '</select></div>'
-    +   '<div class="campo"><label>Tu nombre *</label><input type="text" id="fpNombre" placeholder="Quién levanta el reporte"></div>'
-    +   '<div class="campo"><label>Teléfono o correo (opcional)</label><input type="text" id="fpContacto" placeholder="Para que el técnico te ubique si hace falta"></div>'
-    +   '<div class="campo"><label>Fotos (opcional)</label>'
-    +     '<div class="galeria-evidencia" id="fpGaleria"></div>'
-    +     '<button type="button" class="btn btn-suave btn-mini" id="fpBtnFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
-    +     '<input type="file" id="fpArchivo" accept="image/*" capture="environment" multiple style="display:none">'
-    +     '<div class="pista" id="fpPistaFoto">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos.</div>'
+    +   '<p class="pista">No necesitas cuenta ni contraseña. Busca tu cliente para empezar.</p>'
+
+    +   '<div id="fpPasoCliente">'
+    +     '<div class="campo"><label>¿Para qué cliente es? *</label>'
+    +       '<input type="text" id="fpBuscaCliente" placeholder="Escribe el nombre de tu empresa…" autocomplete="off"></div>'
+    +     '<div class="fp-lista" id="fpListaClientes"></div>'
     +   '</div>'
-    +   '<div class="fp-mensaje" id="fpMensaje" hidden></div>'
-    +   '<button type="button" class="btn btn-primario" id="fpEnviar" style="width:100%; margin-top:12px">Enviar reporte</button>'
+
+    +   '<div id="fpResto" hidden>'
+    +     '<div class="fp-cliente-elegido" id="fpClienteElegido"></div>'
+    +     '<div class="campo" id="fpCampoSitio" hidden><label>Sitio *</label><select id="fpSitio"></select></div>'
+    +     '<div class="campo"><label>¿Qué pasa? *</label><input type="text" id="fpTitulo" placeholder="Ej. Refrigerador no enfría"></div>'
+    +     '<div class="campo"><label>Cuéntanos más (opcional)</label><textarea id="fpDescripcion" placeholder="Desde cuándo, cualquier detalle que ayude al técnico…"></textarea></div>'
+    +     '<div class="campo"><label>¿Qué tan urgente es?</label><select id="fpPrioridad">'
+    +       PRIORIDAD_REPORTE.map(p => '<option value="' + p + '"' + (p === 'media' ? ' selected' : '') + '>' + esc(ETIQUETA_PRIORIDAD[p]) + '</option>').join('')
+    +     '</select></div>'
+    +     '<div class="campo"><label>Tu nombre *</label><input type="text" id="fpNombre" placeholder="Quién levanta el reporte"></div>'
+    +     '<div class="campo"><label>Teléfono o correo (opcional)</label><input type="text" id="fpContacto" placeholder="Para que el técnico te ubique si hace falta"></div>'
+    +     '<div class="campo"><label>Fotos (opcional)</label>'
+    +       '<div class="galeria-evidencia" id="fpGaleria"></div>'
+    +       '<button type="button" class="btn btn-suave btn-mini" id="fpBtnFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +       '<input type="file" id="fpArchivo" accept="image/*" capture="environment" multiple style="display:none">'
+    +       '<div class="pista" id="fpPistaFoto">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos.</div>'
+    +     '</div>'
+    +     '<div class="fp-mensaje" id="fpMensaje" hidden></div>'
+    +     '<button type="button" class="btn btn-primario" id="fpEnviar" style="width:100%; margin-top:12px">Enviar reporte</button>'
+    +   '</div>'
     +   '<p class="fp-pie">Forguard · Mantenimiento preventivo y correctivo</p>'
     + '</div>';
+
+  /* ---- Paso 1: buscar y elegir cliente ---- */
+  function pintarListaClientes(q){
+    const texto = (q || '').trim().toLowerCase();
+    const filtrados = !texto ? [] : clientes.filter(c => (c.nombre || '').toLowerCase().includes(texto)).slice(0, 20);
+    $('fpListaClientes').innerHTML = !texto
+      ? ''
+      : (filtrados.length
+          ? filtrados.map(c => '<button type="button" class="fp-fila-cliente" data-fp-cliente="' + esc(c.id) + '">' + esc(c.nombre) + '</button>').join('')
+          : '<div class="pista" style="padding:8px 0">Ningún cliente coincide. Revisa cómo lo escribiste.</div>');
+    $('fpListaClientes').querySelectorAll('[data-fp-cliente]').forEach(b=>{
+      b.addEventListener('click', ()=> elegirCliente(b.dataset.fpCliente));
+    });
+  }
+  $('fpBuscaCliente').addEventListener('input', ev=> pintarListaClientes(ev.target.value));
+
+  function elegirCliente(clienteId){
+    const c = clientes.find(x => x.id === clienteId);
+    if(!c) return;
+    clienteElegido = c;
+    $('fpPasoCliente').hidden = true;
+    $('fpResto').hidden = false;
+    $('fpClienteElegido').innerHTML =
+        '<div class="campo"><label>Cliente</label>'
+      + '<div class="fp-cliente-fila"><b>' + esc(c.nombre) + '</b>'
+      +   '<button type="button" class="btn btn-suave btn-mini" id="fpCambiarCliente">Cambiar</button></div></div>';
+    $('fpCambiarCliente').addEventListener('click', ()=>{
+      clienteElegido = null;
+      $('fpResto').hidden = true;
+      $('fpPasoCliente').hidden = false;
+      $('fpBuscaCliente').value = '';
+      $('fpListaClientes').innerHTML = '';
+      $('fpBuscaCliente').focus();
+    });
+
+    const sitiosDelCliente = sitios.filter(s => s.clienteId === clienteId);
+    const campoSitio = $('fpCampoSitio'), selSitio = $('fpSitio');
+    if(sitiosDelCliente.length > 1){
+      campoSitio.hidden = false;
+      selSitio.innerHTML = '<option value="">— Elegir —</option>'
+        + sitiosDelCliente.map(s => '<option value="' + esc(s.id) + '">' + esc(s.nombre) + '</option>').join('');
+    }else{
+      campoSitio.hidden = true;
+      selSitio.innerHTML = '';
+    }
+    $('fpTitulo').focus();
+  }
 
   let fotos = [];
   function pintarGaleria(){
@@ -14578,10 +14664,12 @@ function pintarFormPublico(enlace){
   });
 
   $('fpEnviar').addEventListener('click', async ()=>{
-    const sitioId = sitios.length > 1 ? ($('fpSitio') ? $('fpSitio').value : '') : ((sitios[0] && sitios[0].id) || '');
+    if(!clienteElegido){ fpAviso('Elige tu cliente.', true); return; }
+    const sitiosDelCliente = sitios.filter(s => s.clienteId === clienteElegido.id);
+    const sitioId = sitiosDelCliente.length > 1 ? ($('fpSitio') ? $('fpSitio').value : '') : ((sitiosDelCliente[0] && sitiosDelCliente[0].id) || '');
     const titulo = $('fpTitulo').value.trim();
     const nombre = $('fpNombre').value.trim();
-    if(sitios.length > 1 && !sitioId){ fpAviso('Elige el sitio.', true); return; }
+    if(sitiosDelCliente.length > 1 && !sitioId){ fpAviso('Elige el sitio.', true); return; }
     if(!titulo){ fpAviso('Cuéntanos qué pasa.', true); return; }
     if(!nombre){ fpAviso('Necesitamos tu nombre.', true); return; }
 
@@ -14595,7 +14683,7 @@ function pintarFormPublico(enlace){
         evidencias.push(normalizarEvidencia({ id:f.id, dataUrl:url, subioNombre:nombre }));
       }
       const contacto = $('fpContacto').value.trim();
-      const sitio = sitios.find(s => s.id === sitioId);
+      const sitio = sitiosDelCliente.find(s => s.id === sitioId);
       const reg = normalizarReporte({
         id,
         /* Folio propio (no generarFolioReporte(), que cuenta sobre
@@ -14603,7 +14691,7 @@ function pintarFormPublico(enlace){
            propio id del reporte, ya de por sí único, alcanza para que dos
            envíos al mismo tiempo nunca choquen. */
         folio: 'TK-' + hoyISO().replace(/-/g,'').slice(2) + '-' + id.slice(-4).toUpperCase(),
-        clienteId: enlace.clienteId, sitioId: sitioId || '',
+        clienteId: clienteElegido.id, sitioId: sitioId || '',
         sitioNombre: sitio ? sitio.nombre : '',
         titulo, descripcion: $('fpDescripcion').value.trim(),
         prioridad: $('fpPrioridad').value, estatus:'abierto', fechaCreacion: hoyISO(),
@@ -14650,7 +14738,18 @@ function arrancarFormularioPublicoReportesSiAplica(){
       const enlace = deCampos(d.fields || {});
       enlace.id = d.name.split('/').pop();
       if(!enlace.activo){ pintarFormPublicoError('Este link ya no está activo. Pide uno nuevo a Forguard.'); return; }
-      pintarFormPublico(enlace);
+
+      /* El directorio (nombres nada más, ver datosDirectorioCliente()/
+         datosDirectorioSitio()) se trae COMPLETO y en vivo — nunca viene
+         guardado en el propio enlace: así un solo link sirve para
+         cualquier cliente, siempre al día, sin tener que generar uno
+         nuevo cuando se da de alta un cliente o un sitio. */
+      const [clientes, sitios] = await Promise.all([
+        listarNube('directorio_reportes_clientes'),
+        listarNube('directorio_reportes_sitios')
+      ]);
+      clientes.sort((a,b)=> (a.nombre || '').localeCompare(b.nombre || '', 'es'));
+      pintarFormPublico(enlace, clientes, sitios);
     }catch(e){
       pintarFormPublicoError('No se pudo abrir el formulario: ' + (e && e.message ? e.message : 'error de conexión') + '. Recarga la página para volver a intentar.');
     }
@@ -23635,7 +23734,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'excel-resultados') descargarExcelResultados();
     else if(a === 'excel') descargarExcel(null);
     else if(a === 'excel-cliente') descargarExcel(estado.clienteId);
-    else if(a === 'gestion-link-reportes') abrirGestionLinkReportes(acc.dataset.clienteLiga || estado.clienteId);
+    else if(a === 'gestion-link-general-reportes') abrirGestionLinkGeneralReportes();
     else if(a === 'respaldo'){ if(exigirAdmin('descargar el respaldo completo')) descargarRespaldo(); }
     else if(a === 'restaurar'){ if(exigirAdmin('restaurar un respaldo')) $('archivoRestaurar').click(); }
     else if(a === 'limpiar-filtros'){ estado.sitioFiltro = ''; estado.encargadoFiltro = ''; render(); }
@@ -24112,8 +24211,8 @@ $('archivoRestaurar').addEventListener('change', ev=>{
           const vivos = { clientes:new Set(datos.clientes.map(c=>c.id)), sitios:new Set(datos.sitios.map(s=>s.id)),
                           polizas:new Set(datos.polizas.map(p=>p.id)), reportes:new Set(datos.reportes.map(r=>r.id)),
                           levantamientos:new Set(datos.levantamientos.map(l=>l.id)) };
-          previos.clientes.filter(id => !vivos.clientes.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'clientes', id }));
-          previos.sitios.filter(id => !vivos.sitios.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'sitios', id }));
+          previos.clientes.filter(id => !vivos.clientes.has(id)).forEach(id => { encolar({ tipo:'borrar', coleccion:'clientes', id }); encolar({ tipo:'borrar', coleccion:'directorio_reportes_clientes', id }); });
+          previos.sitios.filter(id => !vivos.sitios.has(id)).forEach(id => { encolar({ tipo:'borrar', coleccion:'sitios', id }); encolar({ tipo:'borrar', coleccion:'directorio_reportes_sitios', id }); });
           previos.polizas.filter(id => !vivos.polizas.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'polizas', id }));
           previos.reportes.filter(id => !vivos.reportes.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'reportes', id }));
           previos.levantamientos.filter(id => !vivos.levantamientos.has(id)).forEach(id => encolar({ tipo:'borrar', coleccion:'levantamientos', id }));
