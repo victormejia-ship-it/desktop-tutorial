@@ -1377,6 +1377,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
   <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
     <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
     <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
+    <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
     <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
     <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
     <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
@@ -8631,18 +8632,18 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
    el candado de permisos de render() ya lo manda solo a modulosPermitidos()[0]
    — no hace falta duplicar esa lógica aquí. */
 const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
-/* 'forpass' YA NO va aquí (agregado 11-sep-2026, pedido explícito de
-   Victor): dejó de ser una pestaña de nivel superior con su propio listado
-   de clientes —eso duplicaba a 'clientes', que es quien de verdad manda
-   sobre los datos del cliente (nombre, contacto, alta, fusión). Sigue
-   existiendo como módulo de VERDAD —estado.modulo SÍ puede valer 'forpass'
-   en tiempo de ejecución— pero solo se entra ya parado en un cliente
-   concreto, desde "Ver en Forpass" en vistaResumenCliente() (ver
-   irAlClienteEnForpass()/irAlSitioDeForpass()/irAlSitioEnForpass()) — nunca
-   picándole a una pestaña que elige el cliente primero. El candado de
-   permisos de render() (más abajo, "si el módulo actual ya no está
-   permitido") tiene su propia excepción para dejarlo pasar en ese caso. */
-const MODULOS = ['resultados', 'clientes', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+/* 'forpass' vuelve a ser una pestaña de nivel superior (restaurado
+   12-sep-2026, pedido explícito de Victor: necesita dar seguimiento a ese
+   ingreso por aparte, como su propio módulo). Lo que SÍ se quedó del
+   cambio del 11-sep-2026: los datos del CLIENTE en sí (nombre, contacto,
+   logo, alta, fusión) se editan solo desde 'clientes'
+   (vistaResumenCliente) — Forpass sigue siendo la pantalla de sus sitios/
+   kioscos y su cobranza, no un segundo lugar para tocar al cliente.
+   "Excel de este cliente" y "Link para levantar reportes" también viven
+   solo en 'clientes' por la misma razón. Desde la ficha de un cliente en
+   Clientes se puede seguir saltando directo a su Forpass con "Ver en
+   Forpass" (ver irAlClienteEnForpass()) — un atajo, no la única puerta. */
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
 function cargarModulo(){
   estado.modulo = 'resultados';
   estado.vista = inicioDelModulo();
@@ -10360,9 +10361,9 @@ const TEMAS_AYUDA = [
     resumen:'El corazón original de la app: los kioscos de credenciales instalados en cada sitio, su mensualidad y su estatus de pago.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
-        'Forpass ya no es una pestaña propia (cambio del 11-sep-2026): se entra desde <b>Clientes</b>, eligiendo un cliente y picándole a <b>"Ver en Forpass"</b> — así "Clientes" queda como el único lugar de donde se gestiona un cliente, y Forpass es la sección de sus kioscos dentro de ese expediente.',
-        'Los 5 KPIs de salud de la cartera completa (Forpass activos, Mensualidad total, Sitios atrasados, Por pagar y Vigencias por vencer) se ven ahora arriba, en la propia pantalla de <b>Clientes</b> — los tres últimos siguen siendo clickeables.',
-        'Ya dentro de un cliente, busca por nombre de sitio, filtra "Solo con atrasos" o "Solo con Forpass activos", y alterna tarjetas/tabla.',
+        'La pantalla de <b>Forpass</b> trae 5 KPIs: Forpass activos, Mensualidad total (MRR), Sitios atrasados, Por pagar (7 días) y Vigencias por vencer — los tres últimos son clickeables y filtran la lista. Los mismos 5 se ven también arriba en <b>Clientes</b>, para tener la salud de esta cartera a la vista sin cambiar de pestaña.',
+        'Busca por cliente o nombre de sitio; filtra "Solo con atrasos" o "Solo con Forpass activos"; alterna tarjetas/tabla.',
+        'Los datos DEL CLIENTE en sí (nombre, contacto, logo, fusionar con otro) se editan solo desde <b>Clientes</b> — Forpass es la pantalla de sus sitios y su cobranza, no un segundo lugar para tocar al cliente. Desde la ficha de un cliente en Clientes puedes saltar directo aquí con <b>"Ver en Forpass"</b>.',
         'Usa <b>Agregar sitio</b> dentro de un cliente: Nombre*, Cliente, Zona (con sugerencias guardadas y color), Forpass instalados (módulos)*, Estado (Activo/Pausado/Baja), Tipo de contratación* (Software+Hardware o Solo Software), Mensualidad*, si incluyó onboarding y/o viáticos (con su monto), Fecha de inicio*, Meses de contrato* y cuántas mensualidades ya vienen pagadas.',
         'En la tarjeta de cada sitio, haz clic en el número de un mes para <b>marcarlo como pagado</b> — se abre un formulario con Quién captura, Número de OC* y si ya se facturó.',
         'Abre <b>Plan de pagos</b> para ver el calendario completo de ese sitio, mes por mes, con su estatus (Pagada/Facturada/Vencida/Pendiente).'
@@ -11135,11 +11136,7 @@ function vistaClientes(){
 /* ------------------------------- Vista: sitios ------------------------------- */
 function vistaCliente(){
   const c = clientePorId(estado.clienteId);
-  /* Si el cliente ya no existe (se borró mientras alguien lo veía), ya no
-     tiene caso mandarlo al viejo listado de Forpass (vistaClientes(),
-     inalcanzable desde el menú desde el 11-sep-2026) — se manda de una vez
-     al resumen de Clientes, que es la única puerta de entrada real ahora. */
-  if(!c){ estado.modulo = 'clientes'; estado.vista = 'clientes'; estado.clienteId = null; return vistaResumenClientes(); }
+  if(!c){ estado.vista = 'clientes'; return vistaClientes(); }
   const todos = sitiosDe(c.id);
 
   /* Los filtros deciden qué sitios entran a los indicadores y a la lista.
@@ -17794,19 +17791,7 @@ function render(){
      acá ANTES de dibujar nada — así el contenido nunca se asoma, no
      nada más el botón de la pestaña. */
   const permitidos = modulosPermitidos();
-  /* 'forpass' ya no vive en MODULOS (ver la nota de arriba), así que nunca
-     aparece en permitidos — pero SÍ sigue siendo un estado.modulo legítimo
-     mientras se llegó a él parado en un cliente (Ver en Forpass, o el salto
-     desde una póliza a su kiosco). Sin esta excepción, este mismo candado
-     -pensado para un rol al que le cambiaron el acceso a mitad de sesión-
-     revertía la navegación a la primera pestaña permitida Y borraba
-     estado.clienteId en cuanto se entraba a Forpass, dejando el botón "Ver
-     en Forpass" completamente muerto. Igual de acotado que antes: solo
-     entra quien de por sí puede llegar a 'clientes' (único lugar de donde
-     sale ese botón) — un técnico o reportero, que nunca tuvo 'clientes' en
-     su lista, sigue sin poder colarse a Forpass por aquí. */
-  const esForpassDesdeCliente = estado.modulo === 'forpass' && permitidos.includes('clientes');
-  if(!permitidos.includes(estado.modulo) && !esForpassDesdeCliente){
+  if(!permitidos.includes(estado.modulo)){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
@@ -18156,14 +18141,6 @@ function pintarCabecera(){
    ruta de migas y el atajo del logo. Separadas se desincronizan. */
 function irAClientes(){
   animarTarjetas = true;                                  /* lista nueva: sí anima */
-  /* Fuerza el módulo a 'clientes' (agregado 11-sep-2026): "Regresar a
-     clientes" y el atajo del logo tienen que llevar SIEMPRE al mismo
-     lugar, el resumen de vistaResumenClientes() — antes, llamado desde
-     dentro de Forpass (botonRegresar() en vistaCliente(), o el logo sin
-     módulo propio en btnInicio), esto dejaba estado.modulo en 'forpass' y
-     terminaba pintando el viejo listado de vistaClientes() en vez del
-     resumen de verdad. */
-  estado.modulo = 'clientes';
   estado.vista = 'clientes';
   estado.clienteId = null;
   render();
