@@ -54,6 +54,39 @@ service cloud.firestore {
     function esCliente()  { return conAcceso() && rol() == 'cliente'; }
     function miClienteId() { return perfil().clienteId; }
 
+    /* --- Formulario público de reportes (agregado 11-sep-2026) ---
+       ¿Este create de /reportes viene del formulario sin sesión, con un
+       link válido? request.auth != null incluye tanto cuentas normales como
+       Firebase Auth anónimo (accounts:signUp sin correo) — la firma real de
+       "es un link" es que el propio documento declare su origen Y un token
+       que apunte a un link que de verdad existe, sigue activo, y es DEL
+       MISMO cliente que el reporte dice traer. Las demás condiciones son el
+       mismo candado que ya tiene /reportes contra un Analyst con más
+       permiso del que debería: nadie entra aquí con un reporte que ya
+       venga "resuelto", asignado a un técnico, o ligado a una cotización —
+       eso es trabajo de piso, nunca de quien lo levanta desde la calle. */
+    /* Sin variable intermedia a propósito: cada cláusula del && solo se
+       evalúa si la anterior ya pasó (mismo orden de cortocircuito que el
+       resto de este archivo), así que el primer get() —repetido dos
+       veces, "en las dos puntas", mismo criterio que ya usa /polizas con
+       el descuento— nunca corre para un create interno normal (donde
+       enlacePublicoToken siempre es '', puesto por normalizarReporte()) ni
+       para un token vacío o inexistente: la cláusula exists() ya cortó
+       antes de llegar ahí. */
+    function esCreatePublicoReporte() {
+      return request.auth != null
+        && request.resource.data.origenPublico == true
+        && request.resource.data.enlacePublicoToken is string
+        && request.resource.data.enlacePublicoToken != ''
+        && exists(/databases/$(database)/documents/enlaces_publicos_reportes/$(request.resource.data.enlacePublicoToken))
+        && get(/databases/$(database)/documents/enlaces_publicos_reportes/$(request.resource.data.enlacePublicoToken)).data.activo == true
+        && request.resource.data.clienteId == get(/databases/$(database)/documents/enlaces_publicos_reportes/$(request.resource.data.enlacePublicoToken)).data.clienteId
+        && request.resource.data.estatus == 'abierto'
+        && request.resource.data.tecnicos.size() == 0
+        && request.resource.data.get('cotizacionId', '') == ''
+        && request.resource.data.get('fechaCierre', '') == '';
+    }
+
     /* --- Información del tablero --- */
     /* --- Clientes ---
        Crear y corregir es el trabajo del día: lo hace cualquiera que pueda
@@ -148,8 +181,32 @@ service cloud.firestore {
          acotado a los suyos. Pero SOLO leer: el portal de clientes es de
          consulta, un cliente no levanta ni cierra tickets. */
       allow read:   if conAcceso() && (!esCliente() || resource.data.clienteId == miClienteId());
-      allow create: if conAcceso() && !esCliente();
+      /* create tiene DOS puertas: la de siempre (cualquier cuenta interna
+         que no sea cliente) y la del formulario público sin sesión (link
+         con QR, ver enlaces_publicos_reportes/ más abajo y
+         arrancarFormularioPublicoReportesSiAplica() en index.html) —
+         alguien sin cuenta, autenticado solo con Firebase Auth ANÓNIMO. La
+         segunda puerta exige que el reporte traiga la marca de su origen Y
+         el token de un link activo Y que declare el MISMO clienteId que ese
+         link — así nadie con un link de un cliente puede levantar un
+         reporte a nombre de otro, ni fingir que el reporte ya viene
+         resuelto o ligado a una cotización. */
+      allow create: if (conAcceso() && !esCliente()) || esCreatePublicoReporte();
       allow update: if conAcceso() && !esCliente();
+      allow delete: if esAdmin();
+    }
+    /* --- Links públicos para levantar un reporte sin sesión (agregado 11-sep-2026) ---
+       Un documento por link, con el propio token (largo, aleatorio,
+       generado con crypto.getRandomValues — ver generarTokenSeguro() en
+       index.html) como id: quien tiene el link puede leer ESE documento por
+       su id (get), pero jamás la colección completa (list) — así nunca
+       puede enumerar qué otros links existen. Administrar los links
+       (crearlos, activarlos, desactivarlos) es trabajo de Admin/Owner,
+       igual que cualquier otro dato de configuración del tablero. */
+    match /enlaces_publicos_reportes/{token} {
+      allow get:  if request.auth != null;
+      allow list: if esAdmin();
+      allow create, update: if esAdmin();
       allow delete: if esAdmin();
     }
 

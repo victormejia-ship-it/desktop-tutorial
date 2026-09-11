@@ -67,7 +67,18 @@ service firebase.storage {
        quien intente leer por otra vía (el SDK, gsutil) sin ese token. */
     match /evidencias/reportes/{reporteId}/{archivo} {
       allow read: if conAcceso();
-      allow write: if conAcceso() && rol() != 'cliente'
+      /* Segunda cláusula, agregada 11-sep-2026: el formulario público de
+         reportes (ver enlaces_publicos_reportes/ en firestore.rules) sube
+         sus fotos con Firebase Auth ANÓNIMO, que nunca pasa conAcceso()
+         (no tiene ficha en /usuarios). Storage no puede cruzar aquí el
+         mismo candado que sí aplica firestore.rules al CREAR el reporte
+         (que el token venga de un link activo del mismo cliente): esa
+         validación completa ya la hizo Firestore al aceptar el documento,
+         y esta ruta ni siquiera sabe a qué reporte pertenece la foto hasta
+         que ese create ya pasó. Lo que sí se puede exigir aquí —tamaño y
+         tipo de archivo— es EXACTAMENTE lo mismo que ya exige la primera
+         cláusula. */
+      allow write: if ((conAcceso() && rol() != 'cliente') || request.auth != null)
                    && request.resource.size < 2 * 1024 * 1024
                    && request.resource.contentType.matches('image/.*');
       allow delete: if conAcceso() && rol() != 'cliente';

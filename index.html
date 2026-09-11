@@ -767,6 +767,36 @@ button.mes{cursor:pointer;}
 .tipo-codigo button{border:none; background:#fff; padding:0 12px; font-size:12px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit;}
 .tipo-codigo button + button{border-left:1px solid #d4d9e6;}
 .tipo-codigo button.on{background:var(--accent); color:#fff;}
+/* Links públicos para levantar reportes sin sesión (ver abrirGestionLinkReportes). */
+.liga-publica{border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#fff;}
+.liga-publica.liga-inactiva{opacity:.6;}
+.liga-publica-cab{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; flex-wrap:wrap;}
+.liga-publica-cuerpo{display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start;}
+.liga-publica-qr{flex:0 0 auto;}
+.liga-publica-qr .codigo-qr{width:96px; height:96px;}
+.liga-publica-datos{flex:1 1 220px; display:flex; flex-direction:column; gap:8px; min-width:0;}
+.liga-publica-input{width:100%; font-size:12px; color:var(--gray); background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:7px 9px; font-family:monospace;}
+.liga-publica-botones{display:flex; gap:8px; flex-wrap:wrap;}
+
+/* Formulario público para levantar un reporte sin sesión (ver
+   arrancarFormularioPublicoReportesSiAplica): reemplaza TODO el <body>, así
+   que no hereda el layout normal de la app (.app-shell, barra lateral) —
+   necesita su propio contenedor de página centrado. */
+.fp-pagina{min-height:100vh; display:flex; align-items:flex-start; justify-content:center;
+  padding:32px 16px; background:var(--bg);}
+.fp-tarjeta{width:100%; max-width:480px; background:#fff; border:1px solid var(--line); border-radius:14px;
+  padding:26px 24px; box-shadow:0 8px 28px rgba(10,27,77,.08);}
+.fp-marca{font-size:15px; font-weight:800; color:var(--navy); letter-spacing:.04em; margin-bottom:14px;}
+.fp-tarjeta h2{margin:0 0 6px; font-size:19px; color:var(--navy);}
+.fp-cargando{padding:30px 0; text-align:center; color:var(--gray);}
+.fp-error{color:var(--error); font-size:14px; line-height:1.5;}
+.fp-mensaje{margin-top:10px; padding:9px 12px; border-radius:8px; font-size:12.5px; background:var(--k-error-bg,#fbe7e6); color:var(--error);}
+.fp-mensaje.fp-ok{background:#e4f5ec; color:var(--ok);}
+.fp-pie{margin-top:16px; font-size:11px; color:var(--gray); text-align:center;}
+.fp-exito{text-align:center;}
+.fp-exito-icono{width:44px; height:44px; margin:0 auto 10px; padding:10px; border-radius:50%;
+  background:#e4f5ec; color:var(--ok); box-sizing:border-box;}
+
 /* Fusionar clientes: tarjetas de radio para elegir cuál de los dos se conserva. */
 .fc-opciones{display:flex; flex-direction:column; gap:8px;}
 .fc-opcion{display:flex; align-items:flex-start; gap:10px; border:1.5px solid #d4d9e6; border-radius:10px; padding:10px 12px; cursor:pointer;}
@@ -4511,7 +4541,14 @@ function normalizarReporte(r){
        trae `cot.reporteOrigenId === r.id`). */
     cotizacionId: (r && r.cotizacionId) || '',
     evidencias,
-    seguimiento: (Array.isArray(r && r.seguimiento) ? r.seguimiento : []).map(normalizarSeguimientoReporte)
+    seguimiento: (Array.isArray(r && r.seguimiento) ? r.seguimiento : []).map(normalizarSeguimientoReporte),
+    /* Si este reporte se levantó desde un link público (ver
+       arrancarFormularioPublicoReportesSiAplica()), aquí queda la marca y el
+       token del link que lo originó — sirve para saber de dónde salió y es,
+       además, lo que la regla de Firestore de /reportes exige para aceptar
+       un create sin sesión (ver config/firestore.rules). */
+    origenPublico: !!(r && r.origenPublico),
+    enlacePublicoToken: (r && r.enlacePublicoToken ? String(r.enlacePublicoToken) : '').trim()
   };
 }
 
@@ -8488,6 +8525,38 @@ function abrirDocumentoProyectoImagen(id){
   if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
 }
 
+/* --------------------- Documento imprimible de Resultados ---------------------
+   A diferencia de póliza/cotización/imagen, este documento no representa un
+   registro con id propio — es una FOTO del cálculo de calcularResultados()
+   en el momento de imprimir, con el mismo período que se esté viendo en
+   pantalla. Mismo patrón exacto de siempre: arma el payload, lo deja en
+   sessionStorage, abre la plantilla en pestaña nueva. */
+const LLAVE_DOC_RESULTADOS = 'forguard.documento.resultados';
+function armarPayloadResultados(r, inicio, fin){
+  return {
+    generado: new Date().toISOString(),
+    desde: inicio, hasta: fin,
+    ingresoTotal: dineroCent(r.ingresoTotal), costoTotal: dineroCent(r.costoTotal),
+    utilidadBruta: dineroCent(r.utilidadBruta), margenPct: r.margenPct.toFixed(1),
+    rankingClientes: r.rankingClientes.map(c => ({ nombre:c.nombre, ingreso:dineroCent(c.ingreso), costo:dineroCent(c.costo), utilidad:dineroCent(c.utilidad) })),
+    rankingSitios: r.rankingSitios.map(s => ({ nombre:s.nombre, clienteNombre:s.clienteNombre, ingreso:dineroCent(s.ingreso), costo:dineroCent(s.costo), utilidad:dineroCent(s.utilidad) })),
+    rankingTecnicos: r.rankingTecnicos.map(t => ({ nombre:t.nombre, resueltos:t.resueltos }))
+  };
+}
+function abrirDocumentoResultados(){
+  const modo = estado.periodoResultados;
+  const { inicio, fin } = rangoPeriodoResultados(modo, estado.resultadosDesde, estado.resultadosHasta);
+  const r = calcularResultados(inicio, fin);
+  try{
+    sessionStorage.setItem(LLAVE_DOC_RESULTADOS, JSON.stringify(armarPayloadResultados(r, inicio, fin)));
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return;
+  }
+  const w = window.open('docs/plantilla_resultados.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+}
+
 /* Gemelos de sitiosDe() / sitioPorId(): join en memoria, sin consulta. */
 function polizasDe(clienteId){ return datos.polizas.filter(p => p.clienteId === clienteId); }
 function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
@@ -8538,6 +8607,7 @@ const estado = { modulo:'forpass', vista:'clientes', clienteId:null, polizaId:nu
                     preferencia de pantalla, no dato — por eso vive aquí y no en
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
+                 vistaResultados:'graficas',
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
                  vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas', vistaProveedores:'tarjetas',
                  vistaGastosProveedor:'tarjetas', vistaRefacciones:'tarjetas',
@@ -8980,6 +9050,7 @@ const ICONO = {
   tel:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8.1 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/></svg>',
   tarjetas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></svg>',
   tabla:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="4" rx="1.2"/><rect x="3" y="10" width="18" height="4" rx="1.2"/><rect x="3" y="15.5" width="18" height="4" rx="1.2"/></svg>',
+  grafica:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="20" x2="21" y2="20"/><rect x="5" y="12" width="3" height="8"/><rect x="11" y="6.5" width="3" height="13.5"/><rect x="17" y="15" width="3" height="5"/></svg>',
   reporte:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M12 11v3"/><path d="M12 17h.01"/></svg>',
   camara:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>',
   documento:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
@@ -9950,11 +10021,26 @@ function graficaMargenTendencia(meses){
        + 'role="img" aria-label="Margen bruto porcentual, mes a mes, de los últimos ' + meses.length + ' meses">' + svg + '</svg></div>';
 }
 
+/* Acumula ingreso/costo de un renglón en el mapa por cliente o por sitio de
+   la comparativa (ver vistaResultados: "Ranking de clientes/sitios") — un
+   Map simple, id -> {ingreso, costo}, para no repetir el mismo find()+suma
+   en cada una de las tres fuentes (Forpass, pólizas, cotizaciones). */
+function sumaPorId(mapa, id, campo, monto){
+  if(!id || !monto) return;
+  if(!mapa.has(id)) mapa.set(id, { ingreso:0, costo:0 });
+  mapa.get(id)[campo] += monto;
+}
+
 function calcularResultados(inicio, fin){
   const r = { ingresoForpass:0, ingresoPolizas:0, ingresoPolizasCliente:0, ingresoPolizasInterno:0,
               ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
               numPagosForpass:0, numCobrosPolizas:0, numPolizasNegociadasNoCobradas:0,
               numServiciosPolizas:0, numCotizaciones:0 };
+  /* Comparativas (ver vistaResultados, vista "tabla"): mismo período, mismo
+     cruce de fuentes, nada más agrupado por cliente/sitio en vez de sumado
+     en un solo total. Técnicos no tiene con qué cruzar dinero (ver nota en
+     la sección de reportes, más abajo) — es conteo de reportes resueltos. */
+  const porCliente = new Map(), porSitio = new Map();
 
   /* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
      el mes al que corresponde (fechaInicio + su número de mes), no en el mes
@@ -9964,7 +10050,11 @@ function calcularResultados(inicio, fin){
     s.pagos.forEach((pagado, i)=>{
       if(!pagado) return;
       const fecha = sumarMeses(s.fechaInicio, i);
-      if(fecha >= inicio && fecha <= fin){ r.ingresoForpass += c.montos[i]; r.numPagosForpass++; }
+      if(fecha >= inicio && fecha <= fin){
+        r.ingresoForpass += c.montos[i]; r.numPagosForpass++;
+        sumaPorId(porCliente, s.clienteId, 'ingreso', c.montos[i]);
+        sumaPorId(porSitio, s.id, 'ingreso', c.montos[i]);
+      }
     });
   });
 
@@ -10005,14 +10095,22 @@ function calcularResultados(inicio, fin){
       if(p.estatus === 'activa'){
         c.montos.forEach((monto, i)=>{
           const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
-          if(fecha >= inicio && fecha <= fin){ r.ingresoPolizasInterno += monto; r.numPolizasNegociadasNoCobradas++; }
+          if(fecha >= inicio && fecha <= fin){
+            r.ingresoPolizasInterno += monto; r.numPolizasNegociadasNoCobradas++;
+            sumaPorId(porCliente, p.clienteId, 'ingreso', monto);
+            sumaPorId(porSitio, p.sitioId, 'ingreso', monto);
+          }
         });
       }
     } else {
       p.cobros.forEach((cobrado, i)=>{
         if(!cobrado) return;
         const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
-        if(fecha >= inicio && fecha <= fin){ r.ingresoPolizasCliente += c.montos[i]; r.numCobrosPolizas++; }
+        if(fecha >= inicio && fecha <= fin){
+          r.ingresoPolizasCliente += c.montos[i]; r.numCobrosPolizas++;
+          sumaPorId(porCliente, p.clienteId, 'ingreso', c.montos[i]);
+          sumaPorId(porSitio, p.sitioId, 'ingreso', c.montos[i]);
+        }
       });
     }
     p.partidas.forEach(x=>{
@@ -10020,7 +10118,11 @@ function calcularResultados(inicio, fin){
       if(!costoServicio) return;
       x.mesesServicio.forEach(m=>{
         const fecha = sumarMeses(p.fechaInicio, m);
-        if(fecha >= inicio && fecha <= fin){ r.costoPolizas += costoServicio; r.numServiciosPolizas++; }
+        if(fecha >= inicio && fecha <= fin){
+          r.costoPolizas += costoServicio; r.numServiciosPolizas++;
+          sumaPorId(porCliente, p.clienteId, 'costo', costoServicio);
+          sumaPorId(porSitio, p.sitioId, 'costo', costoServicio);
+        }
       });
     });
   });
@@ -10050,6 +10152,10 @@ function calcularResultados(inicio, fin){
     r.ingresoCotizaciones += c.totalCliente;
     r.costoCotizaciones += c.totalCosto;
     r.numCotizaciones++;
+    sumaPorId(porCliente, q.clienteId, 'ingreso', c.totalCliente);
+    sumaPorId(porCliente, q.clienteId, 'costo', c.totalCosto);
+    sumaPorId(porSitio, q.sitioId, 'ingreso', c.totalCliente);
+    sumaPorId(porSitio, q.sitioId, 'costo', c.totalCosto);
   });
 
   r.ingresoTotal = r.ingresoForpass + r.ingresoPolizas + r.ingresoCotizaciones;
@@ -10073,6 +10179,42 @@ function calcularResultados(inicio, fin){
     r.numProyectosImagen++;
   });
   r.imagenTotal = r.imagenMateriales + r.imagenManoObra;
+
+  /* Rankings para la vista "tabla" de Resultados: mismos totales de arriba,
+     nada más agrupados. Ordenados de mayor a menor utilidad para que lo
+     primero que se lea sea "quién deja más" — el dato que de verdad importa
+     para decidir dónde poner atención comercial. */
+  r.rankingClientes = Array.from(porCliente.entries()).map(([id, v])=>{
+    const c = clientePorId(id);
+    return { id, nombre: c ? c.nombre : 'Cliente eliminado', ingreso: v.ingreso, costo: v.costo, utilidad: v.ingreso - v.costo };
+  }).sort((a,b)=> b.utilidad - a.utilidad);
+
+  r.rankingSitios = Array.from(porSitio.entries()).map(([id, v])=>{
+    const s = sitioPorId(id);
+    const c = s ? clientePorId(s.clienteId) : null;
+    return { id, nombre: s ? s.nombre : 'Sitio eliminado', clienteNombre: c ? c.nombre : '',
+             ingreso: v.ingreso, costo: v.costo, utilidad: v.ingreso - v.costo };
+  }).sort((a,b)=> b.utilidad - a.utilidad);
+
+  /* Técnicos: a diferencia de clientes/sitios, ningún reporte trae ingreso ni
+     costo capturado (es bitácora de campo, no un documento de precios — ver
+     normalizarReporte), así que aquí no hay utilidad que repartir. Lo único
+     medible es carga de trabajo: cuántos reportes resolvió cada quien dentro
+     del período, contado por su fecha de CIERRE (no de creación: un reporte
+     abierto en enero y cerrado en marzo cuenta para marzo, que es cuando el
+     técnico de verdad hizo el trabajo). */
+  const porTecnico = new Map();
+  datos.reportes.forEach(rep=>{
+    if(!['resuelto','cerrado'].includes(rep.estatus)) return;
+    if(!(rep.fechaCierre && rep.fechaCierre >= inicio && rep.fechaCierre <= fin)) return;
+    rep.tecnicos.forEach(t=>{
+      if(!t.nombre) return;
+      porTecnico.set(t.nombre, (porTecnico.get(t.nombre) || 0) + 1);
+    });
+  });
+  r.rankingTecnicos = Array.from(porTecnico.entries())
+    .map(([nombre, resueltos])=> ({ nombre, resueltos }))
+    .sort((a,b)=> b.resueltos - a.resueltos);
 
   return r;
 }
@@ -10146,7 +10288,7 @@ const TEMAS_AYUDA = [
           ])
         + guiaTip('Otros detalles que casi nadie nota', [
             'Todo se recalcula al vuelo cada vez que entras o cambias el periodo — nada de esto se guarda, así que nunca puede quedar desactualizado.',
-            'No hay botón de exportar Resultados a Excel/PDF: es un tablero de consulta, el Excel general vive en Clientes/Forpass.',
+            'Resultados también se puede ver como tarjetas (quién deja más, de un vistazo) o como tabla (el ranking completo de clientes, sitios y técnicos) con los botones junto al selector de período — y desde ahí mismo se exporta a Excel o PDF.',
             'Un equipo del catálogo de Pólizas dejado en $0 de costo entiende que "no cuesta nada" y silenciosamente infla el margen — vale la pena revisar la Lista de precios si algo se ve raro.'
           ])) },
 
@@ -10571,10 +10713,82 @@ function vistaAyudaTema(){
   return h;
 }
 
+/* Vista "tarjetas" de Resultados: no es la lista completa (esa vive en la
+   vista "tabla" y en el Excel) — es el vistazo rápido de quién deja más,
+   recortado a 5 por ranking a propósito. */
+function tarjetasComparativasResultados(r){
+  const tarjeta = (rango, nombre, detalle) =>
+    '<div class="kpi"><div class="k-label">#' + rango + '</div>'
+    + '<div class="k-valor" style="font-size:17px; line-height:1.25">' + esc(nombre) + '</div>'
+    + '<div class="k-pie">' + detalle + '</div></div>';
+
+  let h = '';
+  if(r.rankingClientes.length){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div>'
+       +   '<h3>Clientes que más dejan</h3><p>Top ' + Math.min(5, r.rankingClientes.length) + ' por utilidad de este período</p>'
+       + '</div></div><div class="kpis">'
+       + r.rankingClientes.slice(0, 5).map((c, i)=> tarjeta(i + 1, c.nombre, 'Utilidad ' + dineroCent(c.utilidad) + ' · ingreso ' + dineroCent(c.ingreso))).join('')
+       + '</div></div>';
+  }
+  if(r.rankingSitios.length){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div>'
+       +   '<h3>Sitios que más dejan</h3><p>Top ' + Math.min(5, r.rankingSitios.length) + ' por utilidad de este período</p>'
+       + '</div></div><div class="kpis">'
+       + r.rankingSitios.slice(0, 5).map((s, i)=> tarjeta(i + 1, s.nombre, (s.clienteNombre ? esc(s.clienteNombre) + ' · ' : '') + 'utilidad ' + dineroCent(s.utilidad))).join('')
+       + '</div></div>';
+  }
+  if(r.rankingTecnicos.length){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div>'
+       +   '<h3>Técnicos con más reportes resueltos</h3><p>Top ' + Math.min(5, r.rankingTecnicos.length) + ' de este período</p>'
+       + '</div></div><div class="kpis">'
+       + r.rankingTecnicos.slice(0, 5).map((t, i)=> tarjeta(i + 1, t.nombre, numero(t.resueltos) + ' ' + plural(t.resueltos, 'reporte resuelto', 'reportes resueltos'))).join('')
+       + '</div></div>';
+  }
+  return h || '<div class="vacio-chico">Todavía no hay suficientes datos en este período para armar un ranking.</div>';
+}
+
+/* Vista "tabla" de Resultados: el desglose completo (todos los clientes,
+   todos los sitios, todos los técnicos), la misma información que se manda
+   al Excel/PDF — a diferencia de las tarjetas de arriba, aquí no se recorta
+   a un top 5. */
+function tablasComparativasResultados(r){
+  const filaVacia = (colspan, texto) => '<tr><td colspan="' + colspan + '" class="vacio-chico">' + texto + '</td></tr>';
+  const colorUtilidad = u => u >= 0 ? 'var(--ok)' : 'var(--error)';
+
+  let h = '<div class="bloque"><div class="bloque-cabeza"><div><h3>Ranking de clientes</h3>'
+     +   '<p>Ingreso, costo y utilidad de este período, de mayor a menor utilidad</p></div></div>'
+     + '<div class="rodillo"><table class="tabla"><thead><tr><th>Cliente</th><th>Ingreso</th><th>Costo</th><th>Utilidad</th></tr></thead><tbody>'
+     + (r.rankingClientes.length
+        ? r.rankingClientes.map(c => '<tr><td>' + esc(c.nombre) + '</td><td>' + dineroCent(c.ingreso) + '</td><td>' + dineroCent(c.costo) + '</td>'
+            + '<td style="color:' + colorUtilidad(c.utilidad) + '">' + dineroCent(c.utilidad) + '</td></tr>').join('')
+        : filaVacia(4, 'Sin movimientos en este período.'))
+     + '</tbody></table></div></div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Ranking de sitios</h3><p>Mismo cruce, por sitio</p></div></div>'
+     + '<div class="rodillo"><table class="tabla"><thead><tr><th>Sitio</th><th>Cliente</th><th>Ingreso</th><th>Costo</th><th>Utilidad</th></tr></thead><tbody>'
+     + (r.rankingSitios.length
+        ? r.rankingSitios.map(s => '<tr><td>' + esc(s.nombre) + '</td><td>' + esc(s.clienteNombre) + '</td><td>' + dineroCent(s.ingreso) + '</td><td>' + dineroCent(s.costo) + '</td>'
+            + '<td style="color:' + colorUtilidad(s.utilidad) + '">' + dineroCent(s.utilidad) + '</td></tr>').join('')
+        : filaVacia(5, 'Sin movimientos en este período.'))
+     + '</tbody></table></div></div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Técnicos por reportes resueltos</h3>'
+     +   '<p>No es una cifra financiera —ningún reporte trae costo ni ingreso capturado—, es carga de trabajo</p></div></div>'
+     + '<div class="rodillo"><table class="tabla"><thead><tr><th>Técnico</th><th>Reportes resueltos</th></tr></thead><tbody>'
+     + (r.rankingTecnicos.length
+        ? r.rankingTecnicos.map(t => '<tr><td>' + esc(t.nombre) + '</td><td>' + numero(t.resueltos) + '</td></tr>').join('')
+        : filaVacia(2, 'Sin reportes resueltos en este período.'))
+     + '</tbody></table></div></div>';
+
+  return h;
+}
+
 function vistaResultados(){
   const modo = estado.periodoResultados;
   const { inicio, fin } = rangoPeriodoResultados(modo, estado.resultadosDesde, estado.resultadosHasta);
   const r = calcularResultados(inicio, fin);
+  const vista = estado.vistaResultados || 'graficas';
+  const enTabla = vista === 'tabla', enTarjetas = vista === 'tarjetas';
 
   let h = '<div class="titulo-zona"><div>'
         +   '<h2>Estado de resultados</h2>'
@@ -10592,6 +10806,18 @@ function vistaResultados(){
         ? '<input type="date" id="resultadosDesde" value="' + esc(estado.resultadosDesde || inicio) + '">'
           + '<input type="date" id="resultadosHasta" value="' + esc(estado.resultadosHasta || fin) + '">'
         : '')
+     /* Tres formas de leer lo mismo: gráficas (dirección, tendencia visual),
+        tarjetas (vistazo rápido de quién deja más) y tabla (el desglose
+        completo, la misma que se manda a Excel/PDF). Mismo mecanismo de
+        controlAlternaVista() que ya usan Pólizas/Cotizaciones/Reportes, nada
+        más con un tercer botón, igual que ya hace vistaProyectosImagen(). */
+     +   '<div class="alterna-vista" role="group" aria-label="Cómo ver los resultados">'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="graficas" aria-pressed="' + (!enTabla && !enTarjetas) + '" title="Ver gráficas">' + ICONO.grafica + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="tarjetas" aria-pressed="' + enTarjetas + '" title="Ver tarjetas resumen">' + ICONO.tarjetas + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="tabla" aria-pressed="' + enTabla + '" title="Ver tabla y comparativas">' + ICONO.tabla + '</button>'
+     +   '</div>'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-resultados">' + ICONO.excel + 'Excel</button>'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-resultados">' + ICONO.imprimir + 'PDF</button>'
      + '</div>';
 
   h += '<div class="kpis">'
@@ -10601,11 +10827,23 @@ function vistaResultados(){
          r.utilidadBruta >= 0 ? 'k-ok' : 'k-error')
      + '</div>';
 
+  if(enTarjetas){
+    h += tarjetasComparativasResultados(r);
+    h += '<p class="pista" style="margin-top:14px">Vista rápida del período — cambia a "Tabla" para ver el desglose completo de ingresos y costos, o a "Gráficas" para la tendencia de los últimos 12 meses.</p>';
+    return h;
+  }
+
+  if(enTabla){
+    h += tablasComparativasResultados(r);
+  }
+
   /* Gráficas para dirección: la tendencia no depende del selector de arriba
      (siempre son los últimos 12 meses cerrados), la composición sí — es la
-     de ESTE periodo, para leerse junto con las tarjetas y la tabla de abajo. */
+     de ESTE periodo, para leerse junto con las tarjetas y la tabla de abajo.
+     Se saltan por completo en la vista "tabla": ahí el punto es leer cifras
+     exactas y comparativas, no una tendencia visual. */
   const tendencia12m = tendenciaMensualResultados(12);
-  const hayTendencia = tendencia12m.some(m => m.r.ingresoTotal || m.r.costoTotal);
+  const hayTendencia = !enTabla && tendencia12m.some(m => m.r.ingresoTotal || m.r.costoTotal);
 
   if(hayTendencia){
     h += '<div class="bloque">'
@@ -10898,6 +11136,10 @@ function vistaCliente(){
      +   (cotizacionesCliente.length
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-cotizaciones-cliente" '
             + 'title="Ver las cotizaciones de este cliente">' + ICONO.credencial + 'Cotizaciones (' + cotizacionesCliente.length + ')</button>'
+          : '')
+     +   (esAdmin() && HAY_NUBE
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="gestion-link-reportes" data-cliente-liga="' + esc(c.id) + '" '
+            + 'title="Un link para que cualquiera —sin cuenta— levante un reporte de este cliente">' + ICONO.reporte + 'Link para levantar reportes</button>'
           : '')
      +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nuevo-sitio">' + ICONO.mas + 'Agregar sitio</button>' : '')
      + '</div></div>';
@@ -14088,6 +14330,299 @@ function modalPersona(id){
 }
 
 /* ---------------------------- Modal: reporte ---------------------------- */
+/* ==================== Link público para levantar reportes sin sesión ====================
+   Un link (con QR) que cualquiera —el cliente, un guardia, quien esté en
+   sitio— puede abrir SIN cuenta ni contraseña para levantar un reporte de
+   mantenimiento de UN cliente en concreto. Vive en la colección
+   `enlaces_publicos_reportes`, con el propio token como id del documento:
+   así que(index.html)?levantar=TOKEN puede leerlo con un solo GET, sin
+   necesitar una consulta que las reglas de Firestore tendrían que dejar
+   pasar a alguien sin cuenta (ver arrancarFormularioPublicoReportes()).
+
+   El token es el único candado real —nadie lo puede adivinar—, así que
+   tiene que ser largo y de verdad aleatorio: crypto.getRandomValues(), no
+   Math.random() (que no es criptográficamente seguro y sí se ha llegado a
+   predecir). 18 bytes = 36 caracteres hexadecimales, 144 bits de entropía. */
+function generarTokenSeguro(){
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2,'0')).join('');
+}
+function urlLinkPublicoReportes(token){
+  return location.origin + location.pathname + '?levantar=' + token;
+}
+
+async function abrirGestionLinkReportes(clienteId){
+  if(!exigirAdmin('generar links públicos para levantar reportes')) return;
+  const c = clientePorId(clienteId);
+  if(!c) return;
+  if(!HAY_NUBE){ aviso('Esta función necesita estar conectado a la nube.', true); return; }
+
+  abrirModal('Link para levantar reportes — ' + c.nombre,
+    '<div class="vacio-chico">Cargando…</div>',
+    '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
+
+  let ligas;
+  try{
+    ligas = await consultarNubePorCampo('enlaces_publicos_reportes', 'clienteId', clienteId);
+  }catch(e){
+    if($('modalCuerpo')) $('modalCuerpo').innerHTML = '<div class="vacio-chico">No se pudieron cargar los links: ' + esc(e.message) + '</div>';
+    return;
+  }
+  ligas.sort((a,b)=> (b.creadoEn || '').localeCompare(a.creadoEn || ''));
+
+  function pintar(){
+    const cuerpo = $('modalCuerpo');
+    if(!cuerpo) return;   /* el modal se pudo haber cerrado mientras cargaba */
+    cuerpo.innerHTML =
+        '<p class="pista">Cualquiera con este link —sin cuenta ni contraseña— puede levantar un reporte para <b>' + esc(c.nombre) + '</b>. '
+      + 'Compártelo con el cliente, el guardia o quien esté en sitio; desactívalo cuando ya no haga falta.</p>'
+      + (ligas.length ? ligas.map(liga=>
+          '<div class="liga-publica' + (liga.activo ? '' : ' liga-inactiva') + '">'
+          + '<div class="liga-publica-cab">'
+          +   '<span class="insignia i-' + (liga.activo ? 'ok' : 'error') + '"><span class="punto p-' + (liga.activo ? 'ok' : 'error') + '"></span>' + (liga.activo ? 'Activo' : 'Desactivado') + '</span>'
+          +   '<span class="pista">Creado ' + (liga.creadoEn ? fmtFecha(liga.creadoEn.slice(0,10)) : '—') + (liga.creadoPorNombre ? ' por ' + esc(liga.creadoPorNombre) : '') + '</span>'
+          + '</div>'
+          + '<div class="liga-publica-cuerpo">'
+          +   '<div class="liga-publica-qr">' + svgCodigoQr(urlLinkPublicoReportes(liga.id)) + '</div>'
+          +   '<div class="liga-publica-datos">'
+          +     '<input type="text" readonly value="' + esc(urlLinkPublicoReportes(liga.id)) + '" class="liga-publica-input">'
+          +     '<div class="liga-publica-botones">'
+          +       '<button type="button" class="btn btn-suave btn-mini" data-copiar-liga="' + esc(liga.id) + '">Copiar link</button>'
+          +       '<button type="button" class="btn btn-suave btn-mini" data-alternar-liga="' + esc(liga.id) + '">' + (liga.activo ? 'Desactivar' : 'Reactivar') + '</button>'
+          +     '</div>'
+          +   '</div>'
+          + '</div>'
+        + '</div>').join('')
+        : '<div class="vacio-chico">Todavía no hay ningún link generado para este cliente.</div>')
+      + '<button type="button" class="btn btn-primario btn-mini" id="btnCrearLigaReportes" style="margin-top:12px">' + ICONO.mas + 'Generar link nuevo</button>';
+
+    cuerpo.querySelectorAll('[data-copiar-liga]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        navigator.clipboard.writeText(urlLinkPublicoReportes(b.dataset.copiarLiga))
+          .then(()=> aviso('Link copiado.'))
+          .catch(()=> aviso('No se pudo copiar. Selecciona el texto a mano.', true));
+      });
+    });
+    cuerpo.querySelectorAll('[data-alternar-liga]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const liga = ligas.find(l => l.id === b.dataset.alternarLiga);
+        if(!liga) return;
+        liga.activo = !liga.activo;
+        encolar({ tipo:'poner', coleccion:'enlaces_publicos_reportes', id:liga.id, obj:liga });
+        aviso(liga.activo ? 'Link reactivado.' : 'Link desactivado.');
+        pintar();
+      });
+    });
+    const btnCrear = $('btnCrearLigaReportes');
+    if(btnCrear) btnCrear.addEventListener('click', ()=>{
+      btnCrear.disabled = true; btnCrear.textContent = 'Generando…';
+      const nueva = {
+        id: generarTokenSeguro(),
+        clienteId, clienteNombre: c.nombre,
+        /* Los sitios del cliente se guardan AQUÍ, en el propio link, en vez
+           de que el formulario público los consulte en vivo: alguien sin
+           sesión no tiene por qué poder leer /sitios completo, y así el
+           formulario no necesita ninguna regla nueva de lectura para nadie
+           sin cuenta — solo lee ESTE documento, por su id. */
+        sitios: sitiosDe(clienteId).map(s=> ({ id:s.id, nombre:s.nombre })),
+        activo: true,
+        creadoPorUid: sesion.uid || '', creadoPorNombre: nombreDe(sesion) || '',
+        creadoEn: new Date().toISOString()
+      };
+      encolar({ tipo:'poner', coleccion:'enlaces_publicos_reportes', id:nueva.id, obj:nueva });
+      ligas.unshift(nueva);
+      pintar();
+      aviso('Link generado.');
+    });
+  }
+  pintar();
+}
+
+/* ==================== Formulario público (sin sesión) ====================
+   El otro lado del link de arriba: alguien abre (index.html)?levantar=TOKEN
+   SIN cuenta y sin haber entrado nunca a este tablero. Se resuelve por
+   completo ANTES del arranque normal (ver el bloque ARRANQUE, al final del
+   archivo) — nunca llega a mostrarse el login ni el resto de la app: el
+   body entero se reemplaza por esta tarjeta sola.
+
+   Usa Firebase Auth ANÓNIMO (accounts:signUp sin correo/contraseña) para
+   tener un idToken válido con el que subir fotos a Storage y crear el
+   reporte — exactamente el mismo pedirNube()/subirEvidenciaStorage() de
+   siempre, nomás que con una sesión desechable que nunca se guarda en
+   localStorage (guardarSesion() NO se llama aquí a propósito: no tiene que
+   sobrevivir un refresh, ni pisar la sesión real de alguien que abra este
+   link en el mismo navegador donde ya tiene cuenta interna). */
+function fpAviso(msg, esError){
+  const m = $('fpMensaje');
+  if(!m) return;
+  m.textContent = msg;
+  m.classList.toggle('fp-ok', !esError);
+  m.hidden = false;
+}
+function pintarFormPublicoError(msg){
+  const raiz = $('formPublicoReporte');
+  if(!raiz) return;
+  raiz.innerHTML = '<div class="fp-tarjeta"><div class="fp-marca">FORGUARD</div><p class="fp-error">' + esc(msg) + '</p></div>';
+}
+function pintarFormPublicoExito(folio){
+  const raiz = $('formPublicoReporte');
+  if(!raiz) return;
+  raiz.innerHTML = '<div class="fp-tarjeta fp-exito">'
+    + '<div class="fp-marca">FORGUARD</div>'
+    + '<div class="fp-exito-icono">' + ICONO.cheque + '</div>'
+    + '<h2>¡Reporte registrado!</h2>'
+    + '<p>Folio <b>' + esc(folio) + '</b>. Nuestro equipo le va a dar seguimiento.</p>'
+    + '<button type="button" class="btn btn-suave" id="fpOtroReporte">Levantar otro reporte</button>'
+    + '</div>';
+  $('fpOtroReporte').addEventListener('click', ()=> location.reload());
+}
+
+function pintarFormPublico(enlace){
+  const raiz = $('formPublicoReporte');
+  if(!raiz) return;
+  const sitios = Array.isArray(enlace.sitios) ? enlace.sitios : [];
+
+  raiz.innerHTML =
+      '<div class="fp-tarjeta">'
+    +   '<div class="fp-marca">FORGUARD</div>'
+    +   '<h2>Levantar un reporte</h2>'
+    +   '<p class="pista">Para <b>' + esc(enlace.clienteNombre || 'este cliente') + '</b>. No necesitas cuenta ni contraseña — llena lo que sepas y envíalo.</p>'
+    +   (sitios.length > 1
+         ? '<div class="campo"><label>Sitio *</label><select id="fpSitio"><option value="">— Elegir —</option>'
+           + sitios.map(s => '<option value="' + esc(s.id) + '">' + esc(s.nombre) + '</option>').join('') + '</select></div>'
+         : '')
+    +   '<div class="campo"><label>¿Qué pasa? *</label><input type="text" id="fpTitulo" placeholder="Ej. Refrigerador no enfría"></div>'
+    +   '<div class="campo"><label>Cuéntanos más (opcional)</label><textarea id="fpDescripcion" placeholder="Desde cuándo, cualquier detalle que ayude al técnico…"></textarea></div>'
+    +   '<div class="campo"><label>¿Qué tan urgente es?</label><select id="fpPrioridad">'
+    +     PRIORIDAD_REPORTE.map(p => '<option value="' + p + '"' + (p === 'media' ? ' selected' : '') + '>' + esc(ETIQUETA_PRIORIDAD[p]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Tu nombre *</label><input type="text" id="fpNombre" placeholder="Quién levanta el reporte"></div>'
+    +   '<div class="campo"><label>Teléfono o correo (opcional)</label><input type="text" id="fpContacto" placeholder="Para que el técnico te ubique si hace falta"></div>'
+    +   '<div class="campo"><label>Fotos (opcional)</label>'
+    +     '<div class="galeria-evidencia" id="fpGaleria"></div>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="fpBtnFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +     '<input type="file" id="fpArchivo" accept="image/*" capture="environment" multiple style="display:none">'
+    +     '<div class="pista" id="fpPistaFoto">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos.</div>'
+    +   '</div>'
+    +   '<div class="fp-mensaje" id="fpMensaje" hidden></div>'
+    +   '<button type="button" class="btn btn-primario" id="fpEnviar" style="width:100%; margin-top:12px">Enviar reporte</button>'
+    +   '<p class="fp-pie">Forguard · Mantenimiento preventivo y correctivo</p>'
+    + '</div>';
+
+  let fotos = [];
+  function pintarGaleria(){
+    $('fpGaleria').innerHTML = fotos.map((f,i)=>
+      '<div class="evidencia-foto"><img src="' + f.dataUrl + '" alt="Evidencia">'
+      + '<button type="button" class="evidencia-quitar" data-quitar-foto="' + i + '" title="Quitar">' + ICONO.basura + '</button></div>'
+    ).join('');
+    $('fpGaleria').querySelectorAll('[data-quitar-foto]').forEach(b=>{
+      b.addEventListener('click', ()=>{ fotos.splice(+b.dataset.quitarFoto, 1); pintarGaleria(); });
+    });
+    $('fpBtnFoto').disabled = fotos.length >= EVIDENCIA_MAX_POR_REPORTE;
+  }
+  pintarGaleria();
+
+  $('fpBtnFoto').addEventListener('click', ()=> $('fpArchivo').click());
+  $('fpArchivo').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length) return;
+    const cupo = EVIDENCIA_MAX_POR_REPORTE - fotos.length;
+    if(cupo <= 0){ fpAviso('Ya tienes ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Quita alguna para agregar otra.', true); return; }
+    $('fpPistaFoto').textContent = 'Procesando fotos…';
+    for(const archivo of archivos.slice(0, cupo)){
+      try{
+        const img = await leerEvidencia(archivo);
+        fotos.push({ id: nuevoId(), dataUrl: comprimirEvidencia(img) });
+      }catch(e){ fpAviso(e.message, true); }
+    }
+    $('fpPistaFoto').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos.';
+    pintarGaleria();
+  });
+
+  $('fpEnviar').addEventListener('click', async ()=>{
+    const sitioId = sitios.length > 1 ? ($('fpSitio') ? $('fpSitio').value : '') : ((sitios[0] && sitios[0].id) || '');
+    const titulo = $('fpTitulo').value.trim();
+    const nombre = $('fpNombre').value.trim();
+    if(sitios.length > 1 && !sitioId){ fpAviso('Elige el sitio.', true); return; }
+    if(!titulo){ fpAviso('Cuéntanos qué pasa.', true); return; }
+    if(!nombre){ fpAviso('Necesitamos tu nombre.', true); return; }
+
+    const btn = $('fpEnviar');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    const id = nuevoId();
+    try{
+      const evidencias = [];
+      for(const f of fotos){
+        const url = await subirEvidenciaStorage(f.dataUrl, 'evidencias/reportes/' + id, f.id);
+        evidencias.push(normalizarEvidencia({ id:f.id, dataUrl:url, subioNombre:nombre }));
+      }
+      const contacto = $('fpContacto').value.trim();
+      const sitio = sitios.find(s => s.id === sitioId);
+      const reg = normalizarReporte({
+        id,
+        /* Folio propio (no generarFolioReporte(), que cuenta sobre
+           datos.reportes.length — aquí no hay ninguna lista cargada): el
+           propio id del reporte, ya de por sí único, alcanza para que dos
+           envíos al mismo tiempo nunca choquen. */
+        folio: 'TK-' + hoyISO().replace(/-/g,'').slice(2) + '-' + id.slice(-4).toUpperCase(),
+        clienteId: enlace.clienteId, sitioId: sitioId || '',
+        sitioNombre: sitio ? sitio.nombre : '',
+        titulo, descripcion: $('fpDescripcion').value.trim(),
+        prioridad: $('fpPrioridad').value, estatus:'abierto', fechaCreacion: hoyISO(),
+        reportadoPor: { uid: sesion.uid || '', nombre: nombre + (contacto ? ' (' + contacto + ')' : '') },
+        evidencias,
+        seguimiento: [{ quien: nombre, texto:'Levantó el reporte desde el link público.' }],
+        origenPublico: true, enlacePublicoToken: enlace.id
+      });
+      await escribirNube('reportes', id, reg);
+      pintarFormPublicoExito(reg.folio);
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'Enviar reporte';
+      fpAviso('No se pudo enviar: ' + (e && e.message ? e.message : 'error de conexión') + '. Vuelve a intentarlo.', true);
+    }
+  });
+}
+
+/* Punto de entrada: se llama UNA vez, al arrancar, antes de cargar() ni de
+   nada de la app normal (ver ARRANQUE). Devuelve true si el link se hizo
+   cargo de la pantalla (arranque normal se salta por completo) o false si
+   no había ningún ?levantar= — el caso de siempre, casi toda vez que se
+   abre la página. */
+function arrancarFormularioPublicoReportesSiAplica(){
+  const token = new URLSearchParams(location.search).get('levantar');
+  if(!token) return false;
+
+  document.body.innerHTML = '<div class="fp-pagina" id="formPublicoReporte"><div class="fp-tarjeta"><div class="fp-cargando">Cargando…</div></div></div>';
+
+  if(!HAY_NUBE){
+    pintarFormPublicoError('Este link necesita que el tablero tenga la nube configurada.');
+    return true;
+  }
+
+  (async ()=>{
+    try{
+      const auth = await pedirAuth('signUp', { returnSecureToken:true });
+      sesion.uid = auth.localId;
+      sesion.idToken = auth.idToken;
+      sesion.refreshToken = auth.refreshToken;
+      sesion.expira = Date.now() + (Number(auth.expiresIn) || 3600) * 1000;
+
+      const d = await pedirNube('/enlaces_publicos_reportes/' + encodeURIComponent(token), { method:'GET' }, true);
+      if(!d){ pintarFormPublicoError('Este link no existe o ya fue eliminado. Pide uno nuevo a Forguard.'); return; }
+      const enlace = deCampos(d.fields || {});
+      enlace.id = d.name.split('/').pop();
+      if(!enlace.activo){ pintarFormPublicoError('Este link ya no está activo. Pide uno nuevo a Forguard.'); return; }
+      pintarFormPublico(enlace);
+    }catch(e){
+      pintarFormPublicoError('No se pudo abrir el formulario: ' + (e && e.message ? e.message : 'error de conexión') + '. Recarga la página para volver a intentar.');
+    }
+  })();
+
+  return true;
+}
+
 function modalReporte(id){
   const rp = id ? reportePorId(id) : null;
   if(!datos.clientes.length){
@@ -23060,8 +23595,11 @@ $('vista').addEventListener('click', ev=>{
     /* SIN exigirPermiso, a propósito: imprimir es solo lectura y el Viewer ya
        ve todas estas cifras en pantalla — negarle el botón no protege nada. */
     else if(a === 'imprimir-poliza') abrirDocumentoPoliza(estado.polizaId);
+    else if(a === 'imprimir-resultados') abrirDocumentoResultados();
+    else if(a === 'excel-resultados') descargarExcelResultados();
     else if(a === 'excel') descargarExcel(null);
     else if(a === 'excel-cliente') descargarExcel(estado.clienteId);
+    else if(a === 'gestion-link-reportes') abrirGestionLinkReportes(acc.dataset.clienteLiga || estado.clienteId);
     else if(a === 'respaldo'){ if(exigirAdmin('descargar el respaldo completo')) descargarRespaldo(); }
     else if(a === 'restaurar'){ if(exigirAdmin('restaurar un respaldo')) $('archivoRestaurar').click(); }
     else if(a === 'limpiar-filtros'){ estado.sitioFiltro = ''; estado.encargadoFiltro = ''; render(); }
@@ -24046,6 +24584,93 @@ function descargarExcelActivos(){
 
   descargar(armarZip(archivos), 'Activos_' + selloFecha() + '.xlsx');
   aviso('Excel descargado con ' + lista.length + ' ' + plural(lista.length,'activo','activos') + '.');
+}
+
+/* ===================== Excel de Resultados (resumen + comparativas) =====================
+   Una sola hoja: el resumen del período (mismas cifras que las tarjetas) y
+   los tres rankings de la vista "tabla" (clientes, sitios, técnicos), sin
+   recortar a un top 5 — a diferencia de las tarjetas, el Excel es para
+   quien de verdad necesita revisar la lista completa. */
+function construirHojaResultados(r, inicio, fin){
+  const filas = [];
+  filas.push([cT('Estado de resultados', 1)]);
+  filas.push([cT(fmtFecha(inicio) + ' – ' + fmtFecha(fin), 2)]);
+  filas.push(null);
+  filas.push([cT('Resumen del período', 1)]);
+  filas.push(['Concepto','Monto'].map(c => cT(c, 3)));
+  filas.push([cT('Ingresos totales', 4), cN(r.ingresoTotal, 7)]);
+  filas.push([cT('Costo capturado', 4), cN(r.costoTotal, 7)]);
+  filas.push([cT('Utilidad bruta', 4), cN(r.utilidadBruta, 7)]);
+  filas.push([cT('Margen (%)', 4), cN(Number(r.margenPct.toFixed(1)), 5)]);
+  filas.push(null);
+
+  filas.push([cT('Ranking de clientes', 1)]);
+  filas.push(['Cliente','Ingreso','Costo','Utilidad'].map(c => cT(c, 3)));
+  if(r.rankingClientes.length) r.rankingClientes.forEach(c =>
+    filas.push([cT(c.nombre, 4), cN(c.ingreso, 7), cN(c.costo, 7), cN(c.utilidad, 7)]));
+  else filas.push([cT('Sin movimientos en este período.', 4)]);
+  filas.push(null);
+
+  filas.push([cT('Ranking de sitios', 1)]);
+  filas.push(['Sitio','Cliente','Ingreso','Costo','Utilidad'].map(c => cT(c, 3)));
+  if(r.rankingSitios.length) r.rankingSitios.forEach(s =>
+    filas.push([cT(s.nombre, 4), cT(s.clienteNombre, 4), cN(s.ingreso, 7), cN(s.costo, 7), cN(s.utilidad, 7)]));
+  else filas.push([cT('Sin movimientos en este período.', 4)]);
+  filas.push(null);
+
+  filas.push([cT('Técnicos por reportes resueltos', 1)]);
+  filas.push(['Técnico','Reportes resueltos'].map(c => cT(c, 3)));
+  if(r.rankingTecnicos.length) r.rankingTecnicos.forEach(t => filas.push([cT(t.nombre, 4), cN(t.resueltos, 5)]));
+  else filas.push([cT('Sin reportes resueltos en este período.', 4)]);
+
+  const anchos = [30, 22, 16, 16, 16];
+  const ultimaCol = letraCol(anchos.length);
+  let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<dimension ref="A1:' + ultimaCol + filas.length + '"/>'
+    + '<sheetViews><sheetView showGridLines="0" tabSelected="1" workbookViewId="0"/></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + '<cols>' + anchos.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
+    + '<sheetData>';
+  filas.forEach((celdas, k)=>{ if(celdas) xml += filaXml(k+1, celdas); });
+  xml += '</sheetData><pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/></worksheet>';
+  return xml;
+}
+
+function descargarExcelResultados(){
+  const modo = estado.periodoResultados;
+  const { inicio, fin } = rangoPeriodoResultados(modo, estado.resultadosDesde, estado.resultadosHasta);
+  const r = calcularResultados(inicio, fin);
+
+  const archivos = [
+    { nombre:'[Content_Types].xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      + '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      + '</Types>') },
+    { nombre:'_rels/.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/workbook.xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+      + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<sheets><sheet name="Resultados" sheetId="1" r:id="rId1"/></sheets>'
+      + '<calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>') },
+    { nombre:'xl/_rels/workbook.xml.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+      + '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/styles.xml', datos: aBytes(XLSX_ESTILOS) },
+    { nombre:'xl/worksheets/sheet1.xml', datos: aBytes(construirHojaResultados(r, inicio, fin)) }
+  ];
+
+  descargar(armarZip(archivos), 'Resultados_' + selloFecha() + '.xlsx');
+  aviso('Excel de resultados descargado.');
 }
 
 /* ===================== Excel del cierre mensual de Refacciones ===================== */
@@ -25114,6 +25739,12 @@ function vistaPortalReporte(r){
 }
 
 /* =============================== ARRANQUE =============================== */
+/* Antes que nada: ¿esto es un link público de "levantar reporte"
+   (?levantar=TOKEN)? Si sí, se hace cargo de TODA la pantalla y ninguna
+   otra línea de aquí abajo llega a correr — nada de cargar() datos
+   internos, nada de mostrarAcceso(): quien abre este link no tiene cuenta,
+   y no tiene por qué ver nada del tablero salvo su propio formulario. */
+if(!arrancarFormularioPublicoReportesSiAplica()){
 cargar();
 cargarCola();
 /* Antes del primer render: la app abre en el módulo donde te quedaste, y así el
@@ -25153,6 +25784,7 @@ if(!HAY_NUBE){
     ev.returnValue = '';
   });
 }
+}   /* cierra el if(!arrancarFormularioPublicoReportesSiAplica()) de arriba */
 
 /* Habilita "Agregar a pantalla de inicio" en Android/Chrome y da algo de
    resiliencia en datos móviles inestables (ver sw.js: red primero, caché
