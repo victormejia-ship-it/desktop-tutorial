@@ -8957,7 +8957,11 @@ function irALaPolizaDelSitio(sitioId){
 }
 
 function irAModulo(m){
-  if(!MODULOS.includes(m) || m === estado.modulo) return;   /* clic en la que ya está: nada */
+  /* Contra modulosPermitidos() del rol EN SESIÓN, no contra MODULOS (la
+     lista completa): 'mi-agenda' es real y tiene su pestaña, pero solo vive
+     en la lista de Técnico, nunca en MODULOS —si se validara ahí, el clic
+     en su propia pestaña no haría nada. */
+  if(!modulosPermitidos().includes(m) || m === estado.modulo) return;   /* clic en la que ya está: nada */
   estado.modulo = m;
   guardarModulo();
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
@@ -8968,6 +8972,43 @@ function irAModulo(m){
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+/* El logo del encabezado: SIEMPRE manda a la pantalla principal DE VERDAD
+   para el rol en sesión —Resultados para owner/admin/analyst/viewer, Mi
+   agenda para Técnico, Reportes para Reportero, la pestaña de
+   Consideraciones para un cliente en su portal— sin importar en qué
+   módulo o vista esté parado. Antes (btnInicio) solo volvía a la portada
+   del módulo ACTUAL, así que en un módulo de una sola vista (como Cocinas)
+   el botón quedaba deshabilitado aunque no fuera el inicio real de la app,
+   y para un cliente no hacía nada en absoluto. Pedido explícito de Victor
+   (13-sep-2026): un solo atajo de "regresar al inicio" que sirva para
+   cualquier rol. */
+function irAInicio(){
+  if(esCliente()){
+    if(estado.vistaPortal === 'consideraciones') return;
+    estado.vistaPortal = 'consideraciones';
+    estado.cotizacionPortalId = null; estado.reportePortalId = null;
+    animarTarjetas = true;
+    render();
+    window.scrollTo({ top:0, behavior:'smooth' });
+    return;
+  }
+  const home = modulosPermitidos()[0];
+  if(!home) return;
+  if(estado.modulo !== home){ irAModulo(home); return; }
+  if(estado.vista === inicioDelModulo()) return;   /* ya está en su inicio */
+  /* Mismo módulo, pero clavado en una sub-vista o un detalle (ej. un
+     reportero viendo un reporte puntual): mismo reseteo que irAModulo(),
+     nada más sin cambiar el módulo (por eso no se puede reusar tal cual —
+     ahí el guard de "ya estás en ese módulo" no deja avanzar). */
+  estado.vista = inicioDelModulo();
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.visitaId = null;
+  estado.busca = ''; estado.filtro = 'todos';
+  estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
+  animarTarjetas = true;
+  render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 
@@ -19007,10 +19048,20 @@ function pintarCabecera(){
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
 
-  /* El logo solo funciona como atajo cuando hay a dónde volver. En la portada
-     del módulo queda deshabilitado: sin esto sería un botón que no hace nada y
-     además estorbaría en el recorrido del teclado. */
+  /* El logo solo funciona como atajo cuando hay a dónde volver — a la
+     pantalla principal DE VERDAD (ver irAInicio()), no solo a la portada
+     del módulo en turno. Ya en el inicio real queda deshabilitado: sin
+     esto sería un botón que no hace nada y además estorbaría en el
+     recorrido del teclado. Un cliente no tiene módulo/vista (usa su
+     propio estado.vistaPortal), así que se resuelve aparte. */
   const inicio = $('btnInicio');
+  if(esCliente()){
+    const enInicioPortal = estado.vistaPortal === 'consideraciones';
+    inicio.disabled = enInicioPortal;
+    inicio.title = enInicioPortal ? '' : 'Volver al inicio';
+    inicio.setAttribute('aria-label', enInicioPortal ? 'Forguard' : 'Volver al inicio');
+    return;
+  }
   const destino = estado.modulo === 'mi-agenda' ? 'Mi agenda'
                  : estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'cocinas' ? 'Cocinas'
@@ -19021,10 +19072,10 @@ function pintarCabecera(){
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
                  : estado.modulo === 'ayuda' ? 'Ayuda'
                  : 'Clientes';
-  const enPortada = estado.vista === inicioDelModulo();
-  inicio.disabled = enPortada;
-  inicio.title = enPortada ? '' : 'Volver a ' + destino;
-  inicio.setAttribute('aria-label', enPortada ? 'Forguard' : 'Volver a ' + destino);
+  const enInicio = modulosPermitidos()[0] === estado.modulo && estado.vista === inicioDelModulo();
+  inicio.disabled = enInicio;
+  inicio.title = enInicio ? '' : 'Volver a ' + destino;
+  inicio.setAttribute('aria-label', enInicio ? 'Forguard' : 'Volver a ' + destino);
 }
 
 /* Una sola función para volver a la portada: la usan el botón "Clientes" de la
@@ -26121,15 +26172,7 @@ $('btnSalir').addEventListener('click', ()=>{
 
 /* El manejador de data-accion vive en #vista, y la cabecera está fuera de ahí:
    estos botones necesitan su propio listener. */
-$('btnInicio').addEventListener('click', ()=>{
-  if(estado.vista === inicioDelModulo()) return;
-  if(estado.modulo === 'polizas') irAPolizas();
-  else if(estado.modulo === 'cotizaciones') irACotizaciones();
-  else if(estado.modulo === 'reportes') irAReportes();
-  else if(estado.modulo === 'levantamientos') irALevantamientos();
-  else if(estado.modulo === 'imagen') irAProyectosImagen();
-  else irAClientes();
-});
+$('btnInicio').addEventListener('click', ()=>{ irAInicio(); });
 
 /* El selector de módulo: delegado en el <nav>, que también está fuera de #vista. */
 $('selectorModulo').addEventListener('click', ev=>{
