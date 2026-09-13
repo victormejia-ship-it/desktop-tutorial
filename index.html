@@ -1421,6 +1421,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
     <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
+    <button type="button" class="mod" data-modulo="cocinas" role="tab" aria-selected="false">Cocinas</button>
     <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
     <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
     <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
@@ -8742,6 +8743,15 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                  temaAyudaId: null,
                  ladoCotizacion:'costo',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
+                 /* Módulo Cocinas: mismo mecanismo de periodo que Resultados
+                    (ver rangoPeriodoResultados()) pero con su propio estado —
+                    cambiar el periodo de uno no debe mover el del otro. Arranca
+                    en 'anio' (no 'mes' como Resultados): la confiabilidad de un
+                    equipo se lee mejor con más historial detrás, un mes solo
+                    suele traer muy pocos reportes para decir algo. `vistaCocinas`
+                    es el nivel de agrupación: por sitio (el default, "cada
+                    cocina"), por categoría de equipo, o por equipo puntual. */
+                 periodoCocinas:'anio', cocinasDesde:'', cocinasHasta:'', vistaCocinas:'sitio',
                  /* Qué fuentes de ingreso están "apagadas" en las gráficas de
                     Resultados (clic en su leyenda) — es una preferencia de
                     pantalla, no dato, así que no se sube a la nube. */
@@ -8795,7 +8805,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
 function cargarModulo(){
   estado.modulo = 'resultados';
   estado.vista = inicioDelModulo();
@@ -8838,6 +8848,7 @@ function inicioDelModulo(){
   return estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'reportes' ? 'reportes'
+       : estado.modulo === 'cocinas' ? 'cocinas'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
        : estado.modulo === 'visitas' ? 'visitas'
        : estado.modulo === 'activos' ? 'activos'
@@ -8934,6 +8945,19 @@ function verCotizacionesDe(texto){
   if(estado.modulo !== 'cotizaciones'){ estado.modulo = 'cotizaciones'; guardarModulo(); }
   estado.vista = 'cotizaciones';
   estado.cotizacionId = null;
+  estado.filtro = 'todos';
+  estado.busca = texto || '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+/* Mismo criterio que verCotizacionesDe(), desde una fila de Cocinas: salta a
+   Reportes ya buscando por el nombre del sitio (el buscador de vistaReportes()
+   ya compara contra sitioNombre). */
+function verReportesDe(texto){
+  if(estado.modulo !== 'reportes'){ estado.modulo = 'reportes'; guardarModulo(); }
+  estado.vista = 'reportes';
+  estado.reporteId = null;
   estado.filtro = 'todos';
   estado.busca = texto || '';
   animarTarjetas = true;
@@ -9224,7 +9248,8 @@ const ICONO = {
   ojo:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>',
   alerta:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   ojoTachado:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 4.22-5.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
-  listaSerie:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg>'
+  listaSerie:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg>',
+  medidor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9c0 2.6 1 5 2.7 6.8h12.6A9 9 0 0 0 21 12a9 9 0 0 0-9-9z"/><path d="M12 12l4.2-4.2"/><path d="M8 14.5a4.5 4.5 0 0 1 7.4-3.4"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -10417,6 +10442,167 @@ function calcularResultados(inicio, fin){
   return r;
 }
 
+/* ==================== Cocinas: funcionalidad de equipos ====================
+   Salud operativa de "una cocina" (un sitio) medida con la bitácora REAL a lo
+   largo del tiempo — a diferencia del "Análisis de funcionamiento" de
+   Levantamientos (calcularFuncionamientoLevantamiento), que es la foto de UN
+   solo recorrido, esto cruza los Reportes de todo el período: cuántos se
+   levantaron, cuántos se atendieron, qué tan rápido y cuánto costó lo
+   cotizado. Pedido explícito de Victor (13-sep-2026), con las tres preguntas
+   de alcance resueltas como "todo lo anterior": se puede ver por sitio, por
+   categoría de equipo (las mismas 5 de la Lista de precios) o por equipo
+   puntual, y el indicador combina frecuencia de fallas + tiempo de
+   resolución + costo cotizado en un solo score con semáforo. */
+
+function tonoScoreCocina(score){
+  if(score >= 70) return { texto:'Buena', tono:'ok' };
+  if(score >= 40) return { texto:'Atención', tono:'alerta' };
+  return { texto:'Crítica', tono:'error' };
+}
+
+/* Qué tan bien está UN reporte, para promediarlo con los demás del mismo
+   sitio/categoría/equipo. Un reporte ya resuelto o cerrado nunca baja el
+   score —sin importar cuánto tardó: eso se mide aparte, como tiempo de
+   resolución, mismo criterio que scoreHallazgo() con los hallazgos
+   resueltos—; uno todavía abierto pesa según su prioridad, reusando la
+   misma tabla que ya usan los hallazgos correctivos pendientes
+   (FACTOR_HALLAZGO_CORRECTIVO_PENDIENTE) para no inventar una segunda
+   escala de gravedad. */
+function scoreReporteCocina(rp){
+  if(rp.estatus === 'resuelto' || rp.estatus === 'cerrado') return 1;
+  const f = FACTOR_HALLAZGO_CORRECTIVO_PENDIENTE[rp.prioridad];
+  return f === undefined ? 0.5 : f;
+}
+
+/* Mismo criterio que calcularFuncionamientoLevantamiento(): el peso viene del
+   catálogo (qué tanto pesa ESE equipo en la operación de una cocina) y un
+   equipo fuera de catálogo o sin identificar pesa 3 (media) por default. */
+function pesoEquipoReporteCocina(rp){
+  const eq = rp.equipoCatalogoId ? equipoDeCatalogo(rp.equipoCatalogoId) : null;
+  return eq ? eq.ponderacion : 3;
+}
+
+/* Misma llave que ya usa el análisis de hallazgos para agrupar "el mismo
+   equipo": su id de catálogo si lo tiene, o su nombre a mano si es texto
+   libre. '' cuando el reporte no trae ningún equipo identificado (ej. algo
+   de infraestructura del sitio) — esos no entran a "por equipo" ni a
+   "por categoría", pero sí siguen contando en "por sitio". */
+function llaveEquipoReporteCocina(rp){
+  return rp.equipoCatalogoId || (rp.equipoNombre ? 'texto:' + llaveTexto(rp.equipoNombre) : '');
+}
+
+/* Arma un renglón (un sitio, una categoría o un equipo) a partir de sus
+   reportes ya filtrados al período. `maxLevantados` es el mayor conteo del
+   MISMO nivel en este período —o null para el total de la empresa, que no
+   tiene con qué compararse—: la frecuencia penaliza de forma RELATIVA al
+   grupo (10 reportes es grave para un sitio si los demás traen 1 o 2, pero
+   normal si la cartera entera anda por ahí) en vez de un umbral fijo que
+   nunca aplicaría igual a una categoría completa que a un solo equipo. */
+function armarRenglonCocina(reportes, maxLevantados){
+  const levantados = reportes.length;
+  if(!levantados){
+    return { levantados:0, resueltos:0, tasaResolucion:1, diasPromedio:null, cotizado:0, numCotizados:0, score:100 };
+  }
+  const resueltosArr = reportes.filter(rp => rp.estatus === 'resuelto' || rp.estatus === 'cerrado');
+  const resueltos = resueltosArr.length;
+  const tasaResolucion = resueltos / levantados;
+
+  const diasArr = resueltosArr.filter(rp => rp.fechaCierre).map(rp => Math.max(0, diasEntre(rp.fechaCreacion, rp.fechaCierre)));
+  const diasPromedio = diasArr.length ? diasArr.reduce((s,d)=> s + d, 0) / diasArr.length : null;
+
+  /* Cotizado: solo cuenta el reporte que de verdad ligó una cotización real
+     (ver cotizacionId en normalizarReporte) — el precio AL CLIENTE de esa
+     cotización, mismo total que ya usa calcularResultados(). */
+  let cotizado = 0, numCotizados = 0;
+  reportes.forEach(rp=>{
+    if(!rp.cotizacionId) return;
+    const cot = cotizacionPorId(rp.cotizacionId);
+    if(!cot) return;
+    cotizado += calcularCotizacion(cot).totalCliente;
+    numCotizados++;
+  });
+
+  const sumaPeso = reportes.reduce((s,rp)=> s + pesoEquipoReporteCocina(rp), 0);
+  const saludBase = sumaPeso ? reportes.reduce((s,rp)=> s + pesoEquipoReporteCocina(rp) * scoreReporteCocina(rp), 0) / sumaPeso : 1;
+
+  /* El score reparte 100 puntos en tres penalizaciones, cada una con su
+     propio tope, para que ninguna por sí sola pueda hundir el score sin que
+     las otras dos también digan lo mismo:
+     - hasta 50 por severidad/estatus (reportes abiertos, sobre todo urgentes,
+       pesan más que uno ya resuelto);
+     - hasta 30 por frecuencia relativa al resto del mismo nivel;
+     - hasta 20 por tardarse en resolver (20+ días de promedio ya es el tope). */
+  const penalizacionSalud = (1 - saludBase) * 50;
+  const penalizacionFrecuencia = maxLevantados ? (levantados / maxLevantados) * 30 : 0;
+  const penalizacionTiempo = diasPromedio == null ? 0 : Math.min(diasPromedio / 20, 1) * 20;
+  const score = Math.round(Math.max(0, 100 - penalizacionSalud - penalizacionFrecuencia - penalizacionTiempo));
+
+  return { levantados, resueltos, tasaResolucion, diasPromedio, cotizado, numCotizados, score };
+}
+
+function calcularCocinas(inicio, fin){
+  /* Un reporte cancelado nunca fue una falla real —se descarta igual que un
+     hallazgo preventivo en calcularFuncionamientoLevantamiento—: no cuenta ni
+     a favor ni en contra de nada. Se agrupa por fecha de CREACIÓN ("cuándo se
+     levantó"), que es el verbo que usó Victor al pedir esto. */
+  const reportes = datos.reportes.filter(rp => rp.estatus !== 'cancelado'
+    && rp.fechaCreacion >= inicio && rp.fechaCreacion <= fin);
+
+  const porSitioMap = new Map();
+  reportes.forEach(rp=>{
+    if(!rp.sitioId) return;
+    if(!porSitioMap.has(rp.sitioId)) porSitioMap.set(rp.sitioId, []);
+    porSitioMap.get(rp.sitioId).push(rp);
+  });
+  const maxSitio = Math.max(0, ...Array.from(porSitioMap.values()).map(l => l.length));
+  const porSitio = Array.from(porSitioMap.entries()).map(([id, lista])=>{
+    const s = sitioPorId(id);
+    const c = s ? clientePorId(s.clienteId) : null;
+    return Object.assign({ id, nombre: s ? s.nombre : 'Sitio eliminado', clienteNombre: c ? c.nombre : '' },
+      armarRenglonCocina(lista, maxSitio));
+  }).sort((a,b)=> a.score - b.score);
+
+  /* 'sin_categoria' junta lo que no se puede clasificar en las 5 de la Lista
+     de precios: equipo fuera de catálogo, texto libre, o directamente sin
+     equipo ligado (algo de infraestructura del sitio) — sigue siendo un
+     reporte real que hay que poder ver en algún lado de esta vista. */
+  const porCategoriaMap = new Map();
+  reportes.forEach(rp=>{
+    const eq = rp.equipoCatalogoId ? equipoDeCatalogo(rp.equipoCatalogoId) : null;
+    const cat = (eq && eq.categoria) || 'sin_categoria';
+    if(!porCategoriaMap.has(cat)) porCategoriaMap.set(cat, []);
+    porCategoriaMap.get(cat).push(rp);
+  });
+  const maxCategoria = Math.max(0, ...Array.from(porCategoriaMap.values()).map(l => l.length));
+  const porCategoria = Array.from(porCategoriaMap.entries()).map(([cat, lista])=>
+    Object.assign({ id:cat, nombre: ETIQUETA_CATEGORIA_EQUIPO[cat] || 'Sin categoría' },
+      armarRenglonCocina(lista, maxCategoria))
+  ).sort((a,b)=> a.score - b.score);
+
+  const porEquipoMap = new Map();
+  reportes.forEach(rp=>{
+    const key = llaveEquipoReporteCocina(rp);
+    if(!key) return;
+    if(!porEquipoMap.has(key)) porEquipoMap.set(key, []);
+    porEquipoMap.get(key).push(rp);
+  });
+  const maxEquipo = Math.max(0, ...Array.from(porEquipoMap.values()).map(l => l.length));
+  const porEquipo = Array.from(porEquipoMap.entries()).map(([key, lista])=>{
+    const primero = lista[0];
+    const eq = primero.equipoCatalogoId ? equipoDeCatalogo(primero.equipoCatalogoId) : null;
+    return Object.assign({ id:key, nombre: (eq && eq.concepto) || primero.equipoNombre || 'Equipo' },
+      armarRenglonCocina(lista, maxEquipo));
+  }).sort((a,b)=> a.score - b.score);
+
+  /* El total de la empresa no tiene con qué compararse (maxLevantados=null:
+     sin penalización por frecuencia), así que su score dice nada más
+     severidad + tiempo de resolución — el conteo crudo ya se lee aparte en
+     los KPI de arriba. */
+  const total = armarRenglonCocina(reportes, null);
+
+  return { total, porSitio, porCategoria, porEquipo };
+}
+
 /* ==================== Ayuda (guía de uso) ====================
    Documentación viva DENTRO de la app en vez de un manual aparte que nadie
    vuelve a abrir. No lee ni escribe ningún dato — es contenido fijo, escrito
@@ -10577,6 +10763,32 @@ const TEMAS_AYUDA = [
             'Reportes y Levantamientos son los únicos módulos que ve el rol Reportero; Técnico además ve Pólizas/Cotizaciones/Activos de solo lectura.'
           ]))
       + guiaRoles('Todos los roles internos lo ven y pueden levantar tickets. Gestionar uno ya emitido: Owner/Admin/Analyst y Técnico. Eliminar: Owner/Admin.') },
+
+  { id:'cocinas', titulo:'Cocinas',
+    resumen:'Qué tan bien están funcionando los equipos, con la bitácora real de Reportes: cuántos se levantan, cuántos se resuelven, qué tan rápido y cuánto cuesta lo cotizado.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'Elige el período arriba: <b>Mes actual</b>, <b>Año actual</b> (el default: da más historial para que el score signifique algo) o un <b>rango personalizado</b>.',
+        'Los 4 KPI de cabecera son del período completo: <b>Reportes levantados</b>, <b>Resueltos</b> (con su %), <b>Tiempo de resolución</b> promedio y <b>Cotizado</b> (lo que esos reportes generaron en cotizaciones).',
+        'Alterna entre <b>Por sitio</b> (cada "cocina" de un cliente), <b>Por categoría</b> de equipo (las mismas 5 de la Lista de precios de Pólizas) o <b>Por equipo</b> puntual, con los tres botones junto al selector de período.',
+        'Cada renglón trae su propia <b>Salud</b>: un score de 0 a 100 con semáforo (Buena/Atención/Crítica) — el resumen de arriba de la tabla dice cuántos cayeron en cada color.',
+        'Desde "Por sitio", el botón <b>Ver reportes</b> de cada renglón salta directo a Reportes ya filtrado por ese sitio.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'No es una vista para capturar nada: todo sale solo de los Reportes ya levantados (y de la cotización que hayan generado, si aplica) — no hay botón de "nuevo" en este módulo.',
+        'Un reporte cancelado nunca cuenta: ni suma a "levantados" ni afecta el score, igual que un hallazgo preventivo en el análisis de funcionamiento de Levantamientos.',
+        '"Por categoría"/"Por equipo" solo puede agrupar los reportes que sí traen un equipo del catálogo identificado (o un equipo de texto libre) — uno de infraestructura del sitio sin equipo ligado solo aparece en "Por sitio".'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Cómo se arma el score de salud (no es un promedio simple)', [
+            'Reparte 100 puntos en tres penalizaciones con su propio tope: hasta 50 por severidad (reportes todavía abiertos, sobre todo los urgentes, pesan más que uno ya resuelto — con la misma tabla de gravedad que usan los hallazgos de Levantamientos), hasta 30 por qué tan seguido falla ESTE sitio/categoría/equipo comparado con los demás del mismo período, y hasta 20 por tardarse en resolver (20+ días de promedio ya es el tope).',
+            'Cada reporte pesa según qué tanto importa su equipo para operar (el mismo "Peso" del catálogo que ya usa el % de funcionamiento de Levantamientos) — un equipo fuera de catálogo o sin identificar pesa "media" por default.',
+            'Un reporte ya resuelto o cerrado NUNCA baja el score por severidad, sin importar cuánto tardó — eso se mide aparte, como su propio KPI de tiempo de resolución.'
+          ])
+        + guiaTip('Detalles que casi nadie nota', [
+            'Todo se recalcula al vuelo cada vez que entras o cambias el período o el nivel de agrupación — nada de esto se guarda.',
+            'El score del período completo (arriba, en los KPI) no tiene con qué compararse, así que no incluye la penalización por frecuencia — solo dice severidad y tiempo de resolución.'
+          ])) },
 
   { id:'levantamientos', titulo:'Levantamientos',
     resumen:'El recorrido completo de un sitio: qué se revisó, qué se encontró, y qué tan bien está funcionando el equipo en general.',
@@ -15343,6 +15555,94 @@ function modalResolverReporte(id){
   };
 }
 
+/* ------------------------------- Cocinas ------------------------------- */
+function vistaCocinas(){
+  const modo = estado.periodoCocinas || 'anio';
+  const { inicio, fin } = rangoPeriodoResultados(modo, estado.cocinasDesde, estado.cocinasHasta);
+  const f = calcularCocinas(inicio, fin);
+  const nivel = estado.vistaCocinas || 'sitio';
+  const filas = nivel === 'categoria' ? f.porCategoria : nivel === 'equipo' ? f.porEquipo : f.porSitio;
+
+  let h = '<div class="titulo-zona"><div>'
+        +   '<h2>Cocinas</h2>'
+        +   '<p>' + fmtFecha(inicio) + ' – ' + fmtFecha(fin) + ' · funcionalidad de equipos según reportes levantados, resueltos y cotizados</p>'
+        + '</div></div>';
+
+  h += '<div class="barra-busca">'
+     +   '<select id="selPeriodoCocinas">'
+     +     '<option value="mes"' + (modo === 'mes' ? ' selected' : '') + '>Mes actual</option>'
+     +     '<option value="anio"' + (modo === 'anio' ? ' selected' : '') + '>Año actual</option>'
+     +     '<option value="personalizado"' + (modo === 'personalizado' ? ' selected' : '') + '>Rango personalizado</option>'
+     +   '</select>'
+     +   (modo === 'personalizado'
+        ? '<input type="date" id="cocinasDesde" value="' + esc(estado.cocinasDesde || inicio) + '">'
+          + '<input type="date" id="cocinasHasta" value="' + esc(estado.cocinasHasta || fin) + '">'
+        : '')
+     +   '<div class="alterna-vista" role="group" aria-label="Cómo agrupar la funcionalidad">'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaCocinas" data-modo="sitio" aria-pressed="' + (nivel==='sitio') + '">Por sitio</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaCocinas" data-modo="categoria" aria-pressed="' + (nivel==='categoria') + '">Por categoría</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaCocinas" data-modo="equipo" aria-pressed="' + (nivel==='equipo') + '">Por equipo</button>'
+     +   '</div>'
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Reportes levantados', numero(f.total.levantados), 'En el periodo, sin contar cancelados')
+     + tarjetaKpi('Resueltos', numero(f.total.resueltos),
+         f.total.levantados ? Math.round(f.total.tasaResolucion * 100) + '% del total' : 'Sin reportes en el periodo',
+         f.total.levantados && f.total.tasaResolucion < 0.6 ? 'k-alerta' : '')
+     + tarjetaKpi('Tiempo de resolución', f.total.diasPromedio != null ? f.total.diasPromedio.toFixed(1) + ' días' : '—',
+         'Promedio, de levantado a cerrado')
+     + tarjetaKpi('Cotizado', dineroCent(f.total.cotizado),
+         f.total.numCotizados ? numero(f.total.numCotizados) + ' ' + plural(f.total.numCotizados, 'reporte cotizado', 'reportes cotizados') : 'Ningún reporte generó cotización')
+     + '</div>';
+
+  if(!f.total.levantados){
+    h += '<div class="vacio"><h3>Sin reportes en este período</h3><p>Elige otro período, o espera a que se levanten reportes, para ver aquí la funcionalidad de las cocinas.</p></div>';
+    return h;
+  }
+
+  const verdes = filas.filter(x => x.score >= 70).length;
+  const amarillos = filas.filter(x => x.score >= 40 && x.score < 70).length;
+  const rojos = filas.filter(x => x.score < 40).length;
+  const etiquetaNivel = nivel === 'categoria' ? 'categorías' : nivel === 'equipo' ? 'equipos' : 'sitios';
+  h += '<p class="pista" style="margin-bottom:14px">'
+     +   '<span class="insignia i-ok">' + verdes + ' en buena</span> '
+     +   '<span class="insignia i-alerta">' + amarillos + ' en atención</span> '
+     +   '<span class="insignia i-error">' + rojos + ' en crítica</span>'
+     +   ' — de los ' + filas.length + ' ' + etiquetaNivel + ' con reportes en este período.'
+     + '</p>';
+
+  if(!filas.length){
+    h += '<div class="vacio-chico">Ningún reporte de este período trae ' + (nivel === 'equipo' ? 'un equipo identificado' : 'un equipo con categoría') + '.</div>';
+    return h;
+  }
+
+  h += '<div class="rodillo"><table class="tabla"><thead><tr>'
+     +   '<th>' + (nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo') + '</th>'
+     +   (nivel === 'sitio' ? '<th>Cliente</th>' : '')
+     +   '<th>Levantados</th><th>Resueltos</th><th>Tiempo prom.</th><th>Cotizado</th><th>Salud</th>'
+     +   (nivel === 'sitio' ? '<th></th>' : '')
+     + '</tr></thead><tbody>'
+     + filas.map(x=>{
+         const t = tonoScoreCocina(x.score);
+         return '<tr>'
+           + '<td>' + esc(x.nombre) + '</td>'
+           + (nivel === 'sitio' ? '<td>' + esc(x.clienteNombre || '—') + '</td>' : '')
+           + '<td>' + numero(x.levantados) + '</td>'
+           + '<td>' + numero(x.resueltos) + ' <span class="pista">(' + Math.round(x.tasaResolucion * 100) + '%)</span></td>'
+           + '<td>' + (x.diasPromedio != null ? x.diasPromedio.toFixed(1) + ' d' : '—') + '</td>'
+           + '<td>' + dineroCent(x.cotizado) + '</td>'
+           + '<td><span class="insignia i-' + t.tono + '">' + x.score + ' · ' + t.texto + '</span></td>'
+           + (nivel === 'sitio'
+              ? '<td><button type="button" class="btn btn-suave btn-mini" data-accion="ver-reportes-de" data-texto="' + esc(x.nombre) + '">Ver reportes</button></td>'
+              : '')
+         + '</tr>';
+       }).join('')
+     + '</tbody></table></div>';
+
+  return h;
+}
+
 /* ------------------------------- Levantamientos ------------------------------- */
 function botonRegresarLevantamientos(){
   return '<div style="margin-bottom:14px">'
@@ -18062,6 +18362,7 @@ function render(){
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
+    : estado.modulo === 'cocinas'      ? vistaCocinas()
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
     : estado.modulo === 'visitas'      ? vistaVisitas()
     : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo() : vistaActivos())
@@ -18317,6 +18618,20 @@ function render(){
     if(rDesde) rDesde.addEventListener('change', ()=>{ estado.resultadosDesde = rDesde.value; render(); });
     if(rHasta) rHasta.addEventListener('change', ()=>{ estado.resultadosHasta = rHasta.value; render(); });
   }
+  const selPC = $('selPeriodoCocinas');
+  if(selPC){
+    selPC.addEventListener('change', ()=>{
+      estado.periodoCocinas = selPC.value;
+      if(selPC.value === 'personalizado' && !estado.cocinasDesde){
+        const rango = rangoPeriodoResultados('mes', '', '');
+        estado.cocinasDesde = rango.inicio; estado.cocinasHasta = rango.fin;
+      }
+      render();
+    });
+    const cDesde = $('cocinasDesde'), cHasta = $('cocinasHasta');
+    if(cDesde) cDesde.addEventListener('change', ()=>{ estado.cocinasDesde = cDesde.value; render(); });
+    if(cHasta) cHasta.addEventListener('change', ()=>{ estado.cocinasHasta = cHasta.value; render(); });
+  }
   const ba = $('buscaAgenda');
   if(ba){
     /* Con su propio id: renderConservandoFoco lo necesita o el foco se va al
@@ -18478,7 +18793,8 @@ function pintarCabecera(){
      además estorbaría en el recorrido del teclado. */
   const inicio = $('btnInicio');
   const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
-                 : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'levantamientos' ? 'Levantamientos'
+                 : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'cocinas' ? 'Cocinas'
+                 : estado.modulo === 'levantamientos' ? 'Levantamientos'
                  : estado.modulo === 'visitas' ? 'Visitas'
                  : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'proveedores' ? 'Proveedores'
                  : estado.modulo === 'organigrama' ? 'Organigrama'
@@ -23563,6 +23879,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
+    else if(a === 'ver-reportes-de') verReportesDe(acc.dataset.texto || '');
     else if(a === 'vista-lista'){
       /* El modo viaja tal cual (no solo tarjetas/tabla): Imagen/Aperturas
          agrega un tercer botón, "calendario", con su propio cronograma. */
