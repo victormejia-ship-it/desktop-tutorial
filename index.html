@@ -1423,6 +1423,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
        título ya era mentira en la mitad de la app, y la pestaña encendida dice lo
        mismo que decía el título. -->
   <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
+    <button type="button" class="mod" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
     <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
     <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
     <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
@@ -2799,7 +2800,7 @@ const ROLES = {
      Reportes (ver modulosPermitidos() y puedeGestionarReporte()): a alguien
      que solo levanta o atiende tickets no le hace falta ver clientes,
      pólizas ni cotizaciones — así que ni las ve. */
-  tecnico:   { nombre:'Técnico',   desc:'Solo ve Reportes: atiende los tickets asignados — cambia su estatus, sube evidencia y los resuelve.' },
+  tecnico:   { nombre:'Técnico',   desc:'Entra directo a Mi agenda: atiende los reportes que se le asignan (cambia su estatus, sube evidencia, los resuelve) y ve sus visitas y preventivos. No asigna técnicos ni ve Clientes/Forpass/Resultados.' },
   reportero: { nombre:'Reportero', desc:'Solo ve Reportes: levanta tickets y sigue su estatus, pero no puede editar uno ya emitido.' },
   /* Portal externo: no es "de piso" como los dos de arriba (que son de
      Forguard, solo que acotados), es la cuenta de un CLIENTE — alguien que
@@ -4198,8 +4199,11 @@ function generarFolioPoliza(){
        Viewer no puede tocar clientes ni pagos, pero si ve un refrigerador
        goteando tiene que poder avisar — por eso `puedeReportar()` es más
        permisivo que `puedeEditar()`.
-     · Asignar o cambiar los técnicos → Analyst para arriba: es una decisión
-       de despacho, no de campo.
+     · Asignar o cambiar los técnicos de un reporte → Analyst para arriba:
+       es una decisión de despacho ("oficina central asigna al personal",
+       pedido explícito de Victor, 13-sep-2026), no de campo — ver
+       `puedeAsignarTecnicosReporte()`. Un técnico deja de poder tocar el
+       botón "Asignar", en CUALQUIER reporte, incluidos los suyos.
      · Borrar un reporte → solo Admin, igual que todo lo demás. */
 const PRIORIDAD_REPORTE = ['baja', 'media', 'alta', 'urgente'];
 const ETIQUETA_PRIORIDAD = { baja:'Baja', media:'Media', alta:'Alta', urgente:'Urgente' };
@@ -4235,6 +4239,19 @@ function puedeGestionarReporte(){ return puedeEditar() || sesion.rol === 'tecnic
 function exigirGestionReporte(){
   if(puedeGestionarReporte()) return true;
   aviso('Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
+  return false;
+}
+
+/* Sub-permiso DENTRO de puedeGestionarReporte(): decidir QUIÉN atiende un
+   reporte (el botón "Asignar") es una decisión de despacho de oficina
+   central, distinta de trabajar lo que YA se te asignó (editar, cambiar
+   estatus, resolver, comentar — eso sigue siendo puedeGestionarReporte()
+   tal cual). Un técnico ya no puede asignarse a sí mismo ni reasignar a
+   otros, en NINGÚN reporte — pedido explícito de Victor, 13-sep-2026. */
+function puedeAsignarTecnicosReporte(){ return puedeEditar(); }
+function exigirAsignarTecnicosReporte(){
+  if(puedeAsignarTecnicosReporte()) return true;
+  aviso('Asignar técnicos a un reporte es una decisión de administración. Tú puedes ver quién está asignado y seguir su estatus.', true);
   return false;
 }
 
@@ -4797,6 +4814,39 @@ function gruposPendientesPorSitio(){
     grupos[clave].items.push(item);
   });
   return Object.values(grupos).sort((a,b)=> b.items.length - a.items.length);
+}
+
+/* ---- "Lo mío" de una cuenta (técnico), para Mi agenda y el aviso del
+   calendario de Visitas ---- */
+
+/* Reportes sin resolver asignados a esta cuenta. Doble criterio —uid si se
+   asignó desde una cuenta real, nombre si se capturó a mano (sin cuentas
+   que listar, ver modalTecnicosReporte())— para no perder de vista un
+   reporte cuyo técnico nunca tuvo un uid capturado. */
+function reportesAsignadosA(uid, nombre){
+  return datos.reportes.filter(r => !['resuelto','cerrado','cancelado'].includes(r.estatus)
+    && r.tecnicos.some(t => (t.uid && uid && t.uid === uid) || (!t.uid && nombre && t.nombre === nombre)));
+}
+/* Mismo criterio doble, para visitas (ver normalizarVisita: tecnicoUid
+   queda vacío cuando se capturó el nombre a mano). */
+function visitasDeCuenta(uid, nombre){
+  return datos.visitas.filter(v => v.estatus !== 'cancelada'
+    && ((v.tecnicoUid && uid && v.tecnicoUid === uid) || (!v.tecnicoUid && nombre && v.tecnicoNombre === nombre)));
+}
+/* Sitios donde esta cuenta ya tiene algo entre manos: un reporte asignado,
+   una visita programada, o el sitio a su cargo (encargado, ver Forpass) —
+   es la frontera que decide qué preventivos de póliza son "los suyos" en
+   Mi agenda y en el aviso del calendario; sin este cruce, cualquier
+   preventivo de cualquier sitio de la cartera aparecería en la agenda de
+   cualquier técnico. */
+function sitiosDeCuenta(uid, nombre){
+  const ids = new Set();
+  reportesAsignadosA(uid, nombre).forEach(r => { if(r.sitioId) ids.add(r.sitioId); });
+  visitasDeCuenta(uid, nombre).forEach(v => { if(v.sitioId) ids.add(v.sitioId); });
+  datos.sitios.forEach(s => {
+    if(s.encargado && ((s.encargado.uid && uid && s.encargado.uid === uid) || (!s.encargado.uid && nombre && s.encargado.nombre === nombre))) ids.add(s.id);
+  });
+  return ids;
 }
 
 function tonoReporte(r){
@@ -8836,7 +8886,7 @@ function modulosPermitidos(){
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
   if(HAY_NUBE && haySesion() && sesion.rol === 'cliente') return [];
   if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
+  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
   /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
      incluido Imagen/Aperturas —antes se le escondía entero—, porque el
      perfil que se pidió es "ve toda la funcionalidad, no edita nada", y no
@@ -8851,7 +8901,8 @@ function modulosPermitidos(){
 /* La pantalla de arranque de cada módulo. Una sola función para que el logo, el
    selector y el arranque no se desincronicen. */
 function inicioDelModulo(){
-  return estado.modulo === 'polizas' ? 'polizas'
+  return estado.modulo === 'mi-agenda' ? 'mi-agenda'
+       : estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'cocinas' ? 'cocinas'
@@ -10737,6 +10788,23 @@ const TEMAS_AYUDA = [
             'Eliminar un sitio o un cliente, y las dos fusiones, son exclusivas de Admin/Owner porque destruyen historial de pagos de forma irreversible; asignar un encargado también es solo Admin, aunque no borra nada, porque es una decisión de gente, no de captura diaria.'
           ])) },
 
+  { id:'mi-agenda', titulo:'Mi agenda',
+    resumen:'La pantalla con la que entra el rol Técnico: todo lo suyo en un vistazo — reportes asignados, próximas visitas y preventivos pendientes.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'Es la primera pantalla que ves al entrar con una cuenta Técnico — no hay que buscarla en el menú, es donde arranca la sesión.',
+        'Los 4 KPI de arriba resumen tu carga: <b>Reportes asignados</b> (sin resolver), <b>Urgentes</b>, <b>Visitas próximas</b> (de hoy en adelante) y <b>Preventivos pendientes</b> en tus sitios (con cuántos ya están atrasados).',
+        'Tres bloques debajo, cada uno con su atajo al módulo completo: <b>Reportes asignados a ti</b> (clic en cualquiera para abrirlo), <b>Tus próximas visitas</b> (clic para ver el detalle de la visita) y <b>Preventivos pendientes en tus sitios</b>.',
+        'Es puramente informativa: aquí no se captura nada, cada bloque manda al módulo de siempre (Reportes, Visitas) para de verdad trabajar sobre ello.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        '"Tus sitios" para los preventivos son los sitios donde ya tienes algo entre manos: un reporte asignado, una visita programada, o el sitio a tu cargo como encargado (ver Forpass) — un preventivo de un sitio con el que no tienes ninguna relación no aparece aquí.',
+        'Un preventivo se queda en esta lista hasta que alguien lo mete a una visita programada desde "Por programar" en el módulo Visitas — antes de eso, es informativo nada más.'
+      ]))
+      + guiaTip('Quién la ve', [
+          'Solo el rol Técnico — el resto de los roles no tiene esta pestaña (ven el resto de la app completo, no necesitan un resumen acotado).'
+        ]) },
+
   { id:'reportes', titulo:'Reportes',
     resumen:'Los tickets de mantenimiento del día a día: algo se descompuso en un sitio y hay que atenderlo.',
     contenido:
@@ -10748,7 +10816,7 @@ const TEMAS_AYUDA = [
         'Editar y eliminar: cualquiera con permiso de gestión puede editar los datos; eliminar un reporte completo es exclusivo de Admin/Owner.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
-        'Usa <b>Asignar</b> para ponerle uno o varios técnicos — si hay cuentas en la nube, eliges de una lista con checkboxes; si no, escribes nombres separados por comas. Asignar el primer técnico pasa el estatus de "abierto" a "asignado" solo.',
+        'Usa <b>Asignar</b> (Owner/Admin/Analyst) para ponerle uno o varios técnicos — si hay cuentas en la nube, eliges de una lista con checkboxes; si no, escribes nombres separados por comas. Asignar el primer técnico pasa el estatus de "abierto" a "asignado" solo, y notifica solo a quien se agrega de nuevo.',
         'Usa <b>Marcar en proceso</b> cuando ya se está atendiendo.',
         'Para cerrar el ciclo usa <b>Marcar resuelto</b>: se abre un formulario propio que EXIGE dos cosas — un texto de "Reporte de atención" (qué se encontró y qué se hizo) y al menos una foto de evidencia. No hay forma de saltarse este paso desde ningún otro botón.',
         'Desde "Resuelto" puedes <b>Reabrir</b> (regresa a "en proceso") o <b>Cerrar reporte</b> (estatus final).',
@@ -10763,12 +10831,13 @@ const TEMAS_AYUDA = [
         ])
         + guiaTip('Quién vive aquí y qué puede tocar', [
             'CUALQUIER cuenta con sesión puede levantar un reporte nuevo, incluido Viewer — es a propósito más abierto que el resto de la app.',
-            'Editar uno ya emitido, cambiar su estatus, asignar técnicos o subir/quitar evidencia necesita permiso de gestión: Owner/Admin/Analyst, o el rol Técnico.',
+            'Editar uno ya emitido, cambiar su estatus, subir/quitar evidencia, comentar o resolverlo necesita permiso de gestión: Owner/Admin/Analyst, o el rol Técnico.',
+            '<b>Asignar técnicos es distinto</b>: solo Owner/Admin/Analyst deciden quién atiende cada reporte — es una decisión de despacho de oficina central, no de campo. Un Técnico ve quién está asignado y puede trabajar lo que ya se le asignó, pero no puede asignarse a sí mismo ni reasignar a nadie, ni siquiera en sus propios reportes.',
             'El rol Reportero puede levantar tickets y seguir su estatus, pero NO editar uno ya emitido — es la diferencia central entre "Reportero" y "Técnico".',
-            'Eliminar un reporte completo es exclusivo de Owner/Admin, sin excepción para Técnico.',
+            'Eliminar un reporte completo es exclusivo de Owner/Admin, sin excepción para Técnico ni Analyst.',
             'Reportes y Levantamientos son los únicos módulos que ve el rol Reportero; Técnico además ve Pólizas/Cotizaciones/Activos de solo lectura.'
           ]))
-      + guiaRoles('Todos los roles internos lo ven y pueden levantar tickets. Gestionar uno ya emitido: Owner/Admin/Analyst y Técnico. Eliminar: Owner/Admin.') },
+      + guiaRoles('Todos los roles internos lo ven y pueden levantar tickets. Gestionar uno ya emitido (editar/estatus/resolver): Owner/Admin/Analyst y Técnico. Asignar técnicos: solo Owner/Admin/Analyst. Eliminar: Owner/Admin.') },
 
   { id:'cocinas', titulo:'Cocinas',
     resumen:'Qué tan bien están funcionando los equipos, con la bitácora real de Reportes: cuántos se levantan, cuántos se resuelven, qué tan rápido y cuánto cuesta lo cotizado.',
@@ -10845,7 +10914,8 @@ const TEMAS_AYUDA = [
         'El técnico se elige de una lista con las cuentas ya dadas de alta con rol Técnico; si tu cuenta no puede consultar esa lista (por ejemplo un Analyst), el campo cae solo a un texto libre para escribir el nombre — nunca te deja sin poder capturar quién va.',
         'Puedes agregar Notas libres a la visita (por ejemplo "pedir acceso con el guardia") — se guardan en la visita y viajan también a la hoja de ruta impresa.',
         'Desde el chip de cualquier visita en el calendario o la lista entras a <b>Editar visita</b>: mismos campos, más el selector de estatus.',
-        'Si <b>cancelas</b> una visita, sus pendientes (pólizas/reportes) regresan solos a la bolsa de "Por programar" — no se pierden, solo se sueltan para volver a agendarlos. Cualquier otro cambio de estatus los deja cubiertos.'
+        'Si <b>cancelas</b> una visita, sus pendientes (pólizas/reportes) regresan solos a la bolsa de "Por programar" — no se pierden, solo se sueltan para volver a agendarlos. Cualquier otro cambio de estatus los deja cubiertos.',
+        'Con un solo técnico filtrado en el <b>Calendario</b>, si tiene reportes asignados o preventivos de póliza en sus sitios que TODAVÍA no están metidos en ninguna visita, aparece un aviso arriba de la tabla ("N pendientes sin programar") con un atajo directo a "Por programar" — para que nunca parezca que no tiene nada solo porque nadie lo agendó todavía.'
       ]))
       + guiaSeccion('Funciones avanzadas', guiaPasos([
           'El botón <b>Imprimir ruta</b> (en el calendario, por técnico) arma una hoja de ruta de la semana completa: un bloque por día con sus visitas, sitio, cliente, zona, contacto del sitio, hora, los pendientes que va a atender y las notas — pensada para que el técnico la traiga impresa o en el celular, sin necesitar conexión.',
@@ -12665,7 +12735,7 @@ function vistaReporte(){
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Técnicos asignados</h3>'
      +   '<p>' + (rp.tecnicos.length ? numero(rp.tecnicos.length) + ' ' + plural(rp.tecnicos.length,'persona','personas') + ' a cargo' : 'Todavía sin asignar') + '</p></div>'
-     +   (puedeGestionarReporte()
+     +   (puedeAsignarTecnicosReporte()
           ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="asignar-tecnicos">' + ICONO.persona + 'Asignar</button></div>'
           : '')
      + '</div>'
@@ -15389,7 +15459,7 @@ function modalReporte(id){
 async function modalTecnicosReporte(id){
   const rp = reportePorId(id);
   if(!rp) return;
-  if(!exigirGestionReporte()) return;
+  if(!exigirAsignarTecnicosReporte()) return;
 
   abrirModal('Técnicos de ' + (rp.folio || 'este reporte'),
     '<div class="vacio-chico">Cargando el equipo…</div>',
@@ -16613,6 +16683,32 @@ function vistaVisitasCalendario(){
         }).join('') + '</select></div>';
   }
 
+  /* Aviso de "esto no se ve en el calendario todavía": un reporte recién
+     asignado o un preventivo de póliza no aparecen aquí como chip hasta que
+     alguien los meta a una visita desde "Por programar" — con un solo
+     técnico filtrado (el caso normal: el propio técnico, o un admin
+     revisando a alguien puntual) vale la pena decirlo en vez de dejar que
+     parezca que no tiene nada pendiente. Con "Todos" no se calcula: sumaría
+     de toda la cartera y perdería el punto de ser un aviso puntual. */
+  if(estado.filtroTecnicoVisita){
+    const nombreTec = estado.filtroTecnicoVisita;
+    const cuentaTec = tecnicosVisitasCache && tecnicosVisitasCache.find(u => nombreDe(u) === nombreTec);
+    const uidTec = cuentaTec ? cuentaTec.id : '';
+    const cubiertos = pendientesCubiertos();
+    const reportesSueltos = reportesAsignadosA(uidTec, nombreTec).filter(r => !cubiertos.has('reporte:' + r.id));
+    const preventivosTec = pendientesDePoliza().filter(p => sitiosDeCuenta(uidTec, nombreTec).has(p.sitioId));
+    const totalSuelto = reportesSueltos.length + preventivosTec.length;
+    if(totalSuelto){
+      h += '<p class="pista" style="margin-bottom:14px">'
+         +   '<span class="insignia i-alerta">' + totalSuelto + ' ' + plural(totalSuelto,'pendiente sin programar','pendientes sin programar') + '</span> '
+         +   'de ' + esc(nombreTec) + ' todavía no está en este calendario: '
+         +   numero(reportesSueltos.length) + ' ' + plural(reportesSueltos.length,'reporte','reportes')
+         +   ' y ' + numero(preventivosTec.length) + ' ' + plural(preventivosTec.length,'preventivo','preventivos') + '. '
+         +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-programar-visitas">Programar</button>'
+         + '</p>';
+    }
+  }
+
   if(!tecnicos.length){
     return h + vistaVacia('persona', 'Todavía no hay técnicos con visitas esta semana',
       puedeGestionarVisitas() ? 'Usa "Nueva visita" o la bolsa de "Por programar" para programar la primera.' : 'En cuanto te programen una visita, la vas a ver aquí.', '', '');
@@ -16666,6 +16762,122 @@ function vistaVisitasLista(){
           + '</tr>';
       }).join('')
     + '</tbody></table></div>';
+}
+
+/* ============================== MI AGENDA (técnico) ==============================
+   Landing del rol técnico (primer módulo de su lista, ver modulosPermitidos()):
+   un solo vistazo de lo suyo — reportes asignados, visitas ya programadas y
+   los preventivos de póliza pendientes en los sitios donde ya tiene algo
+   entre manos — sin entrar a tres módulos distintos a armar el panorama a
+   mano. Puramente de lectura: nunca captura nada aquí, cada bloque manda al
+   módulo de siempre para actuar. Pedido explícito de Victor (13-sep-2026):
+   "su programación de todos los reportes, preventivos y demás". */
+function irAMiAgenda(){
+  if(estado.modulo !== 'mi-agenda'){ estado.modulo = 'mi-agenda'; guardarModulo(); }
+  estado.vista = 'mi-agenda';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+/* Mismo criterio que verReportesDe(), pero forzando el sub-filtro "Mis
+   reportes" —sin esto, si el técnico había dejado el toggle en "Todos" la
+   última vez que entró a Reportes, el clic desde Mi agenda lo llevaría a
+   ver TODOS los reportes de la empresa en vez de los suyos. */
+function irAMisReportesAsignados(){
+  if(estado.modulo !== 'reportes'){ estado.modulo = 'reportes'; guardarModulo(); }
+  estado.vista = 'reportes'; estado.reporteId = null;
+  estado.vistaReportesTecnico = 'mios';
+  estado.filtro = 'todos'; estado.busca = '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irAMiCalendarioVisitas(){
+  if(estado.modulo !== 'visitas'){ estado.modulo = 'visitas'; guardarModulo(); }
+  estado.vista = 'visitas'; estado.vistaVisitasTab = 'calendario';
+  estado.semanaVisitas = lunesDeLaSemana(hoyISO());
+  estado.visitaId = null; estado.filtroTecnicoVisita = sesion.nombre;
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irAProgramarVisitas(){
+  if(estado.modulo !== 'visitas'){ estado.modulo = 'visitas'; guardarModulo(); }
+  estado.vista = 'visitas'; estado.vistaVisitasTab = 'programar';
+  estado.visitaId = null;
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+function vistaMiAgenda(){
+  const uid = sesion.uid, nombre = sesion.nombre || nombreDe(sesion);
+  const reportes = reportesAsignadosA(uid, nombre)
+    .sort((a,b)=> a.fechaCreacion < b.fechaCreacion ? 1 : -1);
+  const sitiosPropios = sitiosDeCuenta(uid, nombre);
+  const preventivos = pendientesDePoliza().filter(p => sitiosPropios.has(p.sitioId));
+  const hoy = hoyISO();
+  const visitasProximas = visitasDeCuenta(uid, nombre)
+    .filter(v => v.fecha >= hoy)
+    .sort((a,b)=> a.fecha < b.fecha ? -1 : (a.fecha > b.fecha ? 1 : (a.horaInicio||'').localeCompare(b.horaInicio||'')))
+    .slice(0, 8);
+
+  const urgentes = reportes.filter(r => r.prioridad === 'urgente').length;
+  const atrasados = preventivos.filter(p => p.atrasado).length;
+
+  let h = '<div class="titulo-zona"><div>'
+    +   '<h2>Mi agenda</h2>'
+    +   '<p>Todo lo tuyo en un vistazo: reportes asignados, visitas programadas y los preventivos que ya te tocan.</p>'
+    + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Reportes asignados', numero(reportes.length), reportes.length ? 'Sin resolver todavía' : 'Nada pendiente', reportes.length ? 'k-alerta' : '')
+     + tarjetaKpi('Urgentes', numero(urgentes), 'Prioridad urgente sin resolver', urgentes ? 'k-error' : '')
+     + tarjetaKpi('Visitas próximas', numero(visitasProximas.length), 'Programadas de hoy en adelante')
+     + tarjetaKpi('Preventivos pendientes', numero(preventivos.length), atrasados ? numero(atrasados) + ' ' + plural(atrasados,'atrasado','atrasados') : 'En tus sitios', atrasados ? 'k-error' : '')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Reportes asignados a ti</h3>'
+     +   '<p>' + (reportes.length ? 'Del más reciente al más viejo' : 'No tienes ningún reporte abierto asignado') + '</p></div>'
+     +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-mis-reportes-asignados">Ver en Reportes →</button></div></div>'
+     +   (reportes.length
+        ? reportes.slice(0, 8).map(rp=>{
+            const tono = tonoReporte(rp);
+            return '<div class="c-fila fila-clic" data-reporte="' + esc(rp.id) + '" tabindex="0" role="button" style="cursor:pointer">'
+              +   '<span><b>' + esc(rp.sitioNombre || 'Sitio') + '</b> · ' + esc(rp.titulo || rp.equipoNombre || 'Reporte') + (rp.folio ? ' · ' + esc(rp.folio) : '') + '</span>'
+              +   '<span><span class="insignia i-' + tono + '">' + esc(ETIQUETA_ESTATUS_REPORTE[rp.estatus]) + '</span></span>'
+              + '</div>';
+          }).join('')
+        : '<p class="pista" style="margin:0">Cuando oficina central te asigne uno, va a aparecer aquí.</p>')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Tus próximas visitas</h3>'
+     +   '<p>' + (visitasProximas.length ? 'Programadas de hoy en adelante' : 'No tienes ninguna visita programada') + '</p></div>'
+     +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-mi-calendario-visitas">Ver calendario →</button></div></div>'
+     +   (visitasProximas.length
+        ? visitasProximas.map(v=>
+            '<div class="c-fila fila-clic" data-ver-visita="' + esc(v.id) + '" tabindex="0" style="cursor:pointer">'
+            +   '<span><b>' + fmtFecha(v.fecha) + '</b>' + (v.horaInicio ? ' · ' + esc(v.horaInicio) : '') + ' · ' + esc(v.sitioNombre || 'Sitio') + (v.pendientes.length ? ' · ' + numero(v.pendientes.length) + ' ' + plural(v.pendientes.length,'pendiente','pendientes') : '') + '</span>'
+            +   '<span class="insignia i-' + tonoVisita(v) + '">' + esc(ETIQUETA_ESTATUS_VISITA[v.estatus]) + '</span>'
+            + '</div>'
+          ).join('')
+        : '<p class="pista" style="margin:0">Usa la bolsa de "Por programar" en Visitas, o pide que te programen una.</p>')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Preventivos pendientes en tus sitios</h3>'
+     +   '<p>' + (preventivos.length ? 'De las pólizas de los sitios donde ya tienes reportes, visitas o eres el encargado' : 'Nada por ahora en tus sitios') + '</p></div>'
+     +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-programar-visitas">Programar →</button></div></div>'
+     +   (preventivos.length
+        ? preventivos.map(p=>
+            '<div class="c-fila">'
+            +   '<span><b>' + esc(p.sitioNombre) + '</b> · ' + esc(p.concepto) + '</span>'
+            +   '<span class="insignia i-' + (p.atrasado ? 'error' : 'alerta') + '">' + (p.atrasado ? 'Atrasado' : 'Este mes') + '</span>'
+            + '</div>'
+          ).join('')
+        : '<p class="pista" style="margin:0">En cuanto tengas un sitio con póliza y le toque un servicio, va a aparecer aquí.</p>')
+     + '</div>';
+
+  return h;
 }
 
 /* ------------------------- Modal: crear/editar visita -------------------------
@@ -18362,6 +18574,7 @@ function render(){
      cualquiera de los dos módulos. */
   $('vista').innerHTML =
       estado.vista === 'admin'         ? vistaAdmin()
+    : estado.modulo === 'mi-agenda'    ? vistaMiAgenda()
     : estado.modulo === 'polizas'      ? (estado.vista === 'poliza' ? vistaPoliza()
                                     : estado.vista === 'precios' ? vistaPrecios()
                                     : estado.vista === 'agenda'  ? vistaAgenda()
@@ -18798,7 +19011,8 @@ function pintarCabecera(){
      del módulo queda deshabilitado: sin esto sería un botón que no hace nada y
      además estorbaría en el recorrido del teclado. */
   const inicio = $('btnInicio');
-  const destino = estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
+  const destino = estado.modulo === 'mi-agenda' ? 'Mi agenda'
+                 : estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'cocinas' ? 'Cocinas'
                  : estado.modulo === 'levantamientos' ? 'Levantamientos'
                  : estado.modulo === 'visitas' ? 'Visitas'
@@ -23886,6 +24100,9 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
     else if(a === 'ver-reportes-de') verReportesDe(acc.dataset.texto || '');
+    else if(a === 'ir-mis-reportes-asignados') irAMisReportesAsignados();
+    else if(a === 'ir-mi-calendario-visitas') irAMiCalendarioVisitas();
+    else if(a === 'ir-programar-visitas') irAProgramarVisitas();
     else if(a === 'vista-lista'){
       /* El modo viaja tal cual (no solo tarjetas/tabla): Imagen/Aperturas
          agrega un tercer botón, "calendario", con su propio cronograma. */
@@ -23936,7 +24153,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'editar-reporte'){ if(exigirGestionReporte()) modalReporte(estado.reporteId); }
     else if(a === 'ver-reportes-cliente'){ const c = clientePorId(estado.clienteId); if(c) verReportesDe(c.nombre); }
     else if(a === 'ver-reportes-sitio') verReportesDe(acc.dataset.sitioNombre || '');
-    else if(a === 'asignar-tecnicos'){ if(exigirGestionReporte()) modalTecnicosReporte(estado.reporteId); }
+    else if(a === 'asignar-tecnicos'){ if(exigirAsignarTecnicosReporte()) modalTecnicosReporte(estado.reporteId); }
     else if(a === 'subir-evidencia'){ if(exigirGestionReporte()) $('archivoEvidencia').click(); }
     else if(a === 'quitar-evidencia'){
       if(!exigirGestionReporte()) return;
