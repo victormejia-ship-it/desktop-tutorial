@@ -23275,6 +23275,13 @@ function modalCotizacion(id, origenReporte){
     : (origenReporte ? [normalizarPartidaCotizacion({ concepto: origenReporte.equipoNombre || origenReporte.titulo, cantidad:1 })] : [normalizarPartidaCotizacion({})])
   ).map(x => Object.assign({}, x));
 
+  /* Mismo criterio que partidasTmp: copia de trabajo del respaldo de costo
+     (la cotización de un proveedor externo que sustenta el costo interno),
+     para poder adjuntarlo desde AQUÍ, al crear, y no solo después de
+     guardar y volver a entrar a editar — pedido explícito de Victor
+     (14-sep-2026): "en la creación no aparece". */
+  let respaldosCostoTmp = (q ? q.respaldosCosto : []).map(x => Object.assign({}, x));
+
   const sitiosOrd = () => datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
   const opcSitiosHTML = sel => (sitiosOrd().length
     ? sitiosOrd().map(s=>{
@@ -23443,6 +23450,13 @@ function modalCotizacion(id, origenReporte){
     +   opcDatalist('listaPartesConcepto', Array.from(new Set(catalogoPartes.map(p => p.concepto))))
     + '</div>'
 
+    + '<div class="seccion"><h4>Respaldo de costo (opcional)</h4>'
+    +   '<p class="pista" style="margin-top:-6px">La cotización del proveedor externo que sustenta el costo interno de arriba. Se puede adjuntar desde ahora o después, desde la cotización ya guardada.</p>'
+    +   '<div id="listaRespaldosCot"></div>'
+    +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" id="btnAgregarRespaldoCot">' + ICONO.mas + 'Agregar respaldo</button></div>'
+    +   '<input type="file" id="qArchivoRespaldoCosto" accept="image/*,application/pdf" style="display:none">'
+    + '</div>'
+
     + '<div class="seccion"><h4>Resumen</h4><div class="resumen-datos" id="resumenCotizacion"></div></div>'
 
     + '<div class="seccion"><h4>Para el cliente</h4>'
@@ -23602,6 +23616,53 @@ function modalCotizacion(id, origenReporte){
     if(campo) campo.focus();
   });
 
+  /* Mismo molde que la galería de "Respaldo de costo" en vistaCotizacion(),
+     pero sobre respaldosCostoTmp (copia de trabajo) en vez de un registro
+     ya guardado — así se puede adjuntar desde AQUÍ, al crear. */
+  function pintarRespaldos(){
+    $('listaRespaldosCot').innerHTML = respaldosCostoTmp.length
+      ? '<div class="galeria-evidencia">' + respaldosCostoTmp.map(r=>
+          '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
+          + (r.tipo === 'pdf'
+              ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+              : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
+          + '<button type="button" class="evidencia-quitar" data-quitar-respaldo-cot="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
+          + '</div>'
+        ).join('') + '</div>'
+      : '<p class="pista" style="margin:0">Todavía no hay respaldo cargado.</p>';
+  }
+  pintarRespaldos();
+  $('btnAgregarRespaldoCot').addEventListener('click', ()=> $('qArchivoRespaldoCosto').click());
+  $('listaRespaldosCot').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-respaldo-cot]');
+    if(!quitar) return;
+    respaldosCostoTmp = respaldosCostoTmp.filter(r => r.id !== quitar.dataset.quitarRespaldoCot);
+    pintarRespaldos();
+  });
+  $('qArchivoRespaldoCosto').addEventListener('change', async ev=>{
+    const archivo = (ev.target.files || [])[0];
+    ev.target.value = '';
+    if(!archivo) return;
+    try{
+      let dataUrl, tipo;
+      if(archivo.type === 'application/pdf'){
+        if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 600 KB. Prueba a comprimirlo o sube solo la parte con el costo.');
+        dataUrl = await leerArchivoComoDataURL(archivo);
+        tipo = 'pdf';
+      }else{
+        const img = await leerRespaldoImagen(archivo);
+        dataUrl = comprimirRespaldoCosto(img);
+        tipo = 'imagen';
+      }
+      if(tamanoRespaldos({ respaldosCosto: respaldosCostoTmp }) + dataUrl.length > RESPALDO_PRESUPUESTO_TOTAL){
+        throw new Error('Ya no hay espacio para más respaldo en esta cotización. Quita alguno para agregar otro.');
+      }
+      respaldosCostoTmp.push(normalizarRespaldoCosto({ dataUrl, tipo, nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+      pintarRespaldos();
+      aviso('Respaldo agregado.');
+    }catch(e){ aviso(e.message, true); }
+  });
+
   /* Cualquier cambio en la cabecera puede mover el resumen (margen,
      instalación, vigencia no, pero no cuesta nada recalcular siempre). */
   ['qMargen','qInstIncluir','qInstPorcentaje','qInstFijo'].forEach(cid=>{
@@ -23660,7 +23721,7 @@ function modalCotizacion(id, origenReporte){
     if(!cab.sitioId){ aviso('Elige un sitio.', true); return; }
     if(cab.realizo) recordarRealizo(cab.realizo);
     const reporteOrigenId = q ? q.reporteOrigenId : (origenReporte ? origenReporte.id : '');
-    const limpio = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : nuevoId(), partidas: partidasTmp, reporteOrigenId }));
+    const limpio = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : nuevoId(), partidas: partidasTmp, respaldosCosto: respaldosCostoTmp, reporteOrigenId }));
     if(q){ Object.assign(q, limpio); }
     else{ datos.cotizaciones.push(limpio); }
 
