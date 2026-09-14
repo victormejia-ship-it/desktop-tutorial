@@ -22257,6 +22257,19 @@ function modalPoliza(id, origenLevantamiento){
     });
   }
 
+  /* Una póliza nueva de cero (sin venir de un levantamiento ni de un Excel
+     importado, que ya traen sus propios renglones) arranca con un renglón en
+     blanco ya puesto en la tabla — mismo pedido de Victor que en Cotizaciones
+     (14-sep-2026): antes había que dar clic en "Agregar otro" a fuerza,
+     hasta para poder capturar el primer equipo. Mismo molde en blanco que ya
+     usa "Agregar otro" (ver btnOtroEquipo más abajo), para que el renglón
+     resultante sea idéntico al que se agregaría a mano. Un renglón sin
+     concepto se descarta solo al guardar (normalizarPoliza ya filtra eso),
+     así que no hay riesgo de guardar un renglón vacío si se deja tal cual. */
+  if(!p && !origenLevantamiento){
+    partidasTmp.push(normalizarPartida({ concepto:'', cantidad:1, precioUnitario:0, frecuencia:3, mesesServicio:mesesRegulares(0,3) }));
+  }
+
   /* Lo que el servidor NO va a dejar guardar en esta póliza a esta persona. No es
      cosmético: sin esto el formulario ofrece la tabla completa sobre una póliza
      cerrada, y como los meses de servicio, el concepto y la marca viven DENTRO de
