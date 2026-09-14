@@ -2851,7 +2851,7 @@ const ROLES = {
      Reportes (ver modulosPermitidos() y puedeGestionarReporte()): a alguien
      que solo levanta o atiende tickets no le hace falta ver clientes,
      pólizas ni cotizaciones — así que ni las ve. */
-  tecnico:   { nombre:'Técnico',   desc:'Entra directo a Mi agenda: atiende los reportes que se le asignan (cambia su estatus, sube evidencia, los resuelve) y ve sus visitas y preventivos. No asigna técnicos ni ve Clientes/Forpass/Resultados.' },
+  tecnico:   { nombre:'Técnico',   desc:'Entra directo a Mi agenda: atiende los reportes que se le asignan (cambia su estatus, sube evidencia, los resuelve) y ve sus visitas y preventivos. No asigna técnicos ni ve Clientes/Forpass/Resultados/Activos/Organigrama.' },
   reportero: { nombre:'Reportero', desc:'Solo ve Reportes: levanta tickets y sigue su estatus, pero no puede editar uno ya emitido.' },
   /* Portal externo: no es "de piso" como los dos de arriba (que son de
      Forguard, solo que acotados), es la cuenta de un CLIENTE — alguien que
@@ -8965,8 +8965,11 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
    abriendo en modo lectura, igual que a un Viewer. Levantamientos es distinto
    a propósito: es "para todos los perfiles" (owner/admin/analyst/viewer/
    tecnico/reportero, y el modo local), no solo consulta — ver
-   puedeGestionarLevantamiento() más abajo, que es igual de abierta. El resto
-   de los módulos sigue viendo todo, como siempre. */
+   puedeGestionarLevantamiento() más abajo, que es igual de abierta.
+   Activos y Organigrama se le quitaron a `tecnico` a propósito (pedido
+   explícito de Victor, 14-sep-2026): son de administración/RH, no de campo
+   —ver el resto de sus módulos, todos ligados a atender algo. El resto de
+   los módulos sigue viendo todo, como siempre. */
 function modulosPermitidos(){
   /* Un cliente no ve NINGUNO de estos módulos — tiene su propio portal
      (portalCliente()/render(), que se bifurca ANTES de llegar a usar esta
@@ -8974,7 +8977,7 @@ function modulosPermitidos(){
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'cliente') return [];
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
-  if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'ayuda'];
   /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
      incluido Imagen/Aperturas —antes se le escondía entero—, porque el
      perfil que se pidió es "ve toda la funcionalidad, no edita nada", y no
