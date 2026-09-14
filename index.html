@@ -2863,7 +2863,7 @@ function datosClienteCotizacion(q){
     respaldosCosto: [],   /* jamás para el cliente, ver el comentario en normalizarCotizacion */
     instalacion: Object.assign({}, q.instalacion, { porcentaje:0, fijo: calc.instalacionCliente }),
     partidas: calc.filas.map(f => ({
-      id: f.id, seccion: f.seccion, cantidad: f.cantidad, um: f.um, concepto: f.concepto,
+      id: f.id, numeroParte: f.numeroParte, seccion: f.seccion, cantidad: f.cantidad, um: f.um, concepto: f.concepto,
       precioCosto: 0, precioClienteManual: f.precioCliente
     }))
   });
@@ -4180,6 +4180,10 @@ function numDef(v, def){
 function normalizarPartidaCotizacion(x){
   return {
     id: (x && x.id ? String(x.id) : '').trim() || nuevoId(),
+    /* Clave para buscarla en catalogoPartesCotizacion() —el número con el
+       que SE cotiza la pieza, no un folio propio de Forguard. Opcional: no
+       toda partida es una pieza con número (mano de obra, un servicio). */
+    numeroParte: (x && x.numeroParte ? String(x.numeroParte) : '').trim(),
     seccion: (x && x.seccion ? String(x.seccion) : '').trim(),
     cantidad: Math.max(0, numDef(x && x.cantidad, 0)),
     um: (x && x.um ? String(x.um) : '').trim(),
@@ -4213,6 +4217,16 @@ function normalizarCotizacion(q){
     noReporte: (q && q.noReporte ? String(q.noReporte) : '').trim(),
     fechaReporte: /^\d{4}-\d{2}-\d{2}$/.test(q && q.fechaReporte) ? q.fechaReporte : '',
     departamento: (q && q.departamento ? String(q.departamento) : '').trim() || 'DEPARTAMENTO DE MANTENIMIENTO',
+    /* Identifica el equipo AL QUE aplica la cotización —pedido explícito de
+       Victor (14-sep-2026): sin esto, dos cotizaciones del mismo sitio con
+       renglones parecidos no se podían distinguir a simple vista. Mismo
+       criterio que equipoNombre en Reportes/Levantamientos para el nombre
+       (aOracion, texto libre); modelo/serie/registro se dejan tal cual se
+       capturen —son códigos, no prosa. */
+    equipoNombre: aOracion((q && q.equipoNombre ? String(q.equipoNombre) : '').trim()),
+    equipoModelo: (q && q.equipoModelo ? String(q.equipoModelo) : '').trim(),
+    equipoNumeroSerie: (q && q.equipoNumeroSerie ? String(q.equipoNumeroSerie) : '').trim(),
+    equipoRegistroInterno: (q && q.equipoRegistroInterno ? String(q.equipoRegistroInterno) : '').trim(),
     margen: Math.max(0, numDef(q && q.margen, 15)),
     instalacion: {
       incluir: !!inst.incluir,
@@ -4267,6 +4281,40 @@ function normalizarCotizacion(q){
 
 function cotizacionPorId(id){ return datos.cotizaciones.find(q => q.id === id); }
 function cotizacionesDeSitio(sitioId){ return datos.cotizaciones.filter(q => q.sitioId === sitioId); }
+
+/* Catálogo de piezas/refacciones ya cotizadas alguna vez — derivado de
+   datos.cotizaciones, nunca guardado aparte (mismo criterio que
+   calcularRefaccion() y compañía: si se guardara aparte, se podría
+   desalinear de las cotizaciones reales apenas alguien editara una). Sirve
+   para que, al capturar un renglón nuevo en una cotización, se pueda buscar
+   primero si ya se cotizó algo con ese número de parte o una descripción
+   parecida —ver el datalist de #listaPartidasCot en modalCotizacion— en vez
+   de volver a capturarlo de cero con otro precio u otra redacción. Pedido
+   explícito de Victor (14-sep-2026). Se agrupa por número de parte cuando lo
+   trae; si no, por la descripción normalizada (llaveTexto: sin mayúsculas ni
+   acentos ni espacios de más), para que "Banda 12mm" y "banda  12mm" caigan
+   en la misma pieza. Gana la cotización más reciente que la usó (por fecha),
+   para que lo sugerido sea el precio más actual, no el primero que se capturó. */
+function catalogoPartesCotizacion(){
+  const porLlave = new Map();
+  datos.cotizaciones.forEach(q=>{
+    (q.partidas || []).forEach(p=>{
+      if(!p.concepto) return;
+      const llave = p.numeroParte ? 'parte:' + p.numeroParte.trim().toLowerCase() : 'desc:' + llaveTexto(p.concepto);
+      const previo = porLlave.get(llave);
+      if(!previo || q.fecha >= previo.fecha){
+        porLlave.set(llave, {
+          numeroParte: p.numeroParte || '', concepto: p.concepto, um: p.um || '',
+          precioCosto: p.precioCosto, fecha: q.fecha,
+          vecesUsado: (previo ? previo.vecesUsado : 0) + 1
+        });
+      }else{
+        previo.vecesUsado++;
+      }
+    });
+  });
+  return Array.from(porLlave.values()).sort((a,b)=> (b.vecesUsado - a.vecesUsado) || a.concepto.localeCompare(b.concepto, 'es'));
+}
 
 /* Un solo lugar para decidir el color de una cotización, para que la lista del
    módulo Cotizaciones y el resumen por cliente digan siempre lo mismo. */
@@ -8689,6 +8737,10 @@ function armarPayloadCotizacion(q, lado){
     fecha: fechaDocumento(q.fecha),
     realizo: q.realizo || '',
     departamento: q.departamento || '',
+    equipoNombre: q.equipoNombre || '',
+    equipoModelo: q.equipoModelo || '',
+    equipoNumeroSerie: q.equipoNumeroSerie || '',
+    equipoRegistroInterno: q.equipoRegistroInterno || '',
     comedor: s ? s.nombre : '',
     cliente: cli ? cli.nombre : '',
     zona: s ? s.zona : '',
@@ -8705,6 +8757,7 @@ function armarPayloadCotizacion(q, lado){
     notas: q.notas || '',
     renglones: c.filas.map(x => ({
       numPart: x.numPart,
+      numeroParte: x.numeroParte || '',
       seccion: x.seccion || '',
       cantidad: numero(x.cantidad),
       um: x.um || '',
@@ -12686,6 +12739,19 @@ function vistaCotizacion(){
      +   '<div><div class="d-label">Tipo de pago</div><div class="d-valor chico">' + esc(cot.tipoPago) + '</div></div>'
      + '</div></div></div>';
 
+  /* Solo si trae algo del equipo — una cotización que no identificó ningún
+     equipo (un servicio general, no ligado a una pieza en concreto) no
+     necesita enseñar un bloque de puros "—". */
+  if(cot.equipoNombre || cot.equipoModelo || cot.equipoNumeroSerie || cot.equipoRegistroInterno){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Datos del equipo</h3></div></div>'
+       +   '<div class="resumen-datos">'
+       +     '<div><div class="d-label">Equipo</div><div class="d-valor chico">' + esc(cot.equipoNombre || '—') + '</div></div>'
+       +     '<div><div class="d-label">Modelo</div><div class="d-valor chico">' + esc(cot.equipoModelo || '—') + '</div></div>'
+       +     '<div><div class="d-label">Número de serie</div><div class="d-valor chico">' + esc(cot.equipoNumeroSerie || '—') + '</div></div>'
+       +     '<div><div class="d-label">Registro interno</div><div class="d-valor chico">' + esc(cot.equipoRegistroInterno || '—') + '</div></div>'
+       +   '</div></div>';
+  }
+
   /* Solo si trae algo del pipeline de 13 etapas — una cotización de toda la
      vida nunca llena estos campos y no hace falta enseñarle un bloque vacío. */
   if(cot.proveedor || cot.fechaLiberacion || cot.fechaProgramadaInicio || cot.fechaProgramadaFin || cot.fechaRealizado){
@@ -12708,21 +12774,22 @@ function vistaCotizacion(){
 
   const filas = c.filas;
   h += '<div class="bloque"><div class="rodillo"><table class="tabla">'
-     + '<thead><tr><th></th><th>Concepto</th><th>Cant.</th><th>U.M.</th><th>Precio</th><th>Importe</th></tr></thead><tbody>'
+     + '<thead><tr><th></th><th>N° parte</th><th>Concepto</th><th>Cant.</th><th>U.M.</th><th>Precio</th><th>Importe</th></tr></thead><tbody>'
      + (filas.length ? filas.map(x=>{
          const precio = lado === 'costo' ? x.precioCosto : x.precioCliente;
          const importe = lado === 'costo' ? x.importeCosto : x.importeCliente;
-         return '<tr>' + (x.seccion ? '<td colspan="6" style="font-weight:700; background:var(--bg)">' + esc(x.seccion) + '</td></tr><tr>' : '')
+         return '<tr>' + (x.seccion ? '<td colspan="7" style="font-weight:700; background:var(--bg)">' + esc(x.seccion) + '</td></tr><tr>' : '')
            + '<td class="pista">' + esc(x.numPart) + '</td>'
+           + '<td class="pista">' + esc(x.numeroParte || '—') + '</td>'
            + '<td>' + esc(x.concepto) + '</td>'
            + '<td>' + numero(x.cantidad) + '</td>'
            + '<td>' + esc(x.um || '—') + '</td>'
            + '<td>' + dineroCent(precio) + '</td>'
            + '<td>' + dineroCent(importe) + '</td>'
            + '</tr>';
-       }).join('') : '<tr><td colspan="6"><span class="pista">Todavía no hay conceptos capturados.</span></td></tr>')
+       }).join('') : '<tr><td colspan="7"><span class="pista">Todavía no hay conceptos capturados.</span></td></tr>')
      + (c.incluyeInstalacion
-         ? '<tr><td class="pista">' + esc(c.instalacionNumPart) + '</td><td>Instalación / mano de obra</td><td>—</td><td>SERV</td>'
+         ? '<tr><td class="pista">' + esc(c.instalacionNumPart) + '</td><td class="pista">—</td><td>Instalación / mano de obra</td><td>—</td><td>SERV</td>'
            + '<td>' + dineroCent(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td>'
            + '<td>' + dineroCent(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td></tr>'
          : '')
@@ -23190,6 +23257,15 @@ function modalCotizacion(id, origenReporte){
   const opcDatalist = (idLista, valores) => '<datalist id="' + idLista + '">'
     + valores.map(v => '<option value="' + esc(v) + '">').join('') + '</datalist>';
 
+  /* Piezas ya cotizadas antes (ver catalogoPartesCotizacion), para que al
+     capturar un renglón se pueda buscar primero por número de parte o por
+     descripción en vez de volver a teclearlo de cero — pedido explícito de
+     Victor (14-sep-2026). Se calcula UNA vez al abrir el modal: si mientras
+     tanto se guarda otra cotización en paralelo no hay forma de enterarse
+     de todos modos (mismo criterio que datos.sitios/datos.clientes, leídos
+     una sola vez arriba). */
+  const catalogoPartes = catalogoPartesCotizacion();
+
   /* Sin sitios el candado bloqueaba el módulo entero: había que ir a Forpass,
      dar de alta cliente y sitio, y volver — rompiendo la captura de la
      cotización que se quería hacer. Mismo remedio que "Cliente nuevo" en
@@ -23274,6 +23350,22 @@ function modalCotizacion(id, origenReporte){
     +     '<input type="text" id="qDepartamento" value="' + esc(q ? q.departamento : 'DEPARTAMENTO DE MANTENIMIENTO') + '"></div>'
     + '</div>'
 
+    + '<div class="seccion"><h4>Datos del equipo</h4>'
+    +   '<p class="pista" style="margin-top:-6px">Para identificar exactamente a qué equipo aplica esta cotización — todos opcionales.</p>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Nombre del equipo</label>'
+    +       '<input type="text" id="qEquipoNombre" value="' + esc(q ? q.equipoNombre : (origenReporte ? (origenReporte.equipoNombre || '') : '')) + '"></div>'
+    +     '<div class="campo"><label>Modelo</label>'
+    +       '<input type="text" id="qEquipoModelo" value="' + esc(q ? q.equipoModelo : '') + '"></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Número de serie</label>'
+    +       '<input type="text" id="qEquipoNumeroSerie" value="' + esc(q ? q.equipoNumeroSerie : '') + '"></div>'
+    +     '<div class="campo"><label>Registro interno</label>'
+    +       '<input type="text" id="qEquipoRegistroInterno" value="' + esc(q ? q.equipoRegistroInterno : '') + '"></div>'
+    +   '</div>'
+    + '</div>'
+
     + '<div class="seccion"><h4>Datos del tablero (opcional)</h4>'
     +   '<p class="pista" style="margin-top:-6px">Solo aplica si esta cotización sigue el pipeline de 13 etapas de Servicios.</p>'
     +   '<div class="campo"><label>Proveedor que ejecuta</label>'
@@ -23309,8 +23401,13 @@ function modalCotizacion(id, origenReporte){
     + '</div>'
 
     + '<div class="seccion"><h4>Conceptos</h4>'
+    +   (catalogoPartes.length
+          ? '<p class="pista" style="margin-top:-6px">Al escribir en "N° de parte" o "Concepto" se sugiere lo que ya se ha cotizado antes — elige una sugerencia para reusar su descripción y costo, en vez de capturarla de cero con otro precio.</p>'
+          : '')
     +   '<div id="listaPartidasCot"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRenglonCot" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>'
+    +   opcDatalist('listaPartesNumero', Array.from(new Set(catalogoPartes.filter(p => p.numeroParte).map(p => p.numeroParte))))
+    +   opcDatalist('listaPartesConcepto', Array.from(new Set(catalogoPartes.map(p => p.concepto))))
     + '</div>'
 
     + '<div class="seccion"><h4>Resumen</h4><div class="resumen-datos" id="resumenCotizacion"></div></div>'
@@ -23351,6 +23448,10 @@ function modalCotizacion(id, origenReporte){
       noReporte: $('qNoReporte').value.trim(),
       fechaReporte: $('qFechaReporte').value,
       departamento: $('qDepartamento').value.trim(),
+      equipoNombre: $('qEquipoNombre').value.trim(),
+      equipoModelo: $('qEquipoModelo').value.trim(),
+      equipoNumeroSerie: $('qEquipoNumeroSerie').value.trim(),
+      equipoRegistroInterno: $('qEquipoRegistroInterno').value.trim(),
       proveedor: $('qProveedor').value.trim(),
       fechaLiberacion: $('qFechaLiberacion').value,
       fechaProgramadaInicio: $('qFechaProgramadaInicio').value,
@@ -23381,16 +23482,17 @@ function modalCotizacion(id, origenReporte){
     const filas = partidasTmp.map((x,i)=>
         '<tr data-idx="' + i + '">'
       + '<td class="mini"><input type="text" data-campo="seccion" value="' + esc(x.seccion) + '" placeholder="—" title="Sección (opcional)"></td>'
+      + '<td class="mini"><input type="text" data-campo="numeroParte" list="listaPartesNumero" value="' + esc(x.numeroParte) + '" placeholder="—" title="Número de parte (opcional): escribe para buscar si ya se cotizó"></td>'
       + '<td class="mini"><input type="number" min="0" step="1" data-campo="cantidad" value="' + x.cantidad + '"></td>'
       + '<td class="mini"><input type="text" data-campo="um" value="' + esc(x.um) + '" placeholder="PZA"></td>'
-      + '<td><input type="text" data-campo="concepto" value="' + esc(x.concepto) + '" placeholder="Concepto"></td>'
+      + '<td><input type="text" data-campo="concepto" list="listaPartesConcepto" value="' + esc(x.concepto) + '" placeholder="Concepto" title="Escribe para buscar si ya se cotizó algo parecido"></td>'
       + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioCosto" value="' + numero(x.precioCosto) + '"></td>'
       + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioClienteManual" value="' + (x.precioClienteManual != null ? numero(x.precioClienteManual) : '') + '" placeholder="auto"></td>'
       + '<td class="acc"><button type="button" class="icono-mini" data-quitar-renglon-cot="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
       + '</tr>').join('');
     $('listaPartidasCot').innerHTML =
         '<div class="rodillo"><table class="tabla-renglones">'
-      + '<thead><tr><th>Sección</th><th>Cant.</th><th>U.M.</th><th>Concepto</th><th>Costo unit.</th><th>Precio cliente</th><th></th></tr></thead>'
+      + '<thead><tr><th>Sección</th><th>N° parte</th><th>Cant.</th><th>U.M.</th><th>Concepto</th><th>Costo unit.</th><th>Precio cliente</th><th></th></tr></thead>'
       + '<tbody>' + filas + '</tbody></table></div>'
       + '<div class="pista" style="margin-top:6px">Deja «Precio cliente» vacío para que salga solo (costo × margen). Escríbelo solo si ESE renglón lleva un precio distinto.</div>';
     refrescarResumen();
@@ -23423,6 +23525,34 @@ function modalCotizacion(id, origenReporte){
       x.precioClienteManual = campo.value.trim() === '' ? null : aNumero(campo.value);
     }
     else x[k] = campo.value;
+    /* "Obliga a buscar primero": si lo que se acaba de teclear/elegir en
+       "N° de parte" o "Concepto" coincide EXACTO con una pieza que ya se
+       cotizó antes (ver catalogoPartesCotizacion / los datalist de arriba),
+       se reusa su descripción, U.M. y costo en el resto del renglón —así no
+       hay que volver a capturarla de cero con otro precio u otra
+       redacción. Se actualiza el DOM directo (no pintarPartidas(), que
+       perdería el foco de en medio de la escritura). */
+    if(k === 'numeroParte' || k === 'concepto'){
+      const escrito = campo.value.trim();
+      const match = escrito && catalogoPartes.find(p => k === 'numeroParte'
+        ? p.numeroParte && p.numeroParte.toLowerCase() === escrito.toLowerCase()
+        : llaveTexto(p.concepto) === llaveTexto(escrito));
+      if(match){
+        x.numeroParte = match.numeroParte;
+        x.concepto = match.concepto;
+        x.um = match.um;
+        x.precioCosto = match.precioCosto;
+        const fila = campo.closest('tr');
+        const inpParte = fila.querySelector('[data-campo="numeroParte"]');
+        const inpConcepto = fila.querySelector('[data-campo="concepto"]');
+        const inpUm = fila.querySelector('[data-campo="um"]');
+        const inpCosto = fila.querySelector('[data-campo="precioCosto"]');
+        if(inpParte !== campo) inpParte.value = match.numeroParte;
+        if(inpConcepto !== campo) inpConcepto.value = match.concepto;
+        inpUm.value = match.um;
+        inpCosto.value = numero(match.precioCosto);
+      }
+    }
     refrescarResumen();
   });
   $('listaPartidasCot').addEventListener('click', ev=>{

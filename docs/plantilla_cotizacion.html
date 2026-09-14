@@ -86,6 +86,7 @@
   table.grid tbody td{font-size:9.5px;padding:6px 4px;border-bottom:1px solid var(--rule);
     vertical-align:top;text-align:center;}
   table.grid tbody td.cpt{text-align:left;font-weight:500;}
+  table.grid tbody td.cpt .parte{font-size:7.5px;font-weight:400;color:#8A929D;margin-top:1px;}
   table.grid tbody td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
   table.grid tbody tr.grupo td{background:var(--zebra);font-weight:700;text-transform:uppercase;
     font-size:8.5px;letter-spacing:.02em;padding:7px 4px;}
@@ -215,6 +216,13 @@ if(!COT){
       filas.push(['Cargo a', COT.cargoA || '—']);
       filas.push(['Solicitud', COT.solicitud || '—']);
     }
+    /* Solo si se identificó algún dato del equipo — una cotización de un
+       servicio general (sin ligar a una pieza en concreto) no trae ninguno
+       de los cuatro, y no hace falta enseñar puros "—". */
+    if(COT.equipoNombre) filas.push(['Equipo', COT.equipoNombre]);
+    if(COT.equipoModelo) filas.push(['Modelo', COT.equipoModelo]);
+    if(COT.equipoNumeroSerie) filas.push(['No. de serie', COT.equipoNumeroSerie]);
+    if(COT.equipoRegistroInterno) filas.push(['Registro interno', COT.equipoRegistroInterno]);
     let out = '<table class="metabar"><tr>';
     filas.forEach((par, i)=>{
       out += '<td><div class="k">' + esc(par[0]) + '</div><div class="v">' + esc(par[1]) + '</div></td>';
@@ -245,7 +253,8 @@ if(!COT){
 
   /* ---- Filas de la tabla, ya resueltas en orden de impresión ---- */
   function filaItem(x){
-    return '<tr><td>' + esc(x.numPart) + '</td><td class="cpt">' + esc(x.concepto) + '</td>'
+    return '<tr><td>' + esc(x.numPart) + '</td><td class="cpt">' + esc(x.concepto)
+      + (x.numeroParte ? '<div class="parte">N° de parte: ' + esc(x.numeroParte) + '</div>' : '') + '</td>'
       + '<td>' + esc(x.cantidad) + '</td><td>' + esc(x.um || '—') + '</td>'
       + '<td class="n">' + esc(x.precio) + '</td><td class="n">' + esc(x.importe) + '</td></tr>';
   }
