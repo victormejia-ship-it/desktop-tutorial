@@ -1303,6 +1303,12 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
 }
 .evidencia-quitar svg{width:11px; height:11px;}
 .evidencia-quitar:hover{background:rgba(179,49,44,.85);}
+.evidencia-tipo-hoja{background:rgba(31,122,68,.88);}
+
+/* Hoja de servicio (formato verde): el campo obligatorio de
+   modalResolverReporte() se marca con el mismo verde que el formato físico
+   para que no se confunda con "otras fotos", que son opcionales. */
+.campo-hoja-servicio{border:1px solid rgba(84,198,130,.45); background:rgba(84,198,130,.08); border-radius:12px; padding:12px;}
 
 /* Imagen/Aperturas: mismo cuadrito de evidencia, con una etiqueta de qué es
    (render/plano/foto) pegada abajo — a diferencia de una foto de reporte,
@@ -4298,10 +4304,17 @@ function exigirRegistroServicio(){
   return false;
 }
 
+/* 'hoja_servicio' distingue la foto del formato verde impreso (hoja de
+   servicio firmada y sellada por el comedor/cliente) de cualquier otra
+   foto de evidencia — ver modalResolverReporte(), que exige al menos una
+   de este tipo antes de dejar avanzar a "resuelto". 'general' es el
+   default de siempre, para no romper evidencia ya guardada antes de que
+   existiera este campo. */
 function normalizarEvidencia(e){
   return {
     id: (e && e.id) || nuevoId(),
     dataUrl: (e && e.dataUrl) ? String(e.dataUrl) : '',
+    tipo: (e && e.tipo === 'hoja_servicio') ? 'hoja_servicio' : 'general',
     nota: (e && e.nota ? String(e.nota) : '').trim(),
     subioNombre: (e && e.subioNombre ? String(e.subioNombre) : '').trim(),
     cuando: (e && e.cuando) || hoyISO()
@@ -10872,7 +10885,7 @@ const TEMAS_AYUDA = [
       + guiaSeccion('Uso intermedio', guiaPasos([
         'Usa <b>Asignar</b> (Owner/Admin/Analyst) para ponerle uno o varios técnicos — si hay cuentas en la nube, eliges de una lista con checkboxes; si no, escribes nombres separados por comas. Asignar el primer técnico pasa el estatus de "abierto" a "asignado" solo, y notifica solo a quien se agrega de nuevo.',
         'Usa <b>Marcar en proceso</b> cuando ya se está atendiendo.',
-        'Para cerrar el ciclo usa <b>Marcar resuelto</b>: se abre un formulario propio que EXIGE dos cosas — un texto de "Reporte de atención" (qué se encontró y qué se hizo) y al menos una foto de evidencia. No hay forma de saltarse este paso desde ningún otro botón.',
+        'Para cerrar el ciclo usa <b>Marcar resuelto</b>: se abre un formulario propio que EXIGE dos cosas — un texto de "Reporte de atención" (qué se encontró y qué se hizo) y una foto de la <b>hoja de servicio</b> (el formato verde firmado y sellado por el cliente). Las "otras fotos" siguen siendo opcionales. No hay forma de saltarse este paso desde ningún otro botón.',
         'Desde "Resuelto" puedes <b>Reabrir</b> (regresa a "en proceso") o <b>Cerrar reporte</b> (estatus final).',
         'Puedes <b>Cancelar</b> un reporte que ya no aplica, y luego <b>Reabrir</b>lo si hiciera falta.',
         'Sube o quita fotos de evidencia sueltas en cualquier momento desde el detalle, sin pasar por el formulario de resolución.',
@@ -12806,6 +12819,7 @@ function vistaReporte(){
      +   (rp.evidencias.length
           ? '<div class="galeria-evidencia">' + rp.evidencias.map(e=>
               '<div class="evidencia-foto">'
+              +   (e.tipo === 'hoja_servicio' ? '<span class="evidencia-tipo evidencia-tipo-hoja">Hoja de servicio</span>' : '')
               +   '<img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy">'
               +   (puedeGestionarReporte()
                    ? '<button type="button" class="evidencia-quitar" data-accion="quitar-evidencia" data-evidencia="' + esc(e.id) + '" title="Quitar esta foto">' + ICONO.basura + '</button>'
@@ -15578,28 +15592,46 @@ async function modalTecnicosReporte(id){
 
 /* ------------------- Modal: resolver el reporte ------------------- */
 /* El candado que pediste: para marcar un reporte como resuelto, el técnico
-   TIENE que escribir qué encontró y qué hizo (reporte de atención) Y dejar
-   al menos una foto de evidencia — las que ya tenía cuentan, pero si no hay
-   ninguna tiene que tomarla aquí mismo. Sin las dos cosas el botón "Guardar"
-   ni siquiera pasa la validación: el siguiente paso (resuelto) simplemente
-   no se habilita. No hay atajo para saltárselo desde la interfaz. */
+   TIENE que escribir qué encontró y qué hizo (reporte de atención) Y subir
+   una foto de la hoja de servicio (el formato verde firmado/sellado por el
+   cliente) — las que ya tenía cuentan, pero si no hay ninguna tiene que
+   tomarla aquí mismo. "Otras fotos" sigue siendo opcional. Sin las dos
+   cosas obligatorias el botón "Guardar" ni siquiera pasa la validación: el
+   siguiente paso (resuelto) simplemente no se habilita. No hay atajo para
+   saltárselo desde la interfaz.
+   Importante: esto exige que EXISTA una foto en el cuadro etiquetado "Hoja
+   de servicio", no que su contenido sea correcto — no hay forma de
+   verificar por imagen que la foto sea legible o que sea en verdad el
+   formato correcto. Esa parte sigue siendo un control humano/de proceso;
+   si un admin nota después que subieron la foto equivocada, la salida es
+   "Reabrir" (ver botón en vistaReporte() para reportes en estatus
+   'resuelto') y pedir que se vuelva a resolver con la foto correcta. */
 function modalResolverReporte(id){
   const rp = reportePorId(id);
   if(!rp) return;
   if(!exigirGestionReporte()) return;
 
   let evidenciasTmp = rp.evidencias.slice();
+  const hojaServicio = () => evidenciasTmp.filter(e => e.tipo === 'hoja_servicio');
+  const generales = () => evidenciasTmp.filter(e => e.tipo !== 'hoja_servicio');
 
   const cuerpo =
       '<div class="aviso">' + ICONO.info + '<div>Para marcar este reporte como resuelto hace falta el reporte de '
-    + 'atención y al menos una foto de evidencia. Sin eso no se puede avanzar al siguiente paso.</div></div>'
+    + 'atención y la foto de la <b>hoja de servicio</b> (el formato verde, firmado y sellado por el cliente). '
+    + 'Sin eso no se puede avanzar al siguiente paso.</div></div>'
     + '<div class="campo"><label>Reporte de atención *</label>'
     +   '<textarea id="raTexto" placeholder="Qué encontraste y qué hiciste para resolverlo…">' + esc(rp.reporteAtencion) + '</textarea></div>'
-    + '<div class="campo"><label>Evidencia *</label>'
+    + '<div class="campo campo-hoja-servicio"><label>Hoja de servicio (formato verde) *</label>'
+    +   '<p class="pista" style="margin:0 0 8px">La hoja física que firma y sella el comedor/cliente al terminar — sube una foto legible.</p>'
+    +   '<div class="galeria-evidencia" id="galeriaHojaServicioRA"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarHojaServicioRA">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +   '<input type="file" id="archivoHojaServicioRA" accept="image/*" capture="environment" multiple style="display:none">'
+    + '</div>'
+    + '<div class="campo"><label>Otras fotos de evidencia (opcional)</label>'
     +   '<div class="galeria-evidencia" id="galeriaEvidenciaRA"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarFotoRA">' + ICONO.camara + 'Tomar o elegir foto</button>'
     +   '<input type="file" id="archivoEvidenciaRA" accept="image/*" capture="environment" multiple style="display:none">'
-    +   '<div class="pista" id="pistaEvidenciaRA">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos en total.</div>'
+    +   '<div class="pista" id="pistaEvidenciaRA">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos en total, entre las dos secciones.</div>'
     + '</div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
@@ -15607,38 +15639,58 @@ function modalResolverReporte(id){
 
   abrirModal('Resolver ' + (rp.folio || 'reporte'), cuerpo, pie);
 
+  function fotoHTML(e){
+    return '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
+      + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>';
+  }
   function pintarGaleria(){
-    $('galeriaEvidenciaRA').innerHTML = evidenciasTmp.map(e =>
-      '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
-      + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
-    ).join('');
+    $('galeriaHojaServicioRA').innerHTML = hojaServicio().map(fotoHTML).join('');
+    $('galeriaEvidenciaRA').innerHTML = generales().map(fotoHTML).join('');
+    $('galeriaHojaServicioRA').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
+        pintarGaleria();
+      });
+    });
     $('galeriaEvidenciaRA').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
       b.addEventListener('click', ()=>{
         evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
         pintarGaleria();
       });
     });
-    $('btnAgregarFotoRA').disabled = evidenciasTmp.length >= EVIDENCIA_MAX_POR_REPORTE;
+    const cupoLibre = EVIDENCIA_MAX_POR_REPORTE - evidenciasTmp.length;
+    $('btnAgregarHojaServicioRA').disabled = cupoLibre <= 0;
+    $('btnAgregarFotoRA').disabled = cupoLibre <= 0;
   }
   pintarGaleria();
 
-  $('btnAgregarFotoRA').addEventListener('click', ()=> $('archivoEvidenciaRA').click());
-  $('archivoEvidenciaRA').addEventListener('change', async ev=>{
-    const archivos = Array.from(ev.target.files || []);
-    ev.target.value = '';
-    if(!archivos.length) return;
+  async function agregarFotos(archivos, tipo){
     const cupo = EVIDENCIA_MAX_POR_REPORTE - evidenciasTmp.length;
-    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Quita alguna para agregar otra.', true); return; }
+    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos entre las dos secciones. Quita alguna para agregar otra.', true); return; }
     $('pistaEvidenciaRA').textContent = 'Procesando fotos…';
     for(const archivo of archivos.slice(0, cupo)){
       try{
         const img = await leerEvidencia(archivo);
         const dataUrl = comprimirEvidencia(img);
-        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, tipo, subioNombre: nombreDe(sesion) || '' }));
       }catch(e){ aviso(e.message, true); }
     }
-    $('pistaEvidenciaRA').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos en total.';
+    $('pistaEvidenciaRA').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos en total, entre las dos secciones.';
     pintarGaleria();
+  }
+
+  $('btnAgregarHojaServicioRA').addEventListener('click', ()=> $('archivoHojaServicioRA').click());
+  $('archivoHojaServicioRA').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(archivos.length) await agregarFotos(archivos, 'hoja_servicio');
+  });
+
+  $('btnAgregarFotoRA').addEventListener('click', ()=> $('archivoEvidenciaRA').click());
+  $('archivoEvidenciaRA').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(archivos.length) await agregarFotos(archivos, 'general');
   });
 
   cerrarModalActual = async ()=>{
@@ -15648,8 +15700,8 @@ function modalResolverReporte(id){
       aviso('Escribe el reporte de atención: qué encontraste y qué hiciste.', true);
       return;
     }
-    if(!evidenciasTmp.length){
-      aviso('Agrega al menos una foto de evidencia antes de marcarlo resuelto.', true);
+    if(!hojaServicio().length){
+      aviso('Sube la foto de la hoja de servicio (formato verde) antes de marcarlo resuelto.', true);
       return;
     }
 
