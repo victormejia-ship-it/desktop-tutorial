@@ -19310,10 +19310,12 @@ function vistaAdmin(){
      + '</div></div>';
 
   h += '<div class="aviso">' + ICONO.info
-     + '<div><b>Las contraseñas no se pueden ver.</b> Firebase las guarda encriptadas de un solo sentido, '
-     + 'así que ni tú ni nadie puede leerlas — eso es lo que protege las cuentas. '
-     + 'Cuando creas una cuenta le pones una contraseña temporal y se la pasas; si alguien la olvida, '
-     + 'usa el enlace <b>«¿Olvidaste tu contraseña?»</b> de la pantalla de entrada y él mismo la cambia.'
+     + '<div><b>Las contraseñas no se pueden ver ni poner directo.</b> Firebase las guarda encriptadas de un solo '
+     + 'sentido, así que ni tú ni nadie puede leerlas ni cambiarlas por esa persona — eso es lo que protege las '
+     + 'cuentas. Cuando creas una cuenta le pones una contraseña temporal y se la pasas; si alguien la olvida, '
+     + 'usa el enlace <b>«¿Olvidaste tu contraseña?»</b> de la pantalla de entrada, o entra a <b>Editar</b> su '
+     + 'cuenta aquí y dale a «Mandarle correo para poner una contraseña nueva» — mismo resultado, sin que tenga '
+     + 'que ir a pedirlo ella misma.'
      + '<br><br><b>Bloquear</b> quita el acceso de forma temporal y se puede deshacer. '
      + '<b>Borrar</b> lo quita para siempre.</div></div>';
 
@@ -19986,7 +19988,14 @@ function modalEditarUsuario(id){
     +   '<input type="text" id="euNombre" placeholder="Ej. Ana Torres" value="' + esc(u.nombre || '') + '"></div>'
     + '<div class="campo"><label>Teléfono de contacto</label>'
     +   '<input type="text" id="euTelefono" inputmode="tel" placeholder="811 60 71 051" value="' + esc(u.telefono || '') + '">'
-    +   '<div class="pista">Sale impreso en sus cotizaciones y pólizas, junto a su nombre.</div></div>';
+    +   '<div class="pista">Sale impreso en sus cotizaciones y pólizas, junto a su nombre.</div></div>'
+    + '<div class="campo"><label>Contraseña</label>'
+    +   '<p class="pista" style="margin:0 0 8px">Nadie —ni tú— puede ver ni poner directo la contraseña de otra cuenta: '
+    +     'Firebase la guarda encriptada de un solo sentido, así que la única forma de cambiarla es que ella misma '
+    +     'ponga una nueva desde un enlace. Este botón le manda ESE enlace a su correo, sin que tenga que ir a la '
+    +     'pantalla de entrada a pedirlo.</p>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnResetearClave">' + ICONO.info + 'Mandarle correo para poner una contraseña nueva</button>'
+    + '</div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">Guardar cambios</button>';
@@ -20016,6 +20025,20 @@ function modalEditarUsuario(id){
       fotoTmp = comprimirLienzo(lienzo);
       pintarFotoUsuario();
     }catch(e){ aviso(e.message, true); }
+  });
+
+  $('btnResetearClave').addEventListener('click', async ()=>{
+    if(!u.correo){ aviso('Esta cuenta no tiene correo registrado.', true); return; }
+    const btnClave = $('btnResetearClave');
+    btnClave.disabled = true; btnClave.textContent = 'Mandando…';
+    try{
+      await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email: u.correo });
+      aviso('Le mandamos un correo a ' + u.correo + ' para que ponga una contraseña nueva.');
+    }catch(e){
+      aviso(e.message, true);
+    }finally{
+      btnClave.disabled = false; btnClave.textContent = 'Mandarle correo para poner una contraseña nueva';
+    }
   });
 
   cerrarModalActual = async ()=>{
