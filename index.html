@@ -112,6 +112,21 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .modulos .mod[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
 .modulos .mod:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
+.modulos-zona{position:relative; min-width:0;}
+.mod-mas{display:flex; align-items:center; gap:3px;}
+.mod-mas svg{width:13px; height:13px; transition:transform .15s var(--ease);}
+.mod-mas[aria-expanded="true"] svg{transform:rotate(180deg);}
+/* Mismo patrón que .notif-panel: flota encima, no empuja nada del encabezado. */
+.mas-panel{position:absolute; top:calc(100% + 6px); right:0; min-width:200px; z-index:20;
+           background:#fff; border:1px solid var(--line); border-radius:10px;
+           box-shadow:var(--sombra-suave); padding:6px; display:flex; flex-direction:column; gap:2px;}
+.mas-panel .mas-item{appearance:none; border:none; background:none; font:inherit; font-size:13px;
+              font-weight:600; color:var(--gray); padding:8px 12px; border-radius:6px; text-align:left;
+              cursor:pointer; transition:color .15s var(--ease), background .15s var(--ease);}
+.mas-panel .mas-item:hover{color:var(--navy); background:var(--bg);}
+.mas-panel .mas-item[aria-selected="true"]{color:var(--navy); background:var(--bg); cursor:default;}
+.mas-panel .mas-item:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+
 /* Bajo los 840px, además de lo de arriba, el encabezado entero se parte en dos
    renglones: el selector de módulo se va completo a su propio renglón
    (flex-basis:100% fuerza el salto de línea) porque ahí ya ni boca a boca con
@@ -119,8 +134,10 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 @media (max-width:840px){
   header.app{padding:12px 16px; gap:10px; flex-wrap:wrap;}
   header.app .sub{display:none;}
-  .modulos{flex:1 1 100%; order:3; gap:1px;}
+  .modulos-zona{flex:1 1 100%; order:3;}
+  .modulos{gap:1px;}
   .modulos .mod{padding:5px 6px; font-size:11.5px;}
+  .mas-panel{right:auto; left:0;}
   .nube-zona{gap:6px;}
   /* Mismo criterio que ya usa .pastilla: con el icono basta, el texto ("Admin",
      "Mi cuenta", "Log out") solo hace bulto en una pantalla angosta. */
@@ -1460,23 +1477,38 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
        Ocupa el lugar del <h1> que decía "Control de Forpass". Con dos módulos ese
        título ya era mentira en la mitad de la app, y la pestaña encendida dice lo
        mismo que decía el título. -->
-  <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
-    <button type="button" class="mod" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
-    <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
-    <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
-    <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
-    <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
-    <button type="button" class="mod" data-modulo="cocinas" role="tab" aria-selected="false">Cocinas</button>
-    <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
-    <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
-    <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
-    <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
-    <button type="button" class="mod" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
-    <button type="button" class="mod" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
-    <button type="button" class="mod" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
-    <button type="button" class="mod" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
-    <button type="button" class="mod" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
-  </nav>
+  <!-- Con 14 módulos posibles la fila ya no cabe completa y el sobrante se iba
+       en scroll horizontal SIN pista visual de que había más (barra de scroll
+       escondida a propósito, ver arriba) — Organigrama/Imagen/Ayuda quedaban
+       invisibles de facto. Los tres, los que menos se tocan del día a día, se
+       agrupan aparte bajo "Más ▾" en vez de reescribir todo el encabezado a un
+       sidebar (cambio mayor, se deja para después si hace falta). -->
+  <div class="modulos-zona" id="zonaModulos">
+    <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
+      <button type="button" class="mod" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
+      <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
+      <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
+      <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
+      <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
+      <button type="button" class="mod" data-modulo="cocinas" role="tab" aria-selected="false">Cocinas</button>
+      <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
+      <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
+      <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
+      <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
+      <button type="button" class="mod" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
+      <button type="button" class="mod" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
+      <button type="button" class="mod mod-mas" id="btnMasModulos" aria-haspopup="true" aria-expanded="false" aria-selected="false">Más <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    </nav>
+    <!-- Fuera de #selectorModulo a propósito: el <nav> tiene overflow-x:auto, y eso
+         obliga a overflow-y:auto también (regla del navegador cuando un solo eje se
+         fija), así que un panel absoluto colgado DENTRO del nav se recortaría en vez
+         de flotar encima. Vive como hermano, posicionado contra .modulos-zona. -->
+    <div class="mas-panel" id="panelMasModulos" hidden>
+      <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
+      <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
+      <button type="button" class="mas-item" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
+    </div>
+  </div>
   <div class="nube-zona">
     <span class="correo-sesion" id="nombreSesion"></span>
     <span id="rolSesion"></span>
@@ -19171,6 +19203,19 @@ function cerrarPanelNotificaciones(){
   if(panel) panel.hidden = true;
 }
 
+let masModulosAbierto = false;
+function abrirPanelMasModulos(){
+  masModulosAbierto = true;
+  $('panelMasModulos').hidden = false;
+  $('btnMasModulos').setAttribute('aria-expanded', 'true');
+}
+function cerrarPanelMasModulos(){
+  masModulosAbierto = false;
+  const panel = $('panelMasModulos');
+  if(panel) panel.hidden = true;
+  $('btnMasModulos').setAttribute('aria-expanded', 'false');
+}
+
 function pintarCabecera(){
   const dentro = HAY_NUBE && haySesion();
   const nom = $('nombreSesion');
@@ -19219,11 +19264,18 @@ function pintarCabecera(){
   /* Un cliente no tiene NINGÚN módulo permitido (ver modulosPermitidos()) —
      sin esto, el contenedor se quedaba ahí vacío pero con su fondo y borde,
      como una pastilla gris flotando sin nada adentro. */
-  $('selectorModulo').style.display = permitidos.length ? '' : 'none';
-  $('selectorModulo').querySelectorAll('[data-modulo]').forEach(b=>{
+  $('zonaModulos').style.display = permitidos.length ? '' : 'none';
+  document.querySelectorAll('#selectorModulo [data-modulo], #panelMasModulos [data-modulo]').forEach(b=>{
     b.style.display = permitidos.includes(b.dataset.modulo) ? '' : 'none';
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
+  /* El botón "Más" agrupa Organigrama/Imagen/Ayuda (ver comentario en el HTML):
+     se esconde si el rol no tiene ninguno de los tres, y se enciende como si
+     fuera la pestaña activa cuando el módulo abierto vive adentro. */
+  const GRUPO_MAS = ['organigrama', 'imagen', 'ayuda'];
+  const btnMas = $('btnMasModulos');
+  btnMas.style.display = GRUPO_MAS.some(m => permitidos.includes(m)) ? '' : 'none';
+  btnMas.setAttribute('aria-selected', GRUPO_MAS.includes(estado.modulo) ? 'true' : 'false');
 
   /* El logo solo funciona como atajo cuando hay a dónde volver — a la
      pantalla principal DE VERDAD (ver irAInicio()), no solo a la portada
@@ -26436,8 +26488,20 @@ $('btnInicio').addEventListener('click', ()=>{ irAInicio(); });
 
 /* El selector de módulo: delegado en el <nav>, que también está fuera de #vista. */
 $('selectorModulo').addEventListener('click', ev=>{
+  if(ev.target.closest('#btnMasModulos')){
+    if(masModulosAbierto) cerrarPanelMasModulos(); else abrirPanelMasModulos();
+    return;
+  }
   const b = ev.target.closest('[data-modulo]');
   if(b) irAModulo(b.dataset.modulo);
+});
+/* El panel de "Más" vive fuera de #selectorModulo (ver comentario en el HTML),
+   así que necesita su propio delegado — y cerrarse en cuanto se elige algo. */
+$('panelMasModulos').addEventListener('click', ev=>{
+  const b = ev.target.closest('[data-modulo]');
+  if(!b) return;
+  irAModulo(b.dataset.modulo);
+  cerrarPanelMasModulos();
 });
 
 /* Con trackpad, deslizar dos dedos manda deltaX real y .modulos se mueve
@@ -26466,6 +26530,12 @@ document.addEventListener('mousedown', ev=>{
   if(!notif.abierto) return;
   if(ev.target.closest('.notif-zona')) return;
   cerrarPanelNotificaciones();
+});
+/* Mismo criterio que el panel de notificaciones: clic fuera lo cierra. */
+document.addEventListener('mousedown', ev=>{
+  if(!masModulosAbierto) return;
+  if(ev.target.closest('.modulos-zona')) return;
+  cerrarPanelMasModulos();
 });
 
 $('btnPerfil').addEventListener('click', ()=> modalPerfil());
