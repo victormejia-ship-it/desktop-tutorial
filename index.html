@@ -1229,6 +1229,19 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 .guia-roles{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--gray); background:var(--neutro-suave); border-radius:20px; padding:5px 12px; margin:0 0 16px;}
 
 .rodillo{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+/* La tabla PRINCIPAL de un módulo (Pólizas, Reportes, Cotizaciones, Activos…)
+   se sale del ancho fijo de .wrap (1180px) y usa todo el ancho de la ventana:
+   en monitores anchos, una tabla de 12+ columnas (ej. tablaPolizas(),
+   min-width:1400px) se quedaba encajada en ~1130px y necesitaba scroll
+   horizontal para ver hasta el último renglón, aunque sobrara pantalla a los
+   lados. Es la técnica clásica de "romper" el contenedor centrado, con el
+   mismo padding lateral que ya trae .wrap para que el borde de la tabla
+   siga alineado con el título y los KPIs de arriba. A propósito NO se aplica a
+   .rodillo a secas: una tabla metida dentro de un .bloque (ranking de
+   Resultados, el desglose de una póliza/cotización) tiene que seguir dentro
+   de su tarjeta, nunca reventar el borde de la card. */
+.rodillo-ancho{width:100vw; margin-left:calc(50% - 50vw); margin-right:calc(50% - 50vw); padding-left:24px; padding-right:24px;}
+@media (max-width:700px){ .rodillo-ancho{padding-left:16px; padding-right:16px;} }
 table.tabla{width:100%; border-collapse:collapse; min-width:620px;}
 table.tabla th{
   font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--gray); font-weight:700;
@@ -11467,7 +11480,7 @@ function vistaResultados(){
 /* Misma lista de clientes de Forpass, en tabla: cada <tr> lleva el mismo
    data-cliente que ya usan las tarjetas para abrir sus sitios. */
 function tablaForpass(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:760px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:760px"><thead><tr>'
        +   '<th>Cliente</th><th>Sitios</th><th>Forpass activos</th><th>Mensualidad</th><th>Estado</th>'
        + '</tr></thead><tbody>'
        + lista.map(c=>{
@@ -11734,7 +11747,7 @@ function vistaCliente(){
    por ejemplo) y da más trabajo desplazarse entre tarjetas que leer una
    tabla compacta. */
 function tablaSitios(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:880px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:880px"><thead><tr>'
        +   '<th>Sitio</th><th>Encargado</th><th>Mensualidad</th><th>Siguiente pago</th>'
        +   '<th>Pagadas</th><th>Vigencia</th><th>Estado</th><th></th>'
        + '</tr></thead><tbody>'
@@ -12005,7 +12018,7 @@ function thOrdenPoliza(etiqueta, clave){
 /* Misma lista de pólizas, en tabla: cada <tr> lleva el mismo data-poliza que
    ya usan las tarjetas para abrir el detalle. */
 function tablaPolizas(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:1400px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1400px"><thead><tr>'
        +   thOrdenPoliza('Sitio', 'sitio') + thOrdenPoliza('Cliente', 'cliente') + thOrdenPoliza('Folio', 'folio')
        +   thOrdenPoliza('Estado', 'estado') + thOrdenPoliza('Cargo a', 'cargoA') + thOrdenPoliza('Vigencia', 'vigencia')
        +   thOrdenPoliza('Precio anual', 'precioAnual') + thOrdenPoliza('Precio mensual', 'precioMensual')
@@ -12230,7 +12243,7 @@ function botonRegresarCotizaciones(){
    en cada <tr> que ya usan las tarjetas, así que abre el detalle igual, con
    clic o con teclado — el delegado de eventos no distingue de dónde viene. */
 function tablaCotizaciones(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:900px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:900px"><thead><tr>'
        +   '<th>Sitio</th><th>Cliente</th><th>Folio</th><th>Tipo</th><th>Estatus</th>'
        +   '<th>Fecha</th><th>Al cliente</th><th>Costo</th>'
        + '</tr></thead><tbody>'
@@ -12721,7 +12734,7 @@ function vistaReportes(){
 
 /* Misma lista, en tabla. */
 function tablaReportes(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:860px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:860px"><thead><tr>'
        +   '<th>Folio</th><th>Sitio</th><th>Cliente</th><th>Equipo</th><th>Prioridad</th><th>Estatus</th><th>Técnico(s)</th><th>Fecha</th>'
        + '</tr></thead><tbody>'
        + lista.map(rp=>{
@@ -13026,7 +13039,7 @@ function vistaActivos(){
 
 /* Misma lista, en tabla. */
 function tablaActivos(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:1000px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
        +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Asignado a</th><th>Estatus</th><th>Valor</th><th>Fecha</th>'
        + '</tr></thead><tbody>'
        + lista.map(a=>{
@@ -13734,7 +13747,7 @@ function tarjetaGastoProveedor(g, i){
 }
 
 function tablaGastosProveedor(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:1000px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
        +   '<th>Proveedor</th><th>Concepto</th><th>Folio</th><th>Estatus</th><th>Monto</th><th>Saldo</th><th>Vencimiento</th>'
        + '</tr></thead><tbody>'
        + lista.map(g=>{
@@ -13996,7 +14009,7 @@ function vistaProveedores(){
 }
 
 function tablaProveedores(lista){
-  return '<div class="rodillo"><table class="tabla"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr>'
        +   '<th>Nombre</th><th>Contacto</th><th>Qué surte</th><th>Teléfono</th><th>Correo</th><th>Por pagar</th><th>Gastos</th>'
        + '</tr></thead><tbody>'
        + lista.map(p=>{
@@ -14111,7 +14124,7 @@ function tarjetaRefaccion(r, i){
 }
 
 function tablaRefacciones(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:1000px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
        +   '<th>Código</th><th>Descripción</th><th>Proveedor</th><th>Unidad</th><th>Costo</th><th>Existencia</th><th>Valor</th>'
        + '</tr></thead><tbody>'
        + lista.map(r=>{
@@ -14261,7 +14274,7 @@ function vistaCierreMensualRefacciones(){
   const ordenados = conMes.slice().sort((a,b)=> (a.refaccion.descripcion || a.refaccion.codigo || '').localeCompare(b.refaccion.descripcion || b.refaccion.codigo || '','es'));
   const fechaSugerida = fechaDentroDeMes(mes);
 
-  h += '<div class="rodillo"><table class="tabla" style="min-width:1100px"><thead><tr>'
+  h += '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1100px"><thead><tr>'
      +   '<th>Código</th><th>Descripción</th><th>Proveedor</th><th>Existencia inicial</th><th>Entradas</th><th>Salidas</th><th>Existencia final</th>'
      +   (puede ? '<th>Capturar</th>' : '')
      + '</tr></thead><tbody>'
@@ -15734,7 +15747,7 @@ function vistaCocinas(){
     return h;
   }
 
-  h += '<div class="rodillo"><table class="tabla"><thead><tr>'
+  h += '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr>'
      +   '<th>' + (nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo') + '</th>'
      +   (nivel === 'sitio' ? '<th>Cliente</th>' : '')
      +   '<th>Levantados</th><th>Resueltos</th><th>Tiempo prom.</th><th>Cotizado</th><th>Salud</th>'
@@ -15868,7 +15881,7 @@ function vistaLevantamientos(){
 }
 
 function tablaLevantamientos(lista){
-  return '<div class="rodillo"><table class="tabla" style="min-width:780px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:780px"><thead><tr>'
        +   '<th>Folio</th><th>Sitio</th><th>Cliente</th><th>Hallazgos</th><th>Pendientes</th><th>Realizó</th><th>Fecha</th>'
        + '</tr></thead><tbody>'
        + lista.map(l=>{
@@ -16788,7 +16801,7 @@ function vistaVisitasLista(){
     return vistaVacia('calendario', 'Todavía no hay visitas programadas',
       'Usa "Nueva visita" o la bolsa de "Por programar" para crear la primera.', '', '');
   }
-  return '<div class="rodillo"><table class="tabla"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr>'
     + '<th>Fecha</th><th>Técnico</th><th>Sitio</th><th>Cliente</th><th>Pendientes</th><th>Estatus</th>'
     + '</tr></thead><tbody>'
     + lista.map(v=>{
@@ -17206,7 +17219,7 @@ function vistaProyectosImagen(){
   const ordenados = filtrados.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || (b.folio||'').localeCompare(a.folio||''));
 
   if(vistaTabla){
-    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Folio</th><th>Proyecto</th><th>Cliente</th><th>Tipo</th><th>Estatus</th><th>Inversión total</th></tr></thead><tbody>'
+    h += '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr><th>Folio</th><th>Proyecto</th><th>Cliente</th><th>Tipo</th><th>Estatus</th><th>Inversión total</th></tr></thead><tbody>'
       + ordenados.map(p => '<tr class="fila-clic" data-proyecto-imagen="' + esc(p.id) + '" tabindex="0" role="button">'
           + '<td>' + esc(p.folio || '—') + '</td>'
           + '<td>' + esc(p.nombreProyecto || 'Proyecto') + '</td>'
