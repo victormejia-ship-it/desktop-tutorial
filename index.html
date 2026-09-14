@@ -1108,6 +1108,25 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .c-tecnico  {background:#FCEFDD; color:#9A5B12; border-color:#F0D9B4;}
 .c-reportero{background:#F1EAFB; color:#6A3FA0; border-color:#DCC9F2;}
 table.tabla select.sel-rol{font-weight:600;}
+
+/* Vista previa de rol (solo Owner, ver modalVistaPrevia()): la etiqueta junto
+   al nombre en el encabezado y la franja de abajo usan el mismo ámbar de
+   --alerta —ni el verde de "todo bien" ni el rojo de "algo se rompió",
+   porque no es ninguna de las dos cosas: es un modo de simulación. */
+.rol-previa{
+  display:inline-flex; align-items:center; font-size:10.5px; font-weight:700; letter-spacing:.02em;
+  border-radius:999px; padding:4px 10px; margin-left:5px; white-space:nowrap;
+  background:var(--alerta-suave); color:#8a5a12; border:1px solid #f0d9ab;
+}
+.banda-vista-previa{
+  display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;
+  background:var(--alerta-suave); border-bottom:1px solid #f0d9ab; color:#7a4d0f;
+  font-size:12.5px; font-weight:600; padding:9px 24px; text-align:center;
+}
+.banda-vista-previa[hidden]{display:none;}
+.banda-vista-previa svg{width:15px; height:15px; vertical-align:-3px; margin-right:2px;}
+.banda-vista-previa .btn{background:#fff;}
+@media (max-width:700px){ .banda-vista-previa{padding:9px 16px;} }
 /* Mismos colores que los chips de categoría de equipo (COLOR_CATEGORIA_EQUIPO
    en index.html: z-rojo/z-azul/z-gris/z-morado/z-naranja), pero definidos
    aparte con selector compuesto (3 clases + 2 elementos) para que sí le gane
@@ -1469,6 +1488,10 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       </button>
       <div class="notif-panel" id="panelNotificaciones" hidden></div>
     </div>
+    <button type="button" class="btn-cabeza" id="btnVistaPrevia" style="display:none" title="Ver la app como otro rol, sin salir de tu cuenta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span class="txt">Ver como…</span>
+    </button>
     <button type="button" class="btn-cabeza" id="btnAdmin" style="display:none" title="Panel de administración">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 4v6c0 4.2-2.9 7.9-7 10-4.1-2.1-7-5.8-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       <span class="txt">Admin</span>
@@ -1484,6 +1507,15 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     </button>
   </div>
 </header>
+
+<!-- Franja de vista previa de rol (ver modalVistaPrevia()/iniciarVistaPrevia()):
+     solo aparece mientras el Owner está viendo la app como otro rol. Vive
+     fuera del <header> para no competir con su propio sticky, y se
+     enseña/esconde entera desde pintarCabecera(). -->
+<div class="banda-vista-previa" id="bandaVistaPrevia" hidden>
+  <span id="bandaVistaPreviaTexto"></span>
+  <button type="button" class="btn btn-mini" id="btnSalirVistaPrevia">Salir de vista previa</button>
+</div>
 
 <div class="wrap">
   <div id="vista"></div>
@@ -2868,9 +2900,33 @@ function cargarSesion(){
   try{ Object.assign(sesion, JSON.parse(localStorage.getItem(LLAVE_SESION) || '{}')); }catch(e){}
 }
 function haySesion(){ return !!(sesion.idToken && sesion.refreshToken); }
-function esOwner(){ return !HAY_NUBE || sesion.rol === 'owner'; }
-function esAdmin(){ return !HAY_NUBE || sesion.rol === 'owner' || sesion.rol === 'admin'; }
-function puedeEditar(){ return !HAY_NUBE || esAdmin() || sesion.rol === 'analyst'; }
+
+/* ===================== Vista previa de rol (solo Owner) =====================
+   Le deja al Owner ver exactamente lo que ve cada rol —qué módulos aparecen,
+   qué botones se esconden— sin crear una cuenta ni pedirle la contraseña a
+   nadie (ver modalVistaPrevia()/iniciarVistaPrevia() más abajo, junto a
+   cargarPortalCliente()). NO es una suplantación de verdad: la sesión real
+   sigue siendo la del Owner en todo momento, mismo idToken y mismo uid — lo
+   único que cambia es qué devuelven rolEfectivo()/uidEfectivo()/
+   nombreEfectivo(), que es de lo que dependen TODAS las funciones de permiso
+   de aquí en adelante (esOwner, esAdmin, puedeEditar, esCliente,
+   modulosPermitidos, etc.) en vez de leer sesion.rol directo.
+   Importante: uidEfectivo()/nombreEfectivo() SOLO se usan para filtros de
+   LECTURA (el "Mis reportes" de un técnico, Mi agenda, el filtro de
+   Visitas) — nunca para firmar una escritura real. Cualquier acción de
+   verdad que el Owner haga mientras previsualiza (comentar, resolver,
+   asignar) se sigue guardando con su nombre y uid reales (sesion.uid,
+   nombreDe(sesion)), nunca con los del rol simulado: si algo de verdad se
+   modifica, el rastro dice quién lo hizo en realidad. */
+function esOwnerReal(){ return !HAY_NUBE || sesion.rol === 'owner'; }
+function enVistaPrevia(){ return !!estado.vistaPrevia; }
+function rolEfectivo(){ return (estado.vistaPrevia && estado.vistaPrevia.rol) || sesion.rol; }
+function uidEfectivo(){ return (estado.vistaPrevia && estado.vistaPrevia.uid) || sesion.uid; }
+function nombreEfectivo(){ return (estado.vistaPrevia && estado.vistaPrevia.nombre) || sesion.nombre; }
+
+function esOwner(){ return !HAY_NUBE || rolEfectivo() === 'owner'; }
+function esAdmin(){ return !HAY_NUBE || rolEfectivo() === 'owner' || rolEfectivo() === 'admin'; }
+function puedeEditar(){ return !HAY_NUBE || esAdmin() || rolEfectivo() === 'analyst'; }
 /* Mismo candado que la regla del servidor sobre /polizas: mientras sigue en
    'cotizacion' o 'enviada' cualquiera con puedeEditar() le toca los precios;
    ya cerrada (activa/cancelada), solo Admin — «corregir precios» es cosa de
@@ -2884,7 +2940,7 @@ function puedePolizaCorregirPrecios(p){
 /* El portal de clientes solo existe con nube: en modo local no hay cuentas
    ni clientId que filtrar, así que aquí SIEMPRE es false — nunca se cuela
    por el "!HAY_NUBE ||" que sí llevan las de arriba. */
-function esCliente(){ return HAY_NUBE && sesion.rol === 'cliente'; }
+function esCliente(){ return HAY_NUBE && rolEfectivo() === 'cliente'; }
 
 /* ===================== Timeout compartido para TODO fetch() a la nube =====================
    fetch() nativo no tiene límite de tiempo propio: en una conexión de datos
@@ -4254,7 +4310,7 @@ function puedeReportar(){ return !HAY_NUBE || haySesion(); }
 /* Quién puede trabajar un reporte ya emitido: administración (owner/admin),
    analyst (ya tenía permiso general de edición desde antes de que existiera
    este módulo, así que no se le quita nada) y el rol nuevo `tecnico`. */
-function puedeGestionarReporte(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function puedeGestionarReporte(){ return puedeEditar() || rolEfectivo() === 'tecnico'; }
 function exigirGestionReporte(){
   if(puedeGestionarReporte()) return true;
   aviso('Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
@@ -4297,7 +4353,7 @@ function exigirGestionLevantamiento(){
    evidencia fotográfica. Es la misma idea que subir evidencia a un
    reporte: quien está parado frente al equipo es quien puede probar que
    se atendió. */
-function puedeRegistrarServicioPoliza(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function puedeRegistrarServicioPoliza(){ return puedeEditar() || rolEfectivo() === 'tecnico'; }
 function exigirRegistroServicio(){
   if(puedeRegistrarServicioPoliza()) return true;
   aviso('Tu cuenta no puede registrar servicios de esta póliza.', true);
@@ -4753,7 +4809,7 @@ function tonoVisita(v){ return TONO_ESTATUS_VISITA[v.estatus] || 'neutro'; }
 /* Igual que puedeGestionarReporte()/puedeGestionarActivos(): administración
    de siempre, más el rol técnico — un técnico programa y ajusta SU PROPIA
    ruta sin necesitar a un Analyst de por medio. */
-function puedeGestionarVisitas(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function puedeGestionarVisitas(){ return puedeEditar() || rolEfectivo() === 'tecnico'; }
 function exigirGestionVisitas(){
   if(puedeGestionarVisitas()) return true;
   aviso('No tienes permiso para programar visitas.', true);
@@ -5074,7 +5130,7 @@ function categoriasActivo(){
   return Array.from(usadas).sort((a,b) => a.localeCompare(b, 'es'));
 }
 
-function puedeGestionarActivos(){ return puedeEditar() || sesion.rol === 'tecnico'; }
+function puedeGestionarActivos(){ return puedeEditar() || rolEfectivo() === 'tecnico'; }
 function exigirGestionActivos(){
   if(puedeGestionarActivos()) return true;
   aviso('Tu cuenta no puede dar de alta ni modificar activos. Puedes consultar el catálogo.', true);
@@ -8799,6 +8855,12 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'resultados', vista:'resultados', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
                  levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null, refaccionId:null, visitaId:null,
+                 /* Vista previa de rol (solo Owner, ver rolEfectivo() junto a
+                    esOwner()): null = nada, o { rol, uid, nombre, clienteId }
+                    mientras el Owner está viendo la app como otro rol. Nunca
+                    se guarda en localStorage a propósito — siempre arranca
+                    apagada al recargar. */
+                 vistaPrevia:null,
                  /* Qué pestaña del módulo Visitas está abierta: el calendario
                     semanal (el default), la bolsa de pendientes por programar,
                     o la lista completa de visitas ya programadas. */
@@ -8910,9 +8972,9 @@ function modulosPermitidos(){
      (portalCliente()/render(), que se bifurca ANTES de llegar a usar esta
      lista). Vacío a propósito: así el selector de módulo del encabezado se
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
-  if(HAY_NUBE && haySesion() && sesion.rol === 'cliente') return [];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
-  if(HAY_NUBE && haySesion() && sesion.rol === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'cliente') return [];
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'organigrama', 'ayuda'];
   /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
      incluido Imagen/Aperturas —antes se le escondía entero—, porque el
      perfil que se pidió es "ve toda la funcionalidad, no edita nada", y no
@@ -12641,10 +12703,10 @@ function vistaReportes(){
      propio nombre en el buscador para encontrar sus asignaciones. El "una
      sola vez" (el `if`, no reasignar siempre) es a propósito: si el técnico
      le da a "Todos" para revisar algo, un re-render no se lo revierte solo. */
-  const esTecnico = sesion.rol === 'tecnico';
+  const esTecnico = rolEfectivo() === 'tecnico';
   if(esTecnico && !estado.vistaReportesTecnico) estado.vistaReportesTecnico = 'mios';
   const soloMios = esTecnico && estado.vistaReportesTecnico === 'mios';
-  const baseReportes = soloMios ? datos.reportes.filter(rp => rp.tecnicos.some(t => t.uid === sesion.uid)) : datos.reportes;
+  const baseReportes = soloMios ? datos.reportes.filter(rp => rp.tecnicos.some(t => t.uid === uidEfectivo())) : datos.reportes;
 
   const r = resumirReportes(baseReportes);
   let h = '';
@@ -16697,7 +16759,7 @@ async function montarVisitas(){
   }
   /* Un técnico entra ya filtrado a su propia agenda, sin tener que armar el
      filtro a mano cada vez. */
-  if(sesion.rol === 'tecnico' && !estado.filtroTecnicoVisita) estado.filtroTecnicoVisita = sesion.nombre;
+  if(rolEfectivo() === 'tecnico' && !estado.filtroTecnicoVisita) estado.filtroTecnicoVisita = nombreEfectivo();
   render();
 }
 
@@ -16902,7 +16964,7 @@ function irAMiCalendarioVisitas(){
   if(estado.modulo !== 'visitas'){ estado.modulo = 'visitas'; guardarModulo(); }
   estado.vista = 'visitas'; estado.vistaVisitasTab = 'calendario';
   estado.semanaVisitas = lunesDeLaSemana(hoyISO());
-  estado.visitaId = null; estado.filtroTecnicoVisita = sesion.nombre;
+  estado.visitaId = null; estado.filtroTecnicoVisita = nombreEfectivo();
   animarTarjetas = true;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -16917,7 +16979,7 @@ function irAProgramarVisitas(){
 }
 
 function vistaMiAgenda(){
-  const uid = sesion.uid, nombre = sesion.nombre || nombreDe(sesion);
+  const uid = uidEfectivo(), nombre = nombreEfectivo() || nombreDe(sesion);
   const reportes = reportesAsignadosA(uid, nombre)
     .sort((a,b)=> a.fechaCreacion < b.fechaCreacion ? 1 : -1);
   const sitiosPropios = sitiosDeCuenta(uid, nombre);
@@ -18628,7 +18690,7 @@ function avisoClaveInicial(){
 
 function avisoLocal(){
   if(HAY_NUBE){
-    if(sesion.rol === 'viewer'){
+    if(rolEfectivo() === 'viewer'){
       return '<div class="aviso">' + ICONO.info
            + '<div>Tu cuenta es <b>Viewer</b>: puedes ver todo y descargar el Excel, pero no cambiar nada. '
            + 'Si necesitas capturar, pide que te suban a <b>Analyst</b>.</div></div>';
@@ -19088,15 +19150,39 @@ function pintarCabecera(){
   const nom = $('nombreSesion');
   nom.textContent = dentro ? nombreDe(sesion) : '';
   nom.title = dentro ? sesion.correo : '';          /* el correo queda al pasar el mouse */
-  $('rolSesion').innerHTML = (dentro && sesion.rol) ? etiquetaRol(sesion.rol) : '';
+  /* La etiqueta de permiso sigue al rol EFECTIVO (el simulado, si el Owner
+     está en vista previa) — es justo lo que se le está enseñando en
+     pantalla — con una marca ámbar aparte para que nunca se confunda con
+     que de verdad le cambiaron el permiso a la cuenta. */
+  $('rolSesion').innerHTML = (dentro && rolEfectivo())
+    ? etiquetaRol(rolEfectivo()) + (enVistaPrevia() ? '<span class="rol-previa">Vista previa</span>' : '')
+    : '';
   /* La campanita es del personal de Forguard, no del portal de clientes:
      esCliente() nunca tiene técnicos que le asignen ni comentarios que le
      lleguen — ver notificarInteresadosReporte(). */
   $('btnNotificaciones').style.display = (dentro && !esCliente()) ? '' : 'none';
   $('btnAdmin').style.display = (dentro && esAdmin()) ? '' : 'none';
+  /* "Ver como…" es del Owner de VERDAD (esOwnerReal(), no esOwner()): tiene
+     que seguir a la mano incluso a media vista previa, para poder cambiar de
+     rol simulado o salir — si dependiera de esOwner() (el efectivo),
+     desaparecería en cuanto se empezara a previsualizar cualquier rol que no
+     fuera Owner, y ahí quedaría atrapado sin cómo salir por el encabezado. */
+  $('btnVistaPrevia').style.display = (dentro && esOwnerReal()) ? '' : 'none';
   $('btnPerfil').style.display = dentro ? '' : 'none';
   $('btnSalir').style.display = dentro ? '' : 'none';
   pintarPuntoClave();
+
+  const banda = $('bandaVistaPrevia');
+  if(dentro && enVistaPrevia()){
+    const vp = estado.vistaPrevia;
+    let detalle = '';
+    if(vp.rol === 'tecnico' && vp.nombre) detalle = ' — como ' + esc(vp.nombre);
+    else if(vp.rol === 'cliente') detalle = ' — ' + esc((portalCliente.cliente && portalCliente.cliente.nombre) || 'cliente');
+    $('bandaVistaPreviaTexto').innerHTML = ICONO.info + ' Estás viendo Forguard como lo vería <b>' + etiquetaRol(vp.rol) + '</b>' + detalle + '. Nadie más lo ve así — es solo tu pantalla.';
+    banda.hidden = false;
+  } else {
+    banda.hidden = true;
+  }
 
   /* Pestaña encendida. Se pinta aquí y no al hacer clic para que el selector diga
      la verdad venga de donde venga el cambio: clic, arranque, o lo que se haya
@@ -26275,6 +26361,9 @@ document.addEventListener('mousedown', ev=>{
 
 $('btnPerfil').addEventListener('click', ()=> modalPerfil());
 
+$('btnVistaPrevia').addEventListener('click', ()=> modalVistaPrevia());
+$('btnSalirVistaPrevia').addEventListener('click', ()=> salirVistaPrevia());
+
 $('btnAdmin').addEventListener('click', ()=>{
   if(!esAdmin()) return;
   estado.vista = 'admin'; estado.clienteId = null;
@@ -26460,6 +26549,151 @@ async function cargarPortalCliente(){
   portalCliente.cargado = true;
   portalCliente.error = '';
 }
+
+/* Misma forma que cargarPortalCliente(), pero para la vista previa del
+   Owner (ver modalVistaPrevia() más abajo): en vez de ir a /polizas_cliente
+   y /cotizaciones_cliente por REST, arma portalCliente.* directo desde lo
+   que el Owner YA tiene cargado en memoria (datos.polizas/datos.cotizaciones,
+   la copia COMPLETA, con costo). Nunca se enseña esa copia tal cual: se le
+   aplica la MISMA redacción que se manda de verdad al portal
+   (datosClientePoliza()/datosClienteCotizacion(), ver el comentario junto a
+   esas dos) para que la vista previa sea honesta — si un cliente real no ve
+   un costo, esta tampoco. Nada de esto toca Firestore ni pelea con
+   config/firestore.rules: es una simulación local, de solo lectura. */
+function cargarPortalClientePreview(idCliente){
+  const sitiosDelCliente = datos.sitios.filter(s => s.clienteId === idCliente);
+  const sitioIds = new Set(sitiosDelCliente.map(s => s.id));
+  portalCliente.cliente = clientePorId(idCliente) || null;
+  portalCliente.sitios = sitiosDelCliente;
+  portalCliente.polizas = datos.polizas.filter(p => sitioIds.has(p.sitioId))
+    .map(datosClientePoliza).filter(Boolean).map(normalizarPoliza);
+  portalCliente.cotizaciones = datos.cotizaciones.filter(q => sitioIds.has(q.sitioId))
+    .map(datosClienteCotizacion).filter(Boolean).map(normalizarCotizacion)
+    .sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  portalCliente.reportes = datos.reportes.filter(r => sitioIds.has(r.sitioId))
+    .slice().sort((a,b)=> b.fechaCreacion.localeCompare(a.fechaCreacion));
+  portalCliente.cargado = true;
+  portalCliente.error = '';
+}
+function limpiarPortalClientePreview(){
+  portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
+  portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
+}
+
+function iniciarVistaPrevia(rol, opts){
+  opts = opts || {};
+  const eraCliente = estado.vistaPrevia && estado.vistaPrevia.rol === 'cliente';
+  estado.vistaPrevia = { rol, uid: opts.uid || '', nombre: opts.nombre || '' };
+  if(rol === 'cliente'){
+    cargarPortalClientePreview(opts.clienteId);
+    /* Siempre arranca en la portada del portal, nunca donde se haya quedado
+       una vista previa de cliente anterior (otro cliente, u otra pestaña). */
+    estado.vistaPortal = 'consideraciones';
+    estado.polizaPortalId = null; estado.cotizacionPortalId = null; estado.reportePortalId = null;
+  } else if(eraCliente){
+    limpiarPortalClientePreview();
+  }
+  cerrarModal();
+  irAInicio();
+  /* irAInicio() no vuelve a pintar si el módulo/vista ya "eran" el inicio
+     (p.ej. cambiar de un técnico a otro sin salir de Mi agenda) — aquí SÍ
+     cambió lo que hay detrás (rolEfectivo/uidEfectivo), así que se fuerza
+     un render aparte para que nunca se quede viendo datos del rol anterior. */
+  render();
+}
+function salirVistaPrevia(){
+  if(!estado.vistaPrevia) return;
+  const eraCliente = estado.vistaPrevia.rol === 'cliente';
+  estado.vistaPrevia = null;
+  if(eraCliente) limpiarPortalClientePreview();
+  irAInicio();
+  render();
+}
+
+/* Roles que tiene sentido previsualizar: todos menos Owner (ya es lo que se
+   está viendo) — en el orden en que van a salir en la lista del modal. */
+const ROLES_VISTA_PREVIA = ['admin', 'analyst', 'viewer', 'tecnico', 'reportero', 'cliente'];
+
+async function modalVistaPrevia(){
+  if(!esOwnerReal()){ aviso('Solo el Owner puede usar la vista previa de roles.', true); return; }
+
+  const cuerpo0 = '<div class="vacio-chico">Cargando cuentas…</div>';
+  abrirModal('Ver la app como otro rol', cuerpo0,
+    '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>');
+
+  let tecnicos = [];
+  if(HAY_NUBE){
+    try{
+      if(!admin.usuarios) admin.usuarios = await listarNube('usuarios');
+      tecnicos = admin.usuarios.filter(u => u.activo !== false && normalizarRol(u.rol) === 'tecnico');
+    }catch(e){ tecnicos = []; }
+  }
+  const clientes = datos.clientes.slice().sort((a,b)=> (a.nombre||'').localeCompare(b.nombre||'', 'es'));
+
+  const actual = estado.vistaPrevia;
+  const cuerpo =
+      '<div class="aviso">' + ICONO.info + '<div>Vas a ver exactamente lo que ve ese rol —qué módulos aparecen, qué botones se esconden— '
+    + 'sin crear ninguna cuenta ni cerrar tu sesión. Puedes salir cuando quieras con un clic.</div></div>'
+    + '<div class="lista-tecnicos" id="listaRolesPrevia">'
+    +   ROLES_VISTA_PREVIA.map(r =>
+          '<label class="casilla" style="align-items:flex-start">'
+          +   '<input type="radio" name="previaRol" value="' + r + '"' + (actual && actual.rol === r ? ' checked' : '') + '>'
+          +   '<span><b>' + esc(ROLES[r].nombre) + '</b><br><span class="pista">' + esc(ROLES[r].desc) + '</span></span>'
+          + '</label>'
+        ).join('')
+    + '</div>'
+    + '<div class="campo" id="campoPreviaTecnico" hidden><label>¿Cómo cuál técnico? (opcional)</label>'
+    +   '<select id="previaTecnicoSel"><option value="">Genérico — sin reportes ni visitas propias</option>'
+    +     tecnicos.slice().sort((a,b)=>nombreDe(a).localeCompare(nombreDe(b),'es')).map(u=>
+            '<option value="' + esc(u.id) + '"' + (actual && actual.uid === u.id ? ' selected' : '') + '>' + esc(nombreDe(u)) + '</option>'
+          ).join('') + '</select>'
+    +   '<p class="pista" style="margin:4px 0 0">Para ver Mi agenda, Visitas y "Mis reportes" con datos de verdad en vez de vacíos.</p>'
+    + '</div>'
+    + '<div class="campo" id="campoPreviaCliente" hidden><label>¿Cuál cliente? *</label>'
+    +   '<select id="previaClienteSel"><option value="">Elige un cliente…</option>'
+    +     clientes.map(c=>
+            '<option value="' + esc(c.id) + '"' + (actual && actual.clienteId === c.id ? ' selected' : '') + '>' + esc(c.nombre) + '</option>'
+          ).join('') + '</select>'
+    +   '<p class="pista" style="margin:4px 0 0">El portal es siempre de un cliente en concreto — se arma con lo mismo que ya ve tu cuenta, sin costos ni datos internos (igual que ve el cliente real).</p>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + (enVistaPrevia() ? '<button type="button" class="btn btn-suave" id="btnQuitarVistaPreviaModal">Salir de vista previa</button>' : '')
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver esta vista</button>';
+
+  abrirModal('Ver la app como otro rol', cuerpo, pie);
+
+  function actualizarCamposVisibles(){
+    const r = (document.querySelector('input[name="previaRol"]:checked') || {}).value;
+    $('campoPreviaTecnico').hidden = r !== 'tecnico';
+    $('campoPreviaCliente').hidden = r !== 'cliente';
+  }
+  actualizarCamposVisibles();
+  document.querySelectorAll('input[name="previaRol"]').forEach(r => r.addEventListener('change', actualizarCamposVisibles));
+
+  const btnQuitar = $('btnQuitarVistaPreviaModal');
+  if(btnQuitar) btnQuitar.addEventListener('click', ()=>{ salirVistaPrevia(); cerrarModal(); });
+
+  cerrarModalActual = ()=>{
+    const marcado = document.querySelector('input[name="previaRol"]:checked');
+    if(!marcado){ aviso('Elige qué rol quieres ver.', true); return; }
+    const rol = marcado.value;
+    if(rol === 'cliente'){
+      const clienteId = $('previaClienteSel').value;
+      if(!clienteId){ aviso('Elige de cuál cliente quieres ver el portal.', true); return; }
+      iniciarVistaPrevia('cliente', { clienteId });
+      return;
+    }
+    if(rol === 'tecnico'){
+      const uid = $('previaTecnicoSel').value;
+      const cuenta = tecnicos.find(u => u.id === uid);
+      iniciarVistaPrevia('tecnico', cuenta ? { uid: cuenta.id, nombre: nombreDe(cuenta) } : {});
+      return;
+    }
+    iniciarVistaPrevia(rol, {});
+  };
+}
+
 async function arrancarNubePortal(){
   try{
     await cargarPortalCliente();
