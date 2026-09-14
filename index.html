@@ -4309,26 +4309,20 @@ function puedeReportar(){ return !HAY_NUBE || haySesion(); }
 
 /* Quién puede trabajar un reporte ya emitido: administración (owner/admin),
    analyst (ya tenía permiso general de edición desde antes de que existiera
-   este módulo, así que no se le quita nada) y el rol nuevo `tecnico` —
-   PERO solo si de verdad es uno de los técnicos asignados a ESE reporte
-   (pedido explícito de Victor, 14-sep-2026: antes cualquier cuenta de
-   técnico podía entrar a un reporte ajeno —por ejemplo desde el toggle
-   "Todos" en la lista— y editarlo, cambiarle el estatus o resolverlo
-   igual que el suyo, solo por tener el rol). Sin `rp` a la mano se niega
-   por seguridad para un técnico: todo llamado real de aquí en adelante
-   lo trae (ver vistaReporte(), modalResolverReporte() y el dispatcher). */
-function puedeGestionarReporte(rp){
-  if(puedeEditar()) return true;
-  if(rolEfectivo() !== 'tecnico') return false;
-  if(!rp) return false;
-  const uid = uidEfectivo(), nombre = nombreEfectivo();
-  return rp.tecnicos.some(t => (t.uid && t.uid === uid) || (!t.uid && t.nombre === nombre));
-}
+   este módulo, así que no se le quita nada) y el rol nuevo `tecnico`.
+   Corrección explícita de Victor (14-sep-2026): SÍ se probó a exigir que el
+   técnico estuviera en rp.tecnicos (asignado desde el botón "Asignar"), pero
+   en la práctica la asignación formal se actualiza después —o nunca, si a
+   quien administra se le pasa dar ese clic— y el técnico en campo se
+   quedaba sin poder tocar nada mientras tanto. Se regresa a como estaba:
+   cualquier cuenta de técnico puede trabajar cualquier reporte, sin exigir
+   asignación previa. `rp` se deja como parámetro (sin usarse aquí) porque
+   modalResolverReporte()/el dispatcher ya lo traen a la mano y así no hay
+   que tocar esos llamados si el criterio vuelve a cambiar. */
+function puedeGestionarReporte(rp){ return puedeEditar() || rolEfectivo() === 'tecnico'; }
 function exigirGestionReporte(rp){
   if(puedeGestionarReporte(rp)) return true;
-  aviso(rp && rolEfectivo() === 'tecnico'
-    ? 'Ese reporte no está asignado a tu cuenta: solo quien lo tiene asignado o administración puede modificarlo.'
-    : 'Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
+  aviso('Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
   return false;
 }
 
