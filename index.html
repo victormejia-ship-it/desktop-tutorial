@@ -107,13 +107,19 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
    .modulos. flex:1 1 auto en .modulos es lo que hace que SOLO ella se angoste
    y scrollee; flex:0 0 auto en .mod-mas es lo que la deja siempre completa y
    en el mismo lugar, sin importar cuánto se angoste la fila de al lado. */
-.modulos-zona{position:relative; min-width:0; display:flex; align-items:stretch; gap:4px;}
-.modulos{display:flex; gap:2px; background:var(--bg); border:1px solid var(--line);
-         border-radius:9px; padding:3px; overflow-x:auto; flex:1 1 auto; min-width:0;
+.modulos-zona{position:relative; min-width:0; display:flex; align-items:stretch; gap:6px;}
+/* Espaciado: antes gap:2px + padding:5px 13px por pestaña dejaba muy poco
+   aire entre una palabra y la siguiente —se veían amontonadas, sobre todo
+   con el fondo de la pestaña inactiva transparente (mismo color que el
+   header). Más gap entre botones y más padding adentro de cada uno —Victor,
+   14-sep-2026— aunque eso implique que menos pestañas quepan sin scroll: es
+   justo lo que "Más" existe para absorber. */
+.modulos{display:flex; gap:4px; background:var(--bg); border:1px solid var(--line);
+         border-radius:9px; padding:4px; overflow-x:auto; flex:1 1 auto; min-width:0;
          -ms-overflow-style:none; scrollbar-width:none;}
 .modulos::-webkit-scrollbar{display:none;}
 .modulos .mod{appearance:none; border:none; background:none; font:inherit; font-size:13px;
-              font-weight:600; color:var(--gray); padding:5px 13px; border-radius:6px;
+              font-weight:600; color:var(--gray); padding:7px 17px; border-radius:6px;
               cursor:pointer; white-space:nowrap; flex-shrink:0; transition:color .15s var(--ease), background .15s var(--ease);}
 .modulos .mod:hover{color:var(--navy);}
 .modulos .mod[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
@@ -122,7 +128,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .mod-mas{appearance:none; display:flex; align-items:center; gap:3px; flex-shrink:0;
          background:var(--bg); border:1px solid var(--line); border-radius:9px;
          font:inherit; font-size:13px; font-weight:600; color:var(--gray);
-         padding:0 13px; cursor:pointer; white-space:nowrap;
+         padding:0 17px; cursor:pointer; white-space:nowrap;
          transition:color .15s var(--ease), background .15s var(--ease);}
 .mod-mas:hover{color:var(--navy);}
 .mod-mas[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave);}
@@ -9039,17 +9045,20 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
    a propósito: es "para todos los perfiles" (owner/admin/analyst/viewer/
    tecnico/reportero, y el modo local), no solo consulta — ver
    puedeGestionarLevantamiento() más abajo, que es igual de abierta.
-   Activos y Organigrama se le quitaron a `tecnico` a propósito (pedido
-   explícito de Victor, 14-sep-2026): son de administración/RH, no de campo
-   —ver el resto de sus módulos, todos ligados a atender algo. El resto de
-   los módulos sigue viendo todo, como siempre. */
+   Activos se le quitó a `tecnico` a propósito (pedido explícito de Victor,
+   14-sep-2026): es de administración/RH, no de campo —ver el resto de sus
+   módulos, todos ligados a atender algo. Organigrama es, además, exclusivo
+   del Owner (mismo pedido, 14-sep-2026 ampliado): ni Admin, Analyst,
+   Viewer, Técnico ni Reportero lo ven —se filtra aparte, abajo, en vez de
+   listarlo módulo por módulo en cada rama. El resto de los módulos sigue
+   viendo todo, como siempre. */
 function modulosPermitidos(){
   /* Un cliente no ve NINGUNO de estos módulos — tiene su propio portal
      (portalCliente()/render(), que se bifurca ANTES de llegar a usar esta
      lista). Vacío a propósito: así el selector de módulo del encabezado se
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'cliente') return [];
-  if(HAY_NUBE && haySesion() && rolEfectivo() === 'reportero') return ['reportes', 'levantamientos', 'organigrama', 'ayuda'];
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'reportero') return ['reportes', 'levantamientos', 'ayuda'];
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'ayuda'];
   /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
      incluido Imagen/Aperturas —antes se le escondía entero—, porque el
@@ -9059,6 +9068,7 @@ function modulosPermitidos(){
      botones de crear/editar/importar detrás de puedeEditar(), igual que ya
      hacían Pólizas y Cotizaciones, y exigirPermiso() los bloquea aunque
      alguien fuerce el clic. */
+  if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner') return MODULOS.filter(m => m !== 'organigrama');
   return MODULOS;
 }
 
