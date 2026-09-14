@@ -23243,8 +23243,12 @@ function modalCotizacion(id, origenReporte){
 
   /* Copia de trabajo: se toca esto y no el registro, para que Cancelar
      cancele de verdad — mismo molde que partidasTmp en modalPoliza. */
+  /* Una cotización nueva (sin reporte de origen) arranca con UN renglón en
+     blanco ya puesto —pedido explícito de Victor (14-sep-2026): antes había
+     que dar clic en "Agregar renglón" a fuerza, hasta para la primera fila,
+     en todas y cada una de las cotizaciones nuevas sin excepción. */
   let partidasTmp = (q ? q.partidas
-    : (origenReporte ? [normalizarPartidaCotizacion({ concepto: origenReporte.equipoNombre || origenReporte.titulo, cantidad:1 })] : [])
+    : (origenReporte ? [normalizarPartidaCotizacion({ concepto: origenReporte.equipoNombre || origenReporte.titulo, cantidad:1 })] : [normalizarPartidaCotizacion({})])
   ).map(x => Object.assign({}, x));
 
   const sitiosOrd = () => datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
@@ -23371,7 +23375,10 @@ function modalCotizacion(id, origenReporte){
     + '<div class="seccion"><h4>Datos del tablero (opcional)</h4>'
     +   '<p class="pista" style="margin-top:-6px">Solo aplica si esta cotización sigue el pipeline de 13 etapas de Servicios.</p>'
     +   '<div class="campo"><label>Proveedor que ejecuta</label>'
-    +     '<input type="text" id="qProveedor" value="' + esc(q ? q.proveedor : '') + '"></div>'
+    +     '<input type="text" id="qProveedor" list="listaProveedoresCot" value="' + esc(q ? q.proveedor : '') + '">'
+    +     opcDatalist('listaProveedoresCot', datos.proveedores.map(p => p.nombre))
+    +     '<div class="pista">Si ya existe en el catálogo de Proveedores, se sugiere al escribir; si no, se puede escribir uno nuevo aquí (sin darlo de alta allá).</div>'
+    +   '</div>'
     +   '<div class="fila2">'
     +     '<div class="campo"><label>Liberación</label><input type="date" id="qFechaLiberacion" value="' + esc(q ? q.fechaLiberacion : '') + '"></div>'
     +     '<div class="campo"><label>Realizado</label><input type="date" id="qFechaRealizado" value="' + esc(q ? q.fechaRealizado : '') + '"></div>'
