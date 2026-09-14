@@ -20092,7 +20092,17 @@ $('vista').addEventListener('change', async ev=>{
   const anterior = u.rol;
   sel.disabled = true;
   try{
-    await escribirNube('usuarios', uid, Object.assign({}, u, { rol, id:undefined }));
+    /* Solo el campo "rol" en el updateMask —nunca Object.assign({}, u, ...)—:
+       mandar TODA la copia en memoria de `u` (correo, activo, teléfono,
+       clienteId...) sobreescribe en el servidor cualquier cambio más
+       reciente que esa copia no alcanzó a ver —por ejemplo, si a la cuenta
+       ya la habían Bloqueado/Reactivado en otra pestaña, u otro Admin le
+       tocó algo, desde que se abrió esta lista de Usuarios (admin.usuarios
+       se carga una sola vez al entrar al panel, no en cada clic). Pedido de
+       Victor (14-sep-2026): un cambio de rol dejó una cuenta sin poder
+       entrar — la sospecha es justo esta, un "activo" viejo en memoria
+       reescribiendo al real. Mismo criterio abajo en Bloquear/Reactivar. */
+    await escribirNube('usuarios', uid, { rol });
     u.rol = rol;
     anotar('cambió permiso de', 'cuenta', u.correo, ROLES[anterior] ? ROLES[anterior].nombre + ' → ' + ROLES[rol].nombre : ROLES[rol].nombre);
     aviso(nombreDe(u) + ' ahora es ' + ROLES[rol].nombre + '.');
@@ -20176,7 +20186,11 @@ $('vista').addEventListener('click', async ev=>{
         : 'A <b>' + esc(nombreDe(u)) + '</b> (' + esc(u.correo) + ') se le devuelve el acceso con el permiso de <b>' + esc(ROLES[normalizarRol(u.rol)].nombre) + '</b>.',
       bloquear ? 'Sí, bloquear' : 'Sí, reactivar', async ()=>{
         try{
-          await escribirNube('usuarios', u.id, Object.assign({}, u, { activo:!bloquear, id:undefined }));
+          /* Solo "activo" en el updateMask — mismo criterio que el cambio de
+             rol de arriba: mandar toda la copia en memoria de `u` puede
+             revivir un correo/rol/teléfono ya viejo si algo más lo cambió
+             desde que se cargó esta lista. */
+          await escribirNube('usuarios', u.id, { activo: !bloquear });
           u.activo = !bloquear;
           anotar(bloquear ? 'bloqueó' : 'reactivó', 'cuenta', u.correo);
           pintarUsuarios();
