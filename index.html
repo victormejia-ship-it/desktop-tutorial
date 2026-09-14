@@ -4309,11 +4309,26 @@ function puedeReportar(){ return !HAY_NUBE || haySesion(); }
 
 /* Quién puede trabajar un reporte ya emitido: administración (owner/admin),
    analyst (ya tenía permiso general de edición desde antes de que existiera
-   este módulo, así que no se le quita nada) y el rol nuevo `tecnico`. */
-function puedeGestionarReporte(){ return puedeEditar() || rolEfectivo() === 'tecnico'; }
-function exigirGestionReporte(){
-  if(puedeGestionarReporte()) return true;
-  aviso('Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
+   este módulo, así que no se le quita nada) y el rol nuevo `tecnico` —
+   PERO solo si de verdad es uno de los técnicos asignados a ESE reporte
+   (pedido explícito de Victor, 14-sep-2026: antes cualquier cuenta de
+   técnico podía entrar a un reporte ajeno —por ejemplo desde el toggle
+   "Todos" en la lista— y editarlo, cambiarle el estatus o resolverlo
+   igual que el suyo, solo por tener el rol). Sin `rp` a la mano se niega
+   por seguridad para un técnico: todo llamado real de aquí en adelante
+   lo trae (ver vistaReporte(), modalResolverReporte() y el dispatcher). */
+function puedeGestionarReporte(rp){
+  if(puedeEditar()) return true;
+  if(rolEfectivo() !== 'tecnico') return false;
+  if(!rp) return false;
+  const uid = uidEfectivo(), nombre = nombreEfectivo();
+  return rp.tecnicos.some(t => (t.uid && t.uid === uid) || (!t.uid && t.nombre === nombre));
+}
+function exigirGestionReporte(rp){
+  if(puedeGestionarReporte(rp)) return true;
+  aviso(rp && rolEfectivo() === 'tecnico'
+    ? 'Ese reporte no está asignado a tu cuenta: solo quien lo tiene asignado o administración puede modificarlo.'
+    : 'Ese reporte ya está emitido: solo un técnico o administración puede modificarlo. Tú puedes verlo y seguir su estatus.', true);
   return false;
 }
 
@@ -12877,7 +12892,7 @@ function vistaReporte(){
      + '</div>';
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Evidencia</h3><p>Fotos del problema, tomadas desde el celular.</p></div>'
-     +   (puedeGestionarReporte()
+     +   (puedeGestionarReporte(rp)
           ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="subir-evidencia">' + ICONO.camara + 'Agregar foto</button></div>'
           : '')
      + '</div>'
@@ -12886,7 +12901,7 @@ function vistaReporte(){
               '<div class="evidencia-foto">'
               +   (e.tipo === 'hoja_servicio' ? '<span class="evidencia-tipo evidencia-tipo-hoja">Hoja de servicio</span>' : '')
               +   '<img src="' + esc(e.dataUrl) + '" alt="Evidencia" loading="lazy">'
-              +   (puedeGestionarReporte()
+              +   (puedeGestionarReporte(rp)
                    ? '<button type="button" class="evidencia-quitar" data-accion="quitar-evidencia" data-evidencia="' + esc(e.id) + '" title="Quitar esta foto">' + ICONO.basura + '</button>'
                    : '')
               + '</div>'
@@ -12945,7 +12960,7 @@ function vistaReporte(){
   /* Un reportero levanta el ticket y de ahí en fuera solo lo ve: ni edita, ni
      mueve su estatus. Eso lo deciden técnico o administración (ver
      puedeGestionarReporte()). */
-  if(puedeGestionarReporte()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-reporte">' + ICONO.lapiz + 'Editar</button>';
+  if(puedeGestionarReporte(rp)) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-reporte">' + ICONO.lapiz + 'Editar</button>';
   /* Solo aparece si de verdad hay algo que migrar — mismo respaldo manual
      que ya tiene Pólizas, por si autoMigrarFotosReporteSiHaceFalta() no
      pudo sola (por ejemplo, un 403 de Storage). */
@@ -12953,7 +12968,7 @@ function vistaReporte(){
     h += '<button type="button" class="btn btn-suave btn-mini" data-accion="migrar-fotos-reporte" '
        + 'title="Sube a Storage las fotos que todavía están guardadas dentro del documento">'
        + ICONO.respaldo + 'Migrar fotos a Storage</button>';
-  if(puedeGestionarReporte()){
+  if(puedeGestionarReporte(rp)){
     if(rp.estatus === 'abierto' || rp.estatus === 'asignado'){
       h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="en_proceso">Marcar en proceso</button>';
     }
@@ -15679,7 +15694,7 @@ async function modalTecnicosReporte(id){
 function modalResolverReporte(id){
   const rp = reportePorId(id);
   if(!rp) return;
-  if(!exigirGestionReporte()) return;
+  if(!exigirGestionReporte(rp)) return;
   /* Mismo candado que ya trae el botón (ver vistaReporte()), repetido aquí
      por si algún día alguien vuelve a ofrecer este tránsito desde otro
      lado: sin pasar primero por "en proceso" no hay manera de que alguien
@@ -24415,20 +24430,20 @@ $('vista').addEventListener('click', ev=>{
     }
     else if(a === 'ir-reportes') irAReportes();
     else if(a === 'nuevo-reporte'){ if(exigirReportar()) modalReporte(null); }
-    else if(a === 'editar-reporte'){ if(exigirGestionReporte()) modalReporte(estado.reporteId); }
+    else if(a === 'editar-reporte'){ if(exigirGestionReporte(reportePorId(estado.reporteId))) modalReporte(estado.reporteId); }
     else if(a === 'ver-reportes-cliente'){ const c = clientePorId(estado.clienteId); if(c) verReportesDe(c.nombre); }
     else if(a === 'ver-reportes-sitio') verReportesDe(acc.dataset.sitioNombre || '');
     else if(a === 'asignar-tecnicos'){ if(exigirAsignarTecnicosReporte()) modalTecnicosReporte(estado.reporteId); }
-    else if(a === 'subir-evidencia'){ if(exigirGestionReporte()) $('archivoEvidencia').click(); }
+    else if(a === 'subir-evidencia'){ if(exigirGestionReporte(reportePorId(estado.reporteId))) $('archivoEvidencia').click(); }
     else if(a === 'quitar-evidencia'){
-      if(!exigirGestionReporte()) return;
       const rp = reportePorId(estado.reporteId);
       if(!rp) return;
+      if(!exigirGestionReporte(rp)) return;
       rp.evidencias = rp.evidencias.filter(e => e.id !== acc.dataset.evidencia);
       anotarReporte(rp, 'Quitó una foto de evidencia.', 'quitó evidencia de', rp.folio);
       render(); aviso('Foto eliminada.');
     }
-    else if(a === 'resolver-reporte'){ if(exigirGestionReporte()) modalResolverReporte(estado.reporteId); }
+    else if(a === 'resolver-reporte'){ if(exigirGestionReporte(reportePorId(estado.reporteId))) modalResolverReporte(estado.reporteId); }
     else if(a === 'comentar-reporte'){
       if(!exigirReportar()) return;
       const campo = $('nuevoComentarioReporte');
@@ -24436,9 +24451,9 @@ $('vista').addEventListener('click', ev=>{
       agregarComentarioReporte(estado.reporteId, campo.value);
     }
     else if(a === 'cambiar-estatus-reporte'){
-      if(!exigirGestionReporte()) return;
       const rp = reportePorId(estado.reporteId);
       if(!rp) return;
+      if(!exigirGestionReporte(rp)) return;
       const nuevo = acc.dataset.estatus;
       /* 'resuelto' SOLO se llega por modalResolverReporte(): es el candado
          que exige el reporte de atención y la evidencia. Ningún botón debe
