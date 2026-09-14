@@ -101,8 +101,15 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
    "Log out" fuera de la pantalla, como se vio) antes que dejar que esta barra
    hiciera su propio scroll interno — que es justo lo que queremos siempre,
    no solo en celular. */
+/* .modulos-zona es el contenedor de verdad: .modulos (la fila que scrollea) y
+   el botón "Más" son DOS hermanos flex adentro, no uno metido dentro del otro
+   —ver el comentario en el HTML de por qué "Más" no puede vivir dentro de
+   .modulos. flex:1 1 auto en .modulos es lo que hace que SOLO ella se angoste
+   y scrollee; flex:0 0 auto en .mod-mas es lo que la deja siempre completa y
+   en el mismo lugar, sin importar cuánto se angoste la fila de al lado. */
+.modulos-zona{position:relative; min-width:0; display:flex; align-items:stretch; gap:4px;}
 .modulos{display:flex; gap:2px; background:var(--bg); border:1px solid var(--line);
-         border-radius:9px; padding:3px; overflow-x:auto; min-width:0;
+         border-radius:9px; padding:3px; overflow-x:auto; flex:1 1 auto; min-width:0;
          -ms-overflow-style:none; scrollbar-width:none;}
 .modulos::-webkit-scrollbar{display:none;}
 .modulos .mod{appearance:none; border:none; background:none; font:inherit; font-size:13px;
@@ -112,12 +119,22 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .modulos .mod[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
 .modulos .mod:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
-.modulos-zona{position:relative; min-width:0;}
-.mod-mas{display:flex; align-items:center; gap:3px;}
-.mod-mas svg{width:13px; height:13px; transition:transform .15s var(--ease);}
+.mod-mas{appearance:none; display:flex; align-items:center; gap:3px; flex-shrink:0;
+         background:var(--bg); border:1px solid var(--line); border-radius:9px;
+         font:inherit; font-size:13px; font-weight:600; color:var(--gray);
+         padding:0 13px; cursor:pointer; white-space:nowrap;
+         transition:color .15s var(--ease), background .15s var(--ease);}
+.mod-mas:hover{color:var(--navy);}
+.mod-mas[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave);}
+.mod-mas:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+.mod-mas svg{width:13px; height:13px; flex-shrink:0; transition:transform .15s var(--ease);}
 .mod-mas[aria-expanded="true"] svg{transform:rotate(180deg);}
-/* Mismo patrón que .notif-panel: flota encima, no empuja nada del encabezado. */
-.mas-panel{position:absolute; top:calc(100% + 6px); right:0; min-width:200px; z-index:20;
+/* Mismo patrón que .notif-panel: flota encima, no empuja nada del encabezado.
+   right:0 la ancla al borde derecho de .modulos-zona, que es justo donde vive
+   "Más" (flex:0 0 auto, último hermano) — por eso siempre queda justo debajo
+   del botón, no importa cuánto haya scrolleado la fila de al lado. */
+.mas-panel{position:absolute; top:calc(100% + 6px); right:0; min-width:200px;
+           max-width:calc(100vw - 24px); z-index:20;
            background:#fff; border:1px solid var(--line); border-radius:10px;
            box-shadow:var(--sombra-suave); padding:6px; display:flex; flex-direction:column; gap:2px;}
 .mas-panel .mas-item{appearance:none; border:none; background:none; font:inherit; font-size:13px;
@@ -137,7 +154,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
   .modulos-zona{flex:1 1 100%; order:3;}
   .modulos{gap:1px;}
   .modulos .mod{padding:5px 6px; font-size:11.5px;}
-  .mas-panel{right:auto; left:0;}
+  .mod-mas{padding:0 8px; font-size:11.5px;}
   .nube-zona{gap:6px;}
   /* Mismo criterio que ya usa .pastilla: con el icono basta, el texto ("Admin",
      "Mi cuenta", "Log out") solo hace bulto en una pantalla angosta. */
@@ -1482,7 +1499,15 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
        escondida a propósito, ver arriba) — Organigrama/Imagen/Ayuda quedaban
        invisibles de facto. Los tres, los que menos se tocan del día a día, se
        agrupan aparte bajo "Más ▾" en vez de reescribir todo el encabezado a un
-       sidebar (cambio mayor, se deja para después si hace falta). -->
+       sidebar (cambio mayor, se deja para después si hace falta).
+       El botón "Más" vive FUERA de <nav id="selectorModulo">, como hermano —no
+       como último botón adentro— a propósito: adentro del <nav> con
+       overflow-x:auto, en pantallas angostas terminaba scrolleado fuera de
+       vista igual que Organigrama/Imagen/Ayuda antes, y el panel (anclado a
+       .modulos-zona, no al botón) se quedaba flotando sin nada debajo que lo
+       sostuviera visualmente. Aquí, con flex:0 0 auto, "Más" siempre es
+       visible pegado al borde derecho; lo único que se angosta y scrollea es
+       la fila de arriba (flex:1 1 auto; min-width:0). -->
   <div class="modulos-zona" id="zonaModulos">
     <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
       <button type="button" class="mod" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
@@ -1497,12 +1522,13 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
       <button type="button" class="mod" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
       <button type="button" class="mod" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
-      <button type="button" class="mod mod-mas" id="btnMasModulos" aria-haspopup="true" aria-expanded="false" aria-selected="false">Más <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
     </nav>
-    <!-- Fuera de #selectorModulo a propósito: el <nav> tiene overflow-x:auto, y eso
-         obliga a overflow-y:auto también (regla del navegador cuando un solo eje se
-         fija), así que un panel absoluto colgado DENTRO del nav se recortaría en vez
-         de flotar encima. Vive como hermano, posicionado contra .modulos-zona. -->
+    <button type="button" class="mod-mas" id="btnMasModulos" aria-haspopup="true" aria-expanded="false" aria-selected="false">Más <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    <!-- Fuera de #selectorModulo a propósito (ver comentario arriba): el <nav>
+         tiene overflow-x:auto, y eso obliga a overflow-y:auto también (regla
+         del navegador cuando un solo eje se fija), así que un panel absoluto
+         colgado DENTRO del nav se recortaría en vez de flotar encima. Vive
+         como hermano, posicionado contra .modulos-zona. -->
     <div class="mas-panel" id="panelMasModulos" hidden>
       <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
       <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
@@ -26488,15 +26514,14 @@ $('btnInicio').addEventListener('click', ()=>{ irAInicio(); });
 
 /* El selector de módulo: delegado en el <nav>, que también está fuera de #vista. */
 $('selectorModulo').addEventListener('click', ev=>{
-  if(ev.target.closest('#btnMasModulos')){
-    if(masModulosAbierto) cerrarPanelMasModulos(); else abrirPanelMasModulos();
-    return;
-  }
   const b = ev.target.closest('[data-modulo]');
   if(b) irAModulo(b.dataset.modulo);
 });
-/* El panel de "Más" vive fuera de #selectorModulo (ver comentario en el HTML),
-   así que necesita su propio delegado — y cerrarse en cuanto se elige algo. */
+/* "Más" y su panel viven fuera de #selectorModulo (ver comentario en el HTML),
+   así que necesitan su propio wiring. */
+$('btnMasModulos').addEventListener('click', ()=>{
+  if(masModulosAbierto) cerrarPanelMasModulos(); else abrirPanelMasModulos();
+});
 $('panelMasModulos').addEventListener('click', ev=>{
   const b = ev.target.closest('[data-modulo]');
   if(!b) return;
