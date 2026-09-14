@@ -10949,8 +10949,8 @@ const TEMAS_AYUDA = [
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'Usa <b>Asignar</b> (Owner/Admin/Analyst) para ponerle uno o varios técnicos — si hay cuentas en la nube, eliges de una lista con checkboxes; si no, escribes nombres separados por comas. Asignar el primer técnico pasa el estatus de "abierto" a "asignado" solo, y notifica solo a quien se agrega de nuevo.',
-        'Usa <b>Marcar en proceso</b> cuando ya se está atendiendo.',
-        'Para cerrar el ciclo usa <b>Marcar resuelto</b>: se abre un formulario propio que EXIGE dos cosas — un texto de "Reporte de atención" (qué se encontró y qué se hizo) y una foto de la <b>hoja de servicio</b> (el formato verde firmado y sellado por el cliente). Las "otras fotos" siguen siendo opcionales. No hay forma de saltarse este paso desde ningún otro botón.',
+        'Usa <b>Marcar en proceso</b> cuando ya se está atendiendo — es un paso obligatorio: el botón "Marcar resuelto" ni siquiera aparece desde "Abierto" o "Asignado", solo desde "En proceso". Así nadie marca resuelto algo que nadie ha atendido todavía.',
+        'Para cerrar el ciclo usa <b>Marcar resuelto</b>: se abre un formulario propio que EXIGE dos cosas — un texto de "Reporte de atención" (qué se encontró y qué se hizo) y una foto de la <b>hoja de servicio</b> (el formato verde firmado y sellado por el cliente). Las "otras fotos" siguen siendo opcionales. No hay forma de saltarse ninguno de estos pasos desde ningún otro botón.',
         'Desde "Resuelto" puedes <b>Reabrir</b> (regresa a "en proceso") o <b>Cerrar reporte</b> (estatus final).',
         'Puedes <b>Cancelar</b> un reporte que ya no aplica, y luego <b>Reabrir</b>lo si hiciera falta.',
         'Sube o quita fotos de evidencia sueltas en cualquier momento desde el detalle, sin pasar por el formulario de resolución.',
@@ -12957,7 +12957,12 @@ function vistaReporte(){
     if(rp.estatus === 'abierto' || rp.estatus === 'asignado'){
       h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-reporte" data-estatus="en_proceso">Marcar en proceso</button>';
     }
-    if(rp.estatus === 'asignado' || rp.estatus === 'en_proceso'){
+    /* Solo desde "en proceso": si se dejara desde "asignado" también, se
+       podría marcar resuelto un reporte que nadie ha atendido todavía —
+       justo el salto de flujo que se quiso cerrar (pedido de Victor,
+       14-sep-2026). "Marcar en proceso" primero, luego "Marcar resuelto";
+       modalResolverReporte() vuelve a exigir esto mismo por si acaso. */
+    if(rp.estatus === 'en_proceso'){
       h += '<button type="button" class="btn btn-primario btn-mini" data-accion="resolver-reporte">' + ICONO.cheque + 'Marcar resuelto</button>';
     }
     if(rp.estatus === 'resuelto'){
@@ -15675,6 +15680,15 @@ function modalResolverReporte(id){
   const rp = reportePorId(id);
   if(!rp) return;
   if(!exigirGestionReporte()) return;
+  /* Mismo candado que ya trae el botón (ver vistaReporte()), repetido aquí
+     por si algún día alguien vuelve a ofrecer este tránsito desde otro
+     lado: sin pasar primero por "en proceso" no hay manera de que alguien
+     lo vea de verdad como "ya lo estoy atendiendo", así que tampoco se
+     puede saltar directo a resuelto. */
+  if(rp.estatus !== 'en_proceso'){
+    aviso('Primero hay que marcar el reporte "en proceso" — así se sabe que alguien ya lo está atendiendo — antes de poder marcarlo resuelto.', true);
+    return;
+  }
 
   let evidenciasTmp = rp.evidencias.slice();
   const hojaServicio = () => evidenciasTmp.filter(e => e.tipo === 'hoja_servicio');
