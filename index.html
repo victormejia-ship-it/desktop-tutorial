@@ -2457,14 +2457,25 @@ function guardarLocal(){
     borrarSnapshotIndexedDB();
     return;
   }catch(e){}
-  /* Ya no cupo con las fotos/PDFs adentro. Se guarda una copia rápida SIN
+  /* Ya no cupo con las fotos/PDFs adentro. Se intenta una copia rápida SIN
      esas imágenes (folios, nombres, hallazgos y totales siguen disponibles
-     de inmediato sin internet) y, aparte, una copia COMPLETA en IndexedDB
-     —con cupo real para cientos de MB— que se recupera sola la próxima vez
-     que la página abra sin conexión. */
+     de inmediato sin internet) y, SIEMPRE —le haya cabido o no esa copia
+     rápida—, se manda además una copia COMPLETA a IndexedDB, que tiene
+     cupo real para cientos de MB (mucho más que los ~5-10 MB típicos de
+     localStorage). Antes, si ni la copia rápida cabía en localStorage, la
+     función se rendía justo ahí y JAMÁS llegaba a intentar IndexedDB —el
+     aparato se quedaba SIN ningún respaldo sin conexión, aunque IndexedDB
+     tuviera espacio de sobra— y encima avisaba de un problema que ese
+     respaldo grande hubiera resuelto solo. Reportado por Victor
+     (14-sep-2026) con el aviso disparándose en un aparato real. */
+  let livianaCupo = true;
   try{
     localStorage.setItem(LLAVE, JSON.stringify(quitarDataUrlsPesados(datos)));
   }catch(e2){
+    livianaCupo = false;
+    console.warn('guardarLocal(): sin espacio ni para la copia liviana en localStorage; se intenta igual el respaldo grande en IndexedDB.', e2);
+  }
+  guardarSnapshotIndexedDB(datos).catch((e3)=>{
     /* Esto es solo la copia de respaldo sin internet DE ESTE APARATO — el
        cambio ya se está subiendo a la nube igual. No hay nada que el
        personal de campo pueda hacer al respecto (no administra el
@@ -2473,24 +2484,24 @@ function guardarLocal(){
        decidir si vale la pena hacer algo; a los demás roles ni les sale
        el aviso, solo queda en la consola por si algún día hay que
        investigar. */
-    if(esAdmin()){
-      if(Date.now() - avisoEspacioLocalUltimo > PAUSA_AVISO_ESPACIO_MS){
-        avisoEspacioLocalUltimo = Date.now();
-        aviso('Este aparato ya no tiene espacio para guardar copia local. Tu cambio SÍ se está subiendo a la nube, no se pierde nada.', true);
-      }
-    }else{
-      console.warn('guardarLocal(): sin espacio ni para la copia liviana.', e2);
+    if(!esAdmin()){
+      console.warn('guardarLocal(): sin espacio para el respaldo grande (IndexedDB).', e3);
+      return;
     }
-    return;
-  }
-  guardarSnapshotIndexedDB(datos).catch((e3)=>{
-    if(esAdmin()){
+    if(livianaCupo){
+      /* La copia liviana (sin fotos) sí quedó en localStorage — lo único
+         que faltó fue el respaldo con fotos/PDFs. Aviso menos grave. */
       if(Date.now() - avisoEspacioGrandeUltimo > PAUSA_AVISO_ESPACIO_MS){
         avisoEspacioGrandeUltimo = Date.now();
         aviso('Este aparato ya no tiene espacio para fotos/PDFs sin conexión. Tu cambio sigue subiendo a la nube normal.', true);
       }
     }else{
-      console.warn('guardarLocal(): sin espacio para el respaldo grande (IndexedDB).', e3);
+      /* Peor caso real: ni la copia liviana ni el respaldo grande cupieron
+         en ningún lado de este aparato. */
+      if(Date.now() - avisoEspacioLocalUltimo > PAUSA_AVISO_ESPACIO_MS){
+        avisoEspacioLocalUltimo = Date.now();
+        aviso('Este aparato ya no tiene espacio para guardar ningún respaldo sin conexión. Tu cambio SÍ se está subiendo a la nube, no se pierde nada.', true);
+      }
     }
   });
 }
