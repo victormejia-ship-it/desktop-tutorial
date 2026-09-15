@@ -247,6 +247,12 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .kpi .k-label{font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--gray); font-weight:600; line-height:1.35; min-height:2.7em;}
 .kpi .k-valor{font-size:24px; font-weight:700; color:var(--navy); margin-top:5px; line-height:1.1;}
 .kpi .k-pie{font-size:11px; color:var(--gray); margin-top:3px;}
+/* Tarjeta de puro texto (ej. nombre de sitio/dirección) en vez de un número:
+   a 24px un nombre largo envuelve en 3-4 líneas y estira toda la fila a esa
+   altura para que las tarjetas vecinas la igualen. Más chica y con más
+   interlineado, sigue leyéndose bien envuelta en dos líneas sin desbalancear
+   el resto. */
+.kpi.k-texto .k-valor{font-size:15px; line-height:1.3; margin-top:6px;}
 /* Tarjeta de cumplimiento: el anillo de progreso al lado del desglose, en
    vez del número grande de las demás tarjetas — no le hace falta un k-valor
    de 24px porque el % ya va dentro del propio anillo. */
@@ -1317,6 +1323,14 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 .guia-roles{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--gray); background:var(--neutro-suave); border-radius:20px; padding:5px 12px; margin:0 0 16px;}
 
 .rodillo{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+/* Para una tabla larga metida en un .bloque (ej. los conceptos importados de
+   Excel de un proyecto de Imagen/Aperturas, 60+ renglones): sin esto, cada
+   fila se apilaba una tras otra y la página entera se volvía un scroll
+   kilométrico antes de llegar a lo que sigue (Imágenes, los botones). Con
+   alto limitado y el encabezado fijo, se ve y se hojea como cualquier otra
+   lista larga de la app, sin perder ninguna fila. */
+.rodillo-alto{max-height:420px; overflow-y:auto; border:1px solid var(--line); border-radius:10px;}
+.rodillo-alto table.tabla thead th{position:sticky; top:0; background:#fff; z-index:1;}
 /* La tabla PRINCIPAL de un módulo (Pólizas, Reportes, Cotizaciones, Activos…)
    se sale del ancho fijo de .wrap (1180px) y usa todo el ancho de la ventana:
    en monitores anchos, una tabla de 12+ columnas (ej. tablaPolizas(),
@@ -17599,12 +17613,27 @@ function vistaProyectoImagen(){
      + '</div>';
 
   const duracionDias = (p.fechaEntrada && p.fechaSalida) ? diasEntre(p.fechaEntrada, p.fechaSalida) + 1 : null;
+  /* Entrada/salida/duración iban en TRES tarjetas separadas — con las ocho
+     de la fila completa, cada una se quedaba sin ancho: los montos salían
+     recortados ("$352,200." sin el último dígito) y un nombre de sitio
+     largo envolvía en 4 líneas, estirando toda la fila a esa altura. Se
+     concentran en una sola "Cronograma de obra" (valor corto = duración,
+     pie = el rango de fechas), mismo patrón que "Vigencia" en Pólizas: la
+     tarjeta grande es el número corto, el detalle va chico abajo. */
+  let cronoValor, cronoPie;
+  if(duracionDias){
+    cronoValor = duracionDias + ' ' + (duracionDias===1?'día':'días');
+    cronoPie = fmtFecha(p.fechaEntrada) + ' → ' + fmtFecha(p.fechaSalida);
+  }else if(p.fechaEntrada || p.fechaSalida){
+    cronoValor = 'Sin definir';
+    cronoPie = p.fechaEntrada ? ('Entrada: ' + fmtFecha(p.fechaEntrada)) : ('Salida: ' + fmtFecha(p.fechaSalida));
+  }else{
+    cronoValor = 'Sin definir'; cronoPie = '';
+  }
   h += '<div class="kpis">'
-     + tarjetaKpi('Sitio / ubicación', esc(p.sitioNombre || 'Sin especificar'), '')
+     + tarjetaKpi('Sitio / ubicación', esc(p.sitioNombre || 'Sin especificar'), '', 'k-texto')
      + tarjetaKpi('Fecha de apertura', p.fechaObjetivo ? fmtFecha(p.fechaObjetivo) : 'Sin definir', '')
-     + tarjetaKpi('Entrada al sitio', p.fechaEntrada ? fmtFecha(p.fechaEntrada) : 'Sin definir', '')
-     + tarjetaKpi('Salida / fin de obra', p.fechaSalida ? fmtFecha(p.fechaSalida) : 'Sin definir', '')
-     + tarjetaKpi('Duración en sitio', duracionDias ? (duracionDias + ' ' + (duracionDias===1?'día':'días')) : 'Sin definir', '')
+     + tarjetaKpi('Cronograma de obra', cronoValor, cronoPie)
      + tarjetaKpi('Monto de inversión total', dineroCent(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
      + tarjetaKpi('Costo de materiales', dineroCent(desglose.materiales), '')
      + tarjetaKpi('Costo de mano de obra', dineroCent(desglose.manoObra), '')
@@ -17627,7 +17656,13 @@ function vistaProyectoImagen(){
   if(!p.conceptos.length){
     h += '<p class="pista" style="margin:0">Todavía no se ha agregado ningún concepto.</p>';
   }else{
-    h += '<div class="rodillo"><table class="tabla"><thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
+    /* Con pocos conceptos la tabla respira sola; con muchos (importados de
+       Excel, ej. 60+ renglones) volvía CADA proyecto en una hoja kilométrica
+       de puro scroll vertical antes de llegar a Imágenes o a los botones de
+       abajo. Pasado el umbral, se limita el alto y el encabezado se queda
+       fijo arriba (rodillo-alto) — la tabla completa sigue ahí, nada más se
+       ve por partes, como cualquier lista larga del resto de la app. */
+    h += '<div class="rodillo' + (p.conceptos.length > 12 ? ' rodillo-alto' : '') + '"><table class="tabla"><thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
        + p.conceptos.map(c => '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
            + '<td>' + dineroCent(c.precioUnitario) + '</td><td><b>' + dineroCent(c.cantidad * c.precioUnitario) + '</b></td></tr>').join('')
        + '</tbody></table></div>'
