@@ -219,22 +219,26 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
    sobraba nada más UNA (como "Vigencia" en una póliza con 7 tarjetas),
    quedaba sola, desfasada, sin nada contra qué emparejar su alto. Pedido
    explícito de Victor (15-sep-2026): que nunca se partan en dos filas.
-   Mismo criterio que ya usa el selector de módulo del encabezado
-   (#selectorModulo): en vez de envolver, la fila hace su propio scroll
-   horizontal —con la barra escondida— y cada tarjeta conserva su ancho
-   mínimo en vez de aplastarse. */
+
+   Primer intento: flex-shrink:0 con mínimo de 168px, empujando el
+   desborde a un scroll horizontal (mismo criterio que #selectorModulo en
+   el encabezado). Se REVIRTIÓ (mismo día): el ancho de lectura del propio
+   .wrap (max-width:1180px, ~1132px de contenido) es MÁS ANGOSTO que 7
+   tarjetas de 168px —1248px—, así que ESA fila en particular siempre
+   arrancaba parcialmente scrolleada con la barra escondida: sin ninguna
+   pista visual de que había más, se veía como una tarjeta cortada a la
+   mitad, no como una fila que se puede deslizar.
+
+   Ahora sí se dejan achicar (flex-shrink:1, mínimo más chico: 130px en vez
+   de 168px): 7 tarjetas de 130px SÍ caben en el ancho real de .wrap sin
+   necesitar scroll ni apachurrarse ilegible. El scroll horizontal se deja
+   nada más como último recurso, para cuando de plano no quepan ni
+   achicadas (una pantalla muy angosta con muchas tarjetas). */
 .kpis{display:flex; flex-wrap:nowrap; overflow-x:auto; gap:12px; margin-bottom:22px;
       -ms-overflow-style:none; scrollbar-width:none;}
 .kpis::-webkit-scrollbar{display:none;}
-/* flex-shrink:0 es lo que de verdad evita el envolvido: con shrink normal
-   (1), el navegador aplasta las tarjetas para que quepan ANTES de dejar
-   que el renglón desborde y scrollee —lo mismo se busca evitar. Con 0
-   nunca bajan de 168px, así que la fila desborda y scrollea en vez de
-   apachurrarse o partirse en dos. flex-grow:1 sigue dejando que se
-   repartan el ancho sobrante cuando sí caben todas (igual que el
-   minmax(...,1fr) de antes). */
 .kpi{background:#fff; border:1px solid var(--line); border-radius:14px; padding:15px 16px; position:relative; overflow:hidden; box-shadow:var(--sombra-suave);
-     flex:1 0 168px; min-width:168px;}
+     flex:1 1 130px; min-width:130px;}
 .kpi::before{content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--accent);}
 .kpi.k-ok::before{background:var(--ok);} .kpi.k-alerta::before{background:var(--alerta);} .kpi.k-error::before{background:var(--error);}
 /* Reserva dos renglones para el título aunque quepa en uno: así los números
