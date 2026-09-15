@@ -2259,21 +2259,23 @@ function aOracion(texto){
 }
 
 /* Un renglón de la lista de precios. Mismo tono que los otros normalizadores:
-   esta función es el contrato. El precio se limita al centavo por la misma razón
-   que en las partidas — un precio con milésimas no se puede facturar. */
+   esta función es el contrato. El precio se limita al peso entero (pedido de
+   Victor: ya no se manejan centavos en ningún costo ni precio de venta) por
+   la misma razón que en las partidas — un precio con fracciones no se puede
+   facturar ni cobrar. */
 function normalizarEquipo(e){
   return {
     id: (e.id || '').trim() || nuevoId(),
     concepto: aOracion((e.concepto || '').trim()),
-    precio: Math.max(0, Math.round((Number(e.precio) || 0) * 100) / 100),
+    precio: Math.max(0, Math.round(Number(e.precio) || 0)),
     frecuencia: Math.max(1, Math.min(MESES_POLIZA, parseInt(e.frecuencia,10) || 1)),
     descripcion: aOracion((e.descripcion || '').trim()),
     /* Lo que de verdad cuesta dar ese servicio, para poder comparar precio vs
        costo vs margen — antes solo existía el precio de venta. Se captura
        insumos y mano de obra por separado, como en la hoja de costos real; el
        total con indirectos se deriva (ver costoTotalEquipo), nunca se guarda. */
-    costoInsumos: Math.max(0, Math.round((Number(e.costoInsumos) || 0) * 100) / 100),
-    costoManoObra: Math.max(0, Math.round((Number(e.costoManoObra) || 0) * 100) / 100),
+    costoInsumos: Math.max(0, Math.round(Number(e.costoInsumos) || 0)),
+    costoManoObra: Math.max(0, Math.round(Number(e.costoManoObra) || 0)),
     /* Un equipo que ya no se vende se apaga en vez de borrarse: las pólizas
        viejas siguen apuntando a su id y tienen que poder resolver su texto. */
     activo: e.activo !== false,
@@ -2300,7 +2302,7 @@ const ETIQUETA_PONDERACION = { 1:'Muy baja', 2:'Baja', 3:'Media', 4:'Alta', 5:'C
 const COSTO_INDIRECTO_PCT = 10;
 function costoTotalEquipo(e){
   const base = (e && e.costoInsumos || 0) + (e && e.costoManoObra || 0);
-  return Math.round(base * (1 + COSTO_INDIRECTO_PCT / 100) * 100) / 100;
+  return Math.round(base * (1 + COSTO_INDIRECTO_PCT / 100));
 }
 
 /* Precio y costo con los que se sugiere un equipo AL AGREGARLO a una póliza
@@ -2577,8 +2579,8 @@ function normalizarCliente(c){
     preciosGrupo: (c.preciosGrupo && typeof c.preciosGrupo === 'object' && !Array.isArray(c.preciosGrupo))
       ? Object.fromEntries(Object.entries(c.preciosGrupo)
           .map(([id, v]) => [id, {
-            precioUnitario: Math.max(0, Math.round((Number(v && v.precioUnitario) || 0) * 100) / 100),
-            costoUnitario: Math.max(0, Math.round((Number(v && v.costoUnitario) || 0) * 100) / 100)
+            precioUnitario: Math.max(0, Math.round(Number(v && v.precioUnitario) || 0)),
+            costoUnitario: Math.max(0, Math.round(Number(v && v.costoUnitario) || 0))
           }])
           .filter(([,v]) => v.precioUnitario || v.costoUnitario))
       : {}
@@ -4630,7 +4632,7 @@ function normalizarAbonoProveedor(a){
   return {
     id: (a && a.id) || nuevoId(),
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fecha) ? a.fecha : hoyISO(),
-    monto: Math.max(0, Math.round((Number(a && a.monto) || 0) * 100) / 100),
+    monto: Math.max(0, Math.round(Number(a && a.monto) || 0)),
     metodo: (a && a.metodo ? String(a.metodo) : '').trim(),
     referencia: (a && a.referencia ? String(a.referencia) : '').trim()
   };
@@ -4659,7 +4661,7 @@ function normalizarGastoProveedor(g){
     concepto: aOracion((g && g.concepto ? String(g.concepto) : '').trim()),
     /* Número de factura o de cotización del PROVEEDOR, no un folio propio. */
     folio: (g && g.folio ? String(g.folio) : '').trim(),
-    monto: Math.max(0, Math.round((Number(g && g.monto) || 0) * 100) / 100),
+    monto: Math.max(0, Math.round(Number(g && g.monto) || 0)),
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(g && g.fecha) ? g.fecha : hoyISO(),
     fechaVencimiento: /^\d{4}-\d{2}-\d{2}$/.test(g && g.fechaVencimiento) ? g.fechaVencimiento : '',
     estatus: ESTATUS_GASTO_PROVEEDOR.includes(g && g.estatus) ? g.estatus : 'cotizacion',
@@ -4677,7 +4679,7 @@ function normalizarGastoProveedor(g){
    criterio que calcularPoliza(): nada de esto se guarda, se deriva. */
 function calcularGastoProveedor(g){
   const totalAbonado = g.abonos.reduce((t,a)=> t + a.monto, 0);
-  const saldo = Math.max(0, Math.round((g.monto - totalAbonado) * 100) / 100);
+  const saldo = Math.max(0, Math.round(g.monto - totalAbonado));
   const pagado = g.estatus === 'pagado' || (g.estatus === 'por-pagar' && saldo <= 0);
   const diasParaVencer = g.fechaVencimiento ? diasEntre(hoyISO(), g.fechaVencimiento) : null;
   const vencido = g.estatus === 'por-pagar' && !pagado && diasParaVencer !== null && diasParaVencer < 0;
@@ -4734,7 +4736,7 @@ function normalizarMovimientoRefaccion(m){
     /* Solo tiene sentido en una entrada: lo que de verdad costó ESA compra,
        que puede ser distinto del costo de referencia del catálogo si el
        precio del proveedor cambió. En una salida se deja vacío. */
-    costoUnitario: tipo === 'entrada' ? Math.max(0, Math.round((Number(m && m.costoUnitario) || 0) * 100) / 100) : 0,
+    costoUnitario: tipo === 'entrada' ? Math.max(0, Math.round(Number(m && m.costoUnitario) || 0)) : 0,
     /* Solo en entrada: liga opcional al gasto de proveedor (factura) que la
        trajo, para no volver a teclear folio/fecha si ya se capturó allá. */
     gastoProveedorId: tipo === 'entrada' ? (m && m.gastoProveedorId ? String(m.gastoProveedorId) : '').trim() : '',
@@ -4758,7 +4760,7 @@ function normalizarRefaccion(r){
     /* Costo de REFERENCIA (el más reciente conocido) — cada entrada puede
        traer el suyo propio si ese día costó distinto, ver
        normalizarMovimientoRefaccion. */
-    costo: Math.max(0, Math.round((Number(r && r.costo) || 0) * 100) / 100),
+    costo: Math.max(0, Math.round(Number(r && r.costo) || 0)),
     proveedorId: (r && r.proveedorId ? String(r.proveedorId) : '').trim(),
     /* Copiado al guardar, mismo criterio que proveedorNombre en un gasto. */
     proveedorNombre: (r && r.proveedorNombre ? String(r.proveedorNombre) : '').trim(),
@@ -5327,7 +5329,7 @@ function normalizarHistorialActivo(h){
     cuando: (h && h.cuando) || new Date().toISOString(),
     quien: (h && h.quien ? String(h.quien) : '').trim(),
     texto: (h && h.texto ? String(h.texto) : '').trim(),
-    costo: Math.max(0, Math.round((Number(h && h.costo) || 0) * 100) / 100)
+    costo: Math.max(0, Math.round(Number(h && h.costo) || 0))
   };
 }
 
@@ -5387,7 +5389,7 @@ function normalizarActivo(a){
     condicion: CONDICION_ACTIVO.includes(a && a.condicion) ? a.condicion : 'buena',
     proveedor: (a && a.proveedor ? String(a.proveedor) : '').trim(),
     fechaCompra: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fechaCompra) ? a.fechaCompra : '',
-    costoCompra: Math.max(0, Math.round((Number(a && a.costoCompra) || 0) * 100) / 100),
+    costoCompra: Math.max(0, Math.round(Number(a && a.costoCompra) || 0)),
     garantiaHasta: /^\d{4}-\d{2}-\d{2}$/.test(a && a.garantiaHasta) ? a.garantiaHasta : '',
     /* Mantenimiento programado (opcional): con una frecuencia capturada,
        "Registrar mantenimiento" reprograma sola la siguiente fecha —igual
@@ -7812,17 +7814,17 @@ function normalizarPartida(x){
     /* Solo se guarda si alguien la editó a mano. Vacía = se usa la del catálogo. */
     descripcion: aOracion((x.descripcion || '').trim()),
     cantidad,
-    /* Al centavo. Un precio con más decimales no se puede facturar, y además
+    /* Al peso entero. Un precio con decimales no se puede facturar, y además
        rompería la promesa de que la suma de las casillas de cobro da el anual
-       exacto: si el precio trae milésimas, el anual las trae y el reparto en
-       centavos ya no le cuadra. Redondear aquí es idempotente. */
-    precioUnitario: Math.max(0, Math.round((Number(x.precioUnitario) || 0) * 100) / 100),
+       exacto: si el precio trae fracciones, el anual las trae y el reparto en
+       pesos enteros ya no le cuadra. Redondear aquí es idempotente. */
+    precioUnitario: Math.max(0, Math.round(Number(x.precioUnitario) || 0)),
     /* Lo que cuesta ESTE renglón, no el precio de venta. Se sugiere desde el
        catálogo al agregar el equipo (ver costoTotalEquipo) y se puede ajustar
        aquí igual que el precio, por si el costo real de este cliente/sitio es
        distinto del estándar. Es lo que permite comparar costo vs precio vs
        margen por póliza — ver calcularPoliza(). */
-    costoUnitario: Math.max(0, Math.round((Number(x.costoUnitario) || 0) * 100) / 100),
+    costoUnitario: Math.max(0, Math.round(Number(x.costoUnitario) || 0)),
     frecuencia,
     /* Solo para control interno del equipo (no sale en la cotización impresa
        al cliente): modelo y número de serie del equipo físico, y un código
@@ -8079,40 +8081,33 @@ const totalRenglon = x => x.precioUnitario * x.cantidad * x.frecuencia;
 /* Mismo cálculo, del lado del costo — para el análisis de margen. */
 const costoTotalRenglon = x => (x.costoUnitario || 0) * x.cantidad * x.frecuencia;
 
-/* ---------------------------- Centavos ----------------------------
-   El dinero de las pólizas se reparte en CENTAVOS ENTEROS, no en pesos con
-   decimales flotantes.
+/* ---------------------------- Reparto exacto ----------------------------
+   El dinero de las pólizas se reparte en PESOS ENTEROS (pedido de Victor:
+   ya no se manejan centavos en ningún costo ni precio de venta), no en
+   pesos con decimales flotantes.
 
-   Por qué: 683,134 ÷ 12 = 56,927.8333… Si cada casilla guardara ese número y se
-   mostrara redondeado, doce casillas de $56,927.83 sumarían $683,133.96 — cuatro
-   centavos menos que el anual. Y si se mostrara en pesos cerrados, doce de
-   $56,928 darían $683,136: dos pesos DE MÁS. Es exactamente el "los totales no
-   cuadran" que este módulo existe para matar, nada más que en chiquito y
-   acumulándose casilla por casilla.
+   Por qué sigue haciendo falta un reparto y no una simple división: 683,134 ÷ 12 =
+   56,927.8333… Si cada casilla se redondeara suelta, doce casillas de $56,928
+   sumarían $683,136 — dos pesos DE MÁS que el anual; con once en $56,928 y una
+   en $56,927 sobraría o faltaría un peso según cuál se ajuste. Es exactamente
+   el "los totales no cuadran" que este módulo existe para matar, nada más que
+   en chiquito y acumulándose casilla por casilla.
 
-   La regla: se reparte en enteros de centavo y el residuo se le carga a la
-   ÚLTIMA casilla. Así la suma da el anual al centavo, siempre. Se escoge la
-   última y no la primera porque la primera es la que se negocia y se cita; unos
-   centavos en el mes 12 no los mira nadie. */
-const aCentavos  = n => Math.round((Number(n) || 0) * 100);
-const deCentavos = c => c / 100;
+   La regla: se reparte en pesos enteros y el residuo se le carga a la ÚLTIMA
+   casilla. Así la suma da el anual exacto, siempre. Se escoge la última y no
+   la primera porque la primera es la que se negocia y se cita; un peso de más
+   o de menos en el mes 12 no lo mira nadie. */
+const aEnteros  = n => Math.round(Number(n) || 0);
+const deEnteros = c => c;
 
-/* Igual que dinero(), pero con centavos siempre. Las mensualidades de póliza
-   casi nunca son redondas, y el documento impreso también las trae con dos
-   decimales. dinero() se queda como está: es el de Forpass. */
-function dineroCent(n){
-  return '$' + (Number(n) || 0).toLocaleString('en-US',
-    { minimumFractionDigits:2, maximumFractionDigits:2 });
-}
-
-/* Reparte un total en n casillas de centavos enteros. La suma de lo que
+/* Reparte un total en n casillas de pesos enteros. La suma de lo que
    devuelve es SIEMPRE exactamente el total: es la única forma de que la
    cobranza cuadre contra el precio anual. */
-function repartirCentavos(totalCent, n){
+function repartirEnteros(total, n){
   if(n <= 0) return [];
-  const cuota = Math.floor(totalCent / n);
+  const cuota = Math.floor(total / n);
   const partes = Array.from({length:n}, ()=> cuota);
-  partes[n - 1] += totalCent - cuota * n;   /* el residuo, a la última */
+  partes[n - 1] += total - cuota * n;   /* el residuo, a la última */
   return partes;
 }
 
@@ -8240,7 +8235,7 @@ function calcularPoliza(p){
   const enAlcance = p.partidas.map(x => x.alcance !== 'cliente');
   /* El SUBTOTAL es la suma de los renglones a precio de venta QUE SÍ CUENTAN. */
   const subtotal = totales.reduce((t,n,i)=> t + (enAlcance[i] ? n : 0), 0);
-  const subtotalCent = aCentavos(subtotal);
+  const subtotalCent = aEnteros(subtotal);
   const separadoAnual = totales.reduce((t,n,i)=> t + (enAlcance[i] ? 0 : n), 0);
   const separadoCant = enAlcance.filter(x => !x).length;
 
@@ -8250,34 +8245,34 @@ function calcularPoliza(p){
      decisión comercial y no cambia lo que de verdad cuesta operar la
      póliza. */
   const costoAnual = costos.reduce((t,n,i)=> t + (enAlcance[i] ? n : 0), 0);
-  const costoAnualCent = aCentavos(costoAnual);
+  const costoAnualCent = aEnteros(costoAnual);
 
   /* La BASE sobre la que se aplica el % de la póliza (descuento o aumento,
      ver normalizarPoliza). Para 'cliente' es el precio de venta de siempre
      —el subtotal—; para 'interno' no tiene caso cargarle a Plato Express el
      precio de venta al público que nunca le cobramos: ahí la base es lo que
      de verdad cuesta el servicio, y el % es el cargo administrativo que se
-     le suma encima. Se redondea a centavos enteros para que el documento y
+     le suma encima. Se redondea a pesos enteros para que el documento y
      la cobranza partan del mismo número exacto. */
   const esInterno = p.cargoA === 'interno';
   const baseCent = esInterno ? costoAnualCent : subtotalCent;
-  const base = deCentavos(baseCent);
+  const base = deEnteros(baseCent);
   const etiquetaBase = esInterno ? 'Costo anual' : 'Subtotal';
 
   const descuento = p.descuento || 0;
   const descuentoCent = descuento ? Math.round(baseCent * descuento / 100) : 0;
   const precioAnualCent = baseCent - descuentoCent;
-  const precioAnual = deCentavos(precioAnualCent);
+  const precioAnual = deEnteros(precioAnualCent);
   /* Entre 12 fijo, no entre una variable: la póliza es anual por contrato.
      Este es el mensual NOMINAL, el que se imprime en el documento. Ojo: por
-     doce no siempre da el anual —683,134 ÷ 12 son 56,927.83 y por doce son
-     683,133.96—. El calendario de cobro real vive en montos[], que sí cuadra
-     al centavo. Un solo número mensual nunca puede cuadrar; doce casillas sí. */
+     doce no siempre da el anual —683,134 ÷ 12 son 56,928 y por doce son
+     683,136—. El calendario de cobro real vive en montos[], que sí cuadra
+     exacto. Un solo número mensual nunca puede cuadrar; doce casillas sí. */
   const cuotaCent = Math.floor(precioAnualCent / MESES_POLIZA);
-  const precioMensual = deCentavos(cuotaCent);
+  const precioMensual = deEnteros(cuotaCent);
 
   const utilidadCent = precioAnualCent - costoAnualCent;
-  const utilidadAnual = deCentavos(utilidadCent);
+  const utilidadAnual = deEnteros(utilidadCent);
   const margenPct = precioAnualCent ? (utilidadCent / precioAnualCent * 100) : 0;
 
   /* Precio "completo": el mismo cálculo de arriba pero SIN separar lo que es
@@ -8285,19 +8280,19 @@ function calcularPoliza(p){
      absorbiera también esos equipos. Es un dato de referencia (¿cuánto
      podríamos vender si el cliente nos cede todo el alcance?), nunca lo que
      de verdad se cobra: precioAnual arriba sigue siendo el único número real. */
-  const separadoAnualCent = aCentavos(separadoAnual);
-  const costoAnualCompletoCent = aCentavos(costos.reduce((t,n)=> t + n, 0));
+  const separadoAnualCent = aEnteros(separadoAnual);
+  const costoAnualCompletoCent = aEnteros(costos.reduce((t,n)=> t + n, 0));
   const baseCompletaCent = esInterno ? costoAnualCompletoCent : (subtotalCent + separadoAnualCent);
   const descuentoCompletoCent = descuento ? Math.round(baseCompletaCent * descuento / 100) : 0;
   const precioAnualCompletoCent = baseCompletaCent - descuentoCompletoCent;
-  const precioAnualCompleto = deCentavos(precioAnualCompletoCent);
-  const precioMensualCompleto = deCentavos(Math.floor(precioAnualCompletoCent / MESES_POLIZA));
+  const precioAnualCompleto = deEnteros(precioAnualCompletoCent);
+  const precioMensualCompleto = deEnteros(Math.floor(precioAnualCompletoCent / MESES_POLIZA));
   /* Mismo criterio que precioMensual: nominal, entre 12 fijo — no se recalcula
      del calendario real para no tener dos "costos mensuales" distintos. */
   const costoMensualCent = Math.floor(costoAnualCent / MESES_POLIZA);
-  const costoMensual = deCentavos(costoMensualCent);
+  const costoMensual = deEnteros(costoMensualCent);
   const utilidadMensualCent = cuotaCent - costoMensualCent;
-  const utilidadMensual = deCentavos(utilidadMensualCent);
+  const utilidadMensual = deEnteros(utilidadMensualCent);
 
   const arranco = diasEntre(p.fechaInicio, hoy) >= 0;
   const mesesCumplidos = arranco ? mesesTranscurridos(p.fechaInicio, hoy) : 0;
@@ -8306,26 +8301,27 @@ function calcularPoliza(p){
   /* Cobranza. Una casilla al año o doce mensuales; el monto se deriva, nunca
      se guarda, igual que los montos[] de calcular(). */
   const nCobros = p.cobros.length;
-  /* Se reparte en centavos enteros para que la suma de las casillas dé
+  /* Se reparte en pesos enteros para que la suma de las casillas dé
      EXACTAMENTE el precio anual. Con facturación anual es una sola casilla y el
      reparto es trivial; con mensual son doce y la última se lleva el residuo. */
-  const montosCent = repartirCentavos(precioAnualCent, nCobros);
-  const montos = montosCent.map(deCentavos);
+  const montosCent = repartirEnteros(precioAnualCent, nCobros);
+  const montos = montosCent.map(deEnteros);
   /* Mismo reparto, del lado del costo: así el costo de CADA cobro se puede
      comparar contra su ingreso — es lo que usa calcularResultados() para no
      mezclar costo de un periodo con ingreso de otro. */
-  const costoMontosCent = repartirCentavos(costoAnualCent, nCobros);
-  const costoMontos = costoMontosCent.map(deCentavos);
+  const costoMontosCent = repartirEnteros(costoAnualCent, nCobros);
+  const costoMontos = costoMontosCent.map(deEnteros);
   const cobrados = p.cobros.filter(Boolean).length;
   const debidos = arranco ? Math.min(nCobros, mesesCumplidos + 1) : 0;
   const cobrosAtrasados = Math.max(0, debidos - cobrados);
-  /* Las sumas también en centavos: doce sumas de flotantes con decimales
+  /* Las sumas también sobre los enteros repartidos, no sumando montos ya
+     redondeados por separado: doce sumas de flotantes con decimales
      terminan en 683,133.9999999999 y eso se vería como un peso faltante. */
   let adeudoCent = 0;
   for(let i = 0; i < debidos; i++) if(!p.cobros[i]) adeudoCent += montosCent[i];
   const cobradoCent = p.cobros.reduce((t,c,i)=> t + (c ? montosCent[i] : 0), 0);
-  const adeudo  = deCentavos(adeudoCent);
-  const cobrado = deCentavos(cobradoCent);
+  const adeudo  = deEnteros(adeudoCent);
+  const cobrado = deEnteros(cobradoCent);
   const iSigCobro = p.cobros.findIndex(c => !c);
   const proximoCobro = iSigCobro === -1 ? null
     : (p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, iSigCobro) : p.fechaInicio);
@@ -8412,7 +8408,7 @@ function calcularPoliza(p){
               'cliente') — lo necesita cualquier pantalla que quiera mostrar
               "de dónde sale" el precio anual sin repetir la cuenta. */
            esInterno, base, baseCent, etiquetaBase,
-           montoDescuento: deCentavos(descuentoCent),
+           montoDescuento: deEnteros(descuentoCent),
            /* Un descuento negativo es, en realidad, un AUMENTO — la póliza es
               'interno' y en vez de restarle al total se le suma (ver
               normalizarPoliza). Estos dos son solo para pintarlo: el signo y
@@ -8420,7 +8416,7 @@ function calcularPoliza(p){
               repitiendo Math.abs() en cada lugar que lo muestra. */
            esAumento: descuento < 0,
            descuentoAbs: Math.abs(descuento),
-           montoDescuentoAbs: Math.abs(deCentavos(descuentoCent)),
+           montoDescuentoAbs: Math.abs(deEnteros(descuentoCent)),
            costos, costoAnual, costoAnualCent, costoMensual, utilidadAnual, utilidadMensual, margenPct,
            montos, montosCent, costoMontos, costoMontosCent,
            cobrados, debidos, cobrosAtrasados, adeudo, cobrado, proximoCobro,
@@ -8637,10 +8633,8 @@ function armarPayloadPoliza(p){
            de un dato. */
         marca: x.marca || '',
         cantidad: String(x.cantidad),
-        /* Pedido explícito de Victor (15-sep-2026): todo el dinero del
-           documento impreso de pólizas en pesos redondos, sin centavos —
-           dinero() en vez de dineroCent(). Ningún otro documento (cotizaciones,
-           Resultados, etc.) se toca: siguen con centavos como siempre. */
+        /* Pedido explícito de Victor (15-sep-2026, ampliado luego a TODA la
+           app): dinero en pesos redondos, sin centavos. */
         precioUnitario: dinero(x.precioUnitario),
         total:          dinero(total),
         frecuencia: String(x.frecuencia),
@@ -8818,17 +8812,17 @@ function armarPayloadCotizacion(q, lado){
       cantidad: numero(x.cantidad),
       um: x.um || '',
       concepto: x.concepto,
-      precio: dineroCent(l === 'costo' ? x.precioCosto : x.precioCliente),
-      importe: dineroCent(l === 'costo' ? x.importeCosto : x.importeCliente)
+      precio: dinero(l === 'costo' ? x.precioCosto : x.precioCliente),
+      importe: dinero(l === 'costo' ? x.importeCosto : x.importeCliente)
     })),
     instalacion: c.incluyeInstalacion ? {
       numPart: c.instalacionNumPart,
-      importe: dineroCent(l === 'costo' ? c.instalacionCosto : c.instalacionCliente)
+      importe: dinero(l === 'costo' ? c.instalacionCosto : c.instalacionCliente)
     } : null,
     totales: {
-      subtotal: dineroCent(l === 'costo' ? c.subtotalCosto : c.subtotalCliente),
-      iva: dineroCent(l === 'costo' ? c.ivaCosto : c.ivaCliente),
-      total: dineroCent(l === 'costo' ? c.totalCosto : c.totalCliente)
+      subtotal: dinero(l === 'costo' ? c.subtotalCosto : c.subtotalCliente),
+      iva: dinero(l === 'costo' ? c.ivaCosto : c.ivaCliente),
+      total: dinero(l === 'costo' ? c.totalCosto : c.totalCliente)
     }
   };
 }
@@ -8966,15 +8960,15 @@ function armarPayloadProyectoImagen(p){
       proveedor: c.proveedor || '',
       concepto: c.concepto,
       cantidad: numero(c.cantidad),
-      precioUnitario: dineroCent(c.precioUnitario),
-      subtotal: dineroCent(c.cantidad * c.precioUnitario),
+      precioUnitario: dinero(c.precioUnitario),
+      subtotal: dinero(c.cantidad * c.precioUnitario),
       esManoDeObra: esConceptoManoDeObra(c)
     })),
-    totalConceptos: dineroCent(total),
+    totalConceptos: dinero(total),
     /* Informativo para el estado de resultados: gasto en un rubro aparte,
        nunca resta de la utilidad — ver calcularResultados(). */
-    costoMateriales: dineroCent(desglose.materiales),
-    costoManoObra: dineroCent(desglose.manoObra),
+    costoMateriales: dinero(desglose.materiales),
+    costoManoObra: dinero(desglose.manoObra),
     imagenes: p.imagenes.map(im => ({
       dataUrl: im.dataUrl,
       formato: im.formato,
@@ -9012,10 +9006,10 @@ function armarPayloadResultados(r, inicio, fin){
   return {
     generado: new Date().toISOString(),
     desde: inicio, hasta: fin,
-    ingresoTotal: dineroCent(r.ingresoTotal), costoTotal: dineroCent(r.costoTotal),
-    utilidadBruta: dineroCent(r.utilidadBruta), margenPct: r.margenPct.toFixed(1),
-    rankingClientes: r.rankingClientes.map(c => ({ nombre:c.nombre, ingreso:dineroCent(c.ingreso), costo:dineroCent(c.costo), utilidad:dineroCent(c.utilidad) })),
-    rankingSitios: r.rankingSitios.map(s => ({ nombre:s.nombre, clienteNombre:s.clienteNombre, ingreso:dineroCent(s.ingreso), costo:dineroCent(s.costo), utilidad:dineroCent(s.utilidad) })),
+    ingresoTotal: dinero(r.ingresoTotal), costoTotal: dinero(r.costoTotal),
+    utilidadBruta: dinero(r.utilidadBruta), margenPct: r.margenPct.toFixed(1),
+    rankingClientes: r.rankingClientes.map(c => ({ nombre:c.nombre, ingreso:dinero(c.ingreso), costo:dinero(c.costo), utilidad:dinero(c.utilidad) })),
+    rankingSitios: r.rankingSitios.map(s => ({ nombre:s.nombre, clienteNombre:s.clienteNombre, ingreso:dinero(s.ingreso), costo:dinero(s.costo), utilidad:dinero(s.utilidad) })),
     rankingTecnicos: r.rankingTecnicos.map(t => ({ nombre:t.nombre, resueltos:t.resueltos }))
   };
 }
@@ -10199,7 +10193,7 @@ function vistaResumenCliente(){
   h += '<div class="kpis">'
      + tarjetaKpi('Sitios Forpass', numero(rSitios.sitios), rSitios.mrr ? dinero(rSitios.mrr) + '/mes activos' : 'Sin mensualidad activa')
      + tarjetaKpi('Pólizas', numero(rPol.total), rPol.activas ? numero(rPol.activas) + ' ' + plural(rPol.activas,'activa','activas') : 'Ninguna activa')
-     + tarjetaKpi('Cotizaciones', numero(rCot.total), rCot.total ? dineroCent(rCot.montoCliente) + ' cotizado' : 'Todavía sin cotizar')
+     + tarjetaKpi('Cotizaciones', numero(rCot.total), rCot.total ? dinero(rCot.montoCliente) + ' cotizado' : 'Todavía sin cotizar')
      + tarjetaKpi('Reportes', numero(rRep.total), (rRep.abiertos + rRep.enAtencion) ? numero(rRep.abiertos + rRep.enAtencion) + ' sin resolver' : 'Todo resuelto', (rRep.abiertos || rRep.urgentes) ? 'k-error' : '')
      + '</div>';
 
@@ -10228,7 +10222,7 @@ function vistaResumenCliente(){
   h += '<div class="bloque-resumen">'
      +   '<h3>' + ICONO.edificio + 'Pólizas de mantenimiento</h3>'
      +   '<div class="b-pie">' + numero(pol.length) + ' ' + plural(pol.length,'póliza','pólizas')
-     +     (rPol.valorActivo ? ' · ' + dineroCent(rPol.valorActivo) + '/año activas' : '') + '</div>'
+     +     (rPol.valorActivo ? ' · ' + dinero(rPol.valorActivo) + '/año activas' : '') + '</div>'
      +   (pol.length
         ? pol.slice(0, MAX_FILAS).map(p=>{
             const cp = calcularPoliza(p);
@@ -10247,14 +10241,14 @@ function vistaResumenCliente(){
   h += '<div class="bloque-resumen">'
      +   '<h3>' + ICONO.credencial + 'Cotizaciones de servicio</h3>'
      +   '<div class="b-pie">' + numero(cot.length) + ' ' + plural(cot.length,'cotización','cotizaciones')
-     +     (rCot.montoCliente ? ' · ' + dineroCent(rCot.montoCliente) + ' cotizado' : '') + '</div>'
+     +     (rCot.montoCliente ? ' · ' + dinero(rCot.montoCliente) + ' cotizado' : '') + '</div>'
      +   (cot.length
         ? cot.slice().sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||'')).slice(0, MAX_FILAS).map(q=>{
             const cq = calcularCotizacion(q);
             const { tonoInsignia } = tonoCotizacion(q);
             return '<div class="fila-resumen tarjeta-clic" data-ir-cotizacion-resumen="' + esc(q.id) + '" tabindex="0" role="button">'
                  +   '<div><div class="fr-titulo">' + esc(q.folio || 'Sin folio') + '</div>'
-                 +   '<div class="fr-sub">' + fmtFecha(q.fecha) + ' · ' + dineroCent(cq.totalCliente) + '</div></div>'
+                 +   '<div class="fr-sub">' + fmtFecha(q.fecha) + ' · ' + dinero(cq.totalCliente) + '</div></div>'
                  +   '<span class="insignia i-' + tonoInsignia + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[q.estatus]) + '</span>'
                  + '</div>';
           }).join('')
@@ -11538,14 +11532,14 @@ function tarjetasComparativasResultados(r){
     h += '<div class="bloque"><div class="bloque-cabeza"><div>'
        +   '<h3>Clientes que más dejan</h3><p>Top ' + Math.min(5, r.rankingClientes.length) + ' por utilidad de este período</p>'
        + '</div></div><div class="kpis">'
-       + r.rankingClientes.slice(0, 5).map((c, i)=> tarjeta(i + 1, c.nombre, 'Utilidad ' + dineroCent(c.utilidad) + ' · ingreso ' + dineroCent(c.ingreso))).join('')
+       + r.rankingClientes.slice(0, 5).map((c, i)=> tarjeta(i + 1, c.nombre, 'Utilidad ' + dinero(c.utilidad) + ' · ingreso ' + dinero(c.ingreso))).join('')
        + '</div></div>';
   }
   if(r.rankingSitios.length){
     h += '<div class="bloque"><div class="bloque-cabeza"><div>'
        +   '<h3>Sitios que más dejan</h3><p>Top ' + Math.min(5, r.rankingSitios.length) + ' por utilidad de este período</p>'
        + '</div></div><div class="kpis">'
-       + r.rankingSitios.slice(0, 5).map((s, i)=> tarjeta(i + 1, s.nombre, (s.clienteNombre ? esc(s.clienteNombre) + ' · ' : '') + 'utilidad ' + dineroCent(s.utilidad))).join('')
+       + r.rankingSitios.slice(0, 5).map((s, i)=> tarjeta(i + 1, s.nombre, (s.clienteNombre ? esc(s.clienteNombre) + ' · ' : '') + 'utilidad ' + dinero(s.utilidad))).join('')
        + '</div></div>';
   }
   if(r.rankingTecnicos.length){
@@ -11570,16 +11564,16 @@ function tablasComparativasResultados(r){
      +   '<p>Ingreso, costo y utilidad de este período, de mayor a menor utilidad</p></div></div>'
      + '<div class="rodillo"><table class="tabla"><thead><tr><th>Cliente</th><th>Ingreso</th><th>Costo</th><th>Utilidad</th></tr></thead><tbody>'
      + (r.rankingClientes.length
-        ? r.rankingClientes.map(c => '<tr><td>' + esc(c.nombre) + '</td><td>' + dineroCent(c.ingreso) + '</td><td>' + dineroCent(c.costo) + '</td>'
-            + '<td style="color:' + colorUtilidad(c.utilidad) + '">' + dineroCent(c.utilidad) + '</td></tr>').join('')
+        ? r.rankingClientes.map(c => '<tr><td>' + esc(c.nombre) + '</td><td>' + dinero(c.ingreso) + '</td><td>' + dinero(c.costo) + '</td>'
+            + '<td style="color:' + colorUtilidad(c.utilidad) + '">' + dinero(c.utilidad) + '</td></tr>').join('')
         : filaVacia(4, 'Sin movimientos en este período.'))
      + '</tbody></table></div></div>';
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Ranking de sitios</h3><p>Mismo cruce, por sitio</p></div></div>'
      + '<div class="rodillo"><table class="tabla"><thead><tr><th>Sitio</th><th>Cliente</th><th>Ingreso</th><th>Costo</th><th>Utilidad</th></tr></thead><tbody>'
      + (r.rankingSitios.length
-        ? r.rankingSitios.map(s => '<tr><td>' + esc(s.nombre) + '</td><td>' + esc(s.clienteNombre) + '</td><td>' + dineroCent(s.ingreso) + '</td><td>' + dineroCent(s.costo) + '</td>'
-            + '<td style="color:' + colorUtilidad(s.utilidad) + '">' + dineroCent(s.utilidad) + '</td></tr>').join('')
+        ? r.rankingSitios.map(s => '<tr><td>' + esc(s.nombre) + '</td><td>' + esc(s.clienteNombre) + '</td><td>' + dinero(s.ingreso) + '</td><td>' + dinero(s.costo) + '</td>'
+            + '<td style="color:' + colorUtilidad(s.utilidad) + '">' + dinero(s.utilidad) + '</td></tr>').join('')
         : filaVacia(5, 'Sin movimientos en este período.'))
      + '</tbody></table></div></div>';
 
@@ -11632,9 +11626,9 @@ function vistaResultados(){
      + '</div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Ingresos totales', dineroCent(r.ingresoTotal), 'Forpass + pólizas + cotizaciones', 'k-ok')
-     + tarjetaKpi('Costo capturado', dineroCent(r.costoTotal), 'Pólizas (costo por equipo) + cotizaciones')
-     + tarjetaKpi('Utilidad bruta', dineroCent(r.utilidadBruta), r.margenPct.toFixed(1) + '% de margen sobre el ingreso',
+     + tarjetaKpi('Ingresos totales', dinero(r.ingresoTotal), 'Forpass + pólizas + cotizaciones', 'k-ok')
+     + tarjetaKpi('Costo capturado', dinero(r.costoTotal), 'Pólizas (costo por equipo) + cotizaciones')
+     + tarjetaKpi('Utilidad bruta', dinero(r.utilidadBruta), r.margenPct.toFixed(1) + '% de margen sobre el ingreso',
          r.utilidadBruta >= 0 ? 'k-ok' : 'k-error')
      + '</div>';
 
@@ -11670,7 +11664,7 @@ function vistaResultados(){
        +   '<div class="bloque" style="margin-bottom:0">'
        +     '<div class="bloque-cabeza"><div>'
        +       '<h3>De dónde viene el ingreso de este periodo</h3>'
-       +       '<p>' + dineroCent(r.ingresoTotal) + ' en total</p>'
+       +       '<p>' + dinero(r.ingresoTotal) + ' en total</p>'
        +     '</div></div>'
        +     leyendaFuentesIngreso(false)
        +     graficaComposicionIngreso(r)
@@ -11688,28 +11682,28 @@ function vistaResultados(){
   h += '<div class="tabla-pyl">'
      +   '<div class="tp-seccion">Ingresos</div>'
      +   '<div class="tp-fila"><span>Forpass · mensualidades cobradas (' + numero(r.numPagosForpass) + ')</span>'
-     +     '<span class="tp-monto">' + dineroCent(r.ingresoForpass) + '</span></div>'
+     +     '<span class="tp-monto">' + dinero(r.ingresoForpass) + '</span></div>'
      +   '<div class="tp-fila"><span>Pólizas · cobros facturados (' + numero(r.numCobrosPolizas) + ')</span>'
-     +     '<span class="tp-monto">' + dineroCent(r.ingresoPolizasCliente) + '</span></div>'
+     +     '<span class="tp-monto">' + dinero(r.ingresoPolizasCliente) + '</span></div>'
      +   (r.numPolizasNegociadasNoCobradas
         ? '<div class="tp-fila"><span>Pólizas · negociadas no cobradas, cargo interno (' + numero(r.numPolizasNegociadasNoCobradas) + ')</span>'
-          + '<span class="tp-monto">' + dineroCent(r.ingresoPolizasInterno) + '</span></div>'
+          + '<span class="tp-monto">' + dinero(r.ingresoPolizasInterno) + '</span></div>'
         : '')
      +   '<div class="tp-fila"><span>Cotizaciones · aprobadas o ya realizadas (' + numero(r.numCotizaciones) + ')</span>'
-     +     '<span class="tp-monto">' + dineroCent(r.ingresoCotizaciones) + '</span></div>'
-     +   '<div class="tp-fila tp-total"><span>Total de ingresos</span><span class="tp-monto">' + dineroCent(r.ingresoTotal) + '</span></div>'
+     +     '<span class="tp-monto">' + dinero(r.ingresoCotizaciones) + '</span></div>'
+     +   '<div class="tp-fila tp-total"><span>Total de ingresos</span><span class="tp-monto">' + dinero(r.ingresoTotal) + '</span></div>'
 
      +   '<div class="tp-seccion">Costos</div>'
      +   '<div class="tp-fila tp-negativo"><span>Pólizas · servicios programados este período (' + numero(r.numServiciosPolizas) + ')</span>'
-     +     '<span class="tp-monto">' + dineroCent(r.costoPolizas) + '</span></div>'
+     +     '<span class="tp-monto">' + dinero(r.costoPolizas) + '</span></div>'
      +   '<div class="tp-fila tp-negativo"><span>Costo de las cotizaciones contadas arriba</span>'
-     +     '<span class="tp-monto">' + dineroCent(r.costoCotizaciones) + '</span></div>'
-     +   '<div class="tp-fila tp-total"><span>Total de costos</span><span class="tp-monto">' + dineroCent(r.costoTotal) + '</span></div>'
+     +     '<span class="tp-monto">' + dinero(r.costoCotizaciones) + '</span></div>'
+     +   '<div class="tp-fila tp-total"><span>Total de costos</span><span class="tp-monto">' + dinero(r.costoTotal) + '</span></div>'
      + '</div>';
 
   h += '<div class="tp-final">'
      +   '<span class="tp-label">Utilidad bruta del periodo</span>'
-     +   '<span class="tp-monto" style="color:' + (r.utilidadBruta >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + dineroCent(r.utilidadBruta) + '</span>'
+     +   '<span class="tp-monto" style="color:' + (r.utilidadBruta >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + dinero(r.utilidadBruta) + '</span>'
      + '</div>';
 
   /* Imagen/Aperturas: gasto real, pero en un rubro APARTE, meramente
@@ -11720,10 +11714,10 @@ function vistaResultados(){
   if(r.numProyectosImagen){
     h += '<div class="tabla-pyl" style="border-style:dashed; margin-top:16px">'
        +   '<div class="tp-seccion">Imagen / remodelaciones — informativo, no afecta la utilidad</div>'
-       +   '<div class="tp-fila"><span>Costo de materiales</span><span class="tp-monto">' + dineroCent(r.imagenMateriales) + '</span></div>'
-       +   '<div class="tp-fila"><span>Costo de mano de obra</span><span class="tp-monto">' + dineroCent(r.imagenManoObra) + '</span></div>'
+       +   '<div class="tp-fila"><span>Costo de materiales</span><span class="tp-monto">' + dinero(r.imagenMateriales) + '</span></div>'
+       +   '<div class="tp-fila"><span>Costo de mano de obra</span><span class="tp-monto">' + dinero(r.imagenManoObra) + '</span></div>'
        +   '<div class="tp-fila tp-total"><span>Monto de inversión total (' + numero(r.numProyectosImagen) + ' ' + plural(r.numProyectosImagen,'proyecto','proyectos') + ')</span>'
-       +     '<span class="tp-monto">' + dineroCent(r.imagenTotal) + '</span></div>'
+       +     '<span class="tp-monto">' + dinero(r.imagenTotal) + '</span></div>'
        + '</div>';
   }
 
@@ -12308,14 +12302,14 @@ function tablaPolizas(lista){
                        ? '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span>'
                        : '<span class="pista">Cliente</span>') + '</td>'
                 +   '<td>' + fmtFecha(p.fechaInicio) + '</td>'
-                +   '<td>' + dineroCent(c.precioAnual) + '</td>'
-                +   '<td>' + dineroCent(c.precioMensual) + '</td>'
-                +   '<td>' + dineroCent(c.costoAnual) + '</td>'
-                +   '<td>' + dineroCent(c.costoMensual) + '</td>'
+                +   '<td>' + dinero(c.precioAnual) + '</td>'
+                +   '<td>' + dinero(c.precioMensual) + '</td>'
+                +   '<td>' + dinero(c.costoAnual) + '</td>'
+                +   '<td>' + dinero(c.costoMensual) + '</td>'
                 +   '<td style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
-                +     dineroCent(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</td>'
+                +     dinero(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</td>'
                 +   '<td style="color:' + (c.utilidadMensual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
-                +     dineroCent(c.utilidadMensual) + ' (' + c.margenPct.toFixed(1) + '%)</td>'
+                +     dinero(c.utilidadMensual) + ' (' + c.margenPct.toFixed(1) + '%)</td>'
                 +   '<td>' + c.hechos + ' de ' + c.programados + '</td>'
                 + '</tr>';
          }).join('')
@@ -12360,9 +12354,9 @@ function vistaPolizas(){
      + '</div></div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Pólizas activas', numero(r.activas), dineroCent(r.valorActivo) + ' al año', r.activas ? 'k-ok' : '')
+     + tarjetaKpi('Pólizas activas', numero(r.activas), dinero(r.valorActivo) + ' al año', r.activas ? 'k-ok' : '')
      + tarjetaKpi('En espera de confirmar', numero(r.enLaCalle),
-         r.enLaCalle ? dineroCent(r.montoEnLaCalle) + ' esperando respuesta' : 'Nada enviado sin contestar',
+         r.enLaCalle ? dinero(r.montoEnLaCalle) + ' esperando respuesta' : 'Nada enviado sin contestar',
          r.esperaLarga ? 'k-alerta' : '')
      /* Se ofrecen para abrir SOLO cuando hay algo que ver: un «Ver cuáles» con cero
         adentro decepciona, y es la misma regla que siguen los de cobranza. */
@@ -12463,16 +12457,16 @@ function vistaPolizas(){
          +   '</div>'
          +   '<div class="t-chips">' + chips + '</div>'
          +   '<div class="t-datos">'
-         /* Al centavo, como el detalle: la tarjeta decía $737,135 y adentro
-            $737,134.80 — dos números para la misma póliza. */
-         +     '<div class="t-dato"><div class="d-label">Precio anual</div><div class="d-valor">' + dineroCent(c.precioAnual) + '</div></div>'
-         +     '<div class="t-dato"><div class="d-label">Precio mensual</div><div class="d-valor">' + dineroCent(c.precioMensual) + '</div></div>'
-         +     '<div class="t-dato"><div class="d-label">Costo anual</div><div class="d-valor">' + dineroCent(c.costoAnual) + '</div></div>'
-         +     '<div class="t-dato"><div class="d-label">Costo mensual</div><div class="d-valor">' + dineroCent(c.costoMensual) + '</div></div>'
+         /* Mismo formato que el detalle: antes la tarjeta redondeaba distinto
+            que la vista de adentro y salían dos números para la misma póliza. */
+         +     '<div class="t-dato"><div class="d-label">Precio anual</div><div class="d-valor">' + dinero(c.precioAnual) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Precio mensual</div><div class="d-valor">' + dinero(c.precioMensual) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Costo anual</div><div class="d-valor">' + dinero(c.costoAnual) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Costo mensual</div><div class="d-valor">' + dinero(c.costoMensual) + '</div></div>'
          +     '<div class="t-dato"><div class="d-label">Margen anual</div><div class="d-valor" style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
-         +       dineroCent(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
+         +       dinero(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
          +     '<div class="t-dato"><div class="d-label">Margen mensual</div><div class="d-valor" style="color:' + (c.utilidadMensual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
-         +       dineroCent(c.utilidadMensual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
+         +       dinero(c.utilidadMensual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
          +     '<div class="t-dato" style="grid-column:1/-1"><div class="d-label">Servicios</div><div class="d-valor">' + c.hechos + ' de ' + c.programados + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie">'
@@ -12530,8 +12524,8 @@ function tablaCotizaciones(lista){
                 +   '<td><span class="insignia i-' + tonoInsignia + '">' + esc(ETIQUETA_ESTATUS_COTIZACION[cot.estatus]) + '</span>'
                 +     (vencidaAbierta ? ' <span class="insignia i-error">Vencida</span>' : '') + '</td>'
                 +   '<td>' + fmtFecha(cot.fecha) + '</td>'
-                +   '<td>' + dineroCent(c.totalCliente) + '</td>'
-                +   '<td>' + dineroCent(c.totalCosto) + '</td>'
+                +   '<td>' + dinero(c.totalCliente) + '</td>'
+                +   '<td>' + dinero(c.totalCosto) + '</td>'
                 + '</tr>';
          }).join('')
        + '</tbody></table></div>';
@@ -12572,7 +12566,7 @@ function bloqueResumenEtapaCotizacion(estatus, itemsEtapa){
        +   'style="width:100%; text-align:left; cursor:pointer; border:none; display:block" '
        +   'data-accion="filtrar-cotizaciones-etapa" data-etapa="' + estatus + '">'
        +   '<div class="agenda-cabeza"><h3>' + esc(ETIQUETA_ESTATUS_COTIZACION[estatus]) + ' <span class="agenda-cuenta">' + numero(itemsEtapa.length) + '</span></h3>'
-       +   '<p class="pista">' + dineroCent(totalEtapa) + ' cotizado</p></div>'
+       +   '<p class="pista">' + dinero(totalEtapa) + ' cotizado</p></div>'
        + '</button>';
 }
 
@@ -12603,7 +12597,7 @@ function vistaCotizaciones(){
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Cotizaciones de servicio</h2>'
      +   '<p>' + numero(r.total) + ' ' + plural(r.total,'cotización','cotizaciones')
-     +   ' · ' + dineroCent(r.montoCliente) + ' cotizado al cliente</p>'
+     +   ' · ' + dinero(r.montoCliente) + ' cotizado al cliente</p>'
      + '</div><div class="acciones">'
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave" data-accion="importar-cotizaciones-excel" '
@@ -12614,7 +12608,7 @@ function vistaCotizaciones(){
 
   h += '<div class="kpis">'
      + tarjetaKpi('Cotizaciones', numero(r.total), plural(r.total,'trabajo cotizado','trabajos cotizados'))
-     + tarjetaKpi('Cotizado al cliente', dineroCent(r.montoCliente), 'Sin contar rechazadas, canceladas ni expiradas')
+     + tarjetaKpi('Cotizado al cliente', dinero(r.montoCliente), 'Sin contar rechazadas, canceladas ni expiradas')
      + tarjetaKpi('Borradores', numero(r.borradores), 'Todavía sin enviar', r.borradores ? 'k-alerta' : '')
      + tarjetaKpi('Vencidas', numero(r.vencidas), 'Pasó su vigencia sin resolver', r.vencidas ? 'k-error' : '')
      + '</div>';
@@ -12637,8 +12631,8 @@ function vistaCotizaciones(){
        +   porPersona.map(x => '<tr>'
              + '<td>' + esc(x.persona) + '</td>'
              + '<td>' + numero(x.num) + '</td>'
-             + '<td>' + dineroCent(x.cotizado) + '</td>'
-             + '<td>' + dineroCent(x.ingreso) + '</td>'
+             + '<td>' + dinero(x.cotizado) + '</td>'
+             + '<td>' + dinero(x.ingreso) + '</td>'
              + '<td>' + (x.tasaConversion === null ? '—' : Math.round(x.tasaConversion*100) + '%') + '</td>'
              + '</tr>').join('')
        + '</tbody></table></div></div>';
@@ -12702,8 +12696,8 @@ function vistaCotizaciones(){
          +     (vencidaAbierta ? '<span class="insignia i-error">Vencida</span>' : '')
          +   '</div>'
          +   '<div class="t-datos">'
-         +     '<div class="t-dato"><div class="d-label">Al cliente</div><div class="d-valor">' + dineroCent(c.totalCliente) + '</div></div>'
-         +     '<div class="t-dato"><div class="d-label">Costo</div><div class="d-valor chico">' + dineroCent(c.totalCosto) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Al cliente</div><div class="d-valor">' + dinero(c.totalCliente) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Costo</div><div class="d-valor chico">' + dinero(c.totalCosto) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + esc(cot.tipoMtto || 'Sin tipo') + ' · ' + fmtFecha(cot.fecha) + '</span></div>'
          + '</div>';
@@ -12840,20 +12834,20 @@ function vistaCotizacion(){
            + '<td>' + esc(x.concepto) + '</td>'
            + '<td>' + numero(x.cantidad) + '</td>'
            + '<td>' + esc(x.um || '—') + '</td>'
-           + '<td>' + dineroCent(precio) + '</td>'
-           + '<td>' + dineroCent(importe) + '</td>'
+           + '<td>' + dinero(precio) + '</td>'
+           + '<td>' + dinero(importe) + '</td>'
            + '</tr>';
        }).join('') : '<tr><td colspan="7"><span class="pista">Todavía no hay conceptos capturados.</span></td></tr>')
      + (c.incluyeInstalacion
          ? '<tr><td class="pista">' + esc(c.instalacionNumPart) + '</td><td class="pista">—</td><td>Instalación / mano de obra</td><td>—</td><td>SERV</td>'
-           + '<td>' + dineroCent(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td>'
-           + '<td>' + dineroCent(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td></tr>'
+           + '<td>' + dinero(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td>'
+           + '<td>' + dinero(lado === 'costo' ? c.instalacionCosto : c.instalacionCliente) + '</td></tr>'
          : '')
      + '</tbody></table></div>'
      + '<div class="resumen-datos" style="max-width:280px; margin-left:auto; margin-top:12px">'
-     +   '<div><div class="d-label">Subtotal</div><div class="d-valor">' + dineroCent(lado==='costo' ? c.subtotalCosto : c.subtotalCliente) + '</div></div>'
-     +   '<div><div class="d-label">IVA 16%</div><div class="d-valor">' + dineroCent(lado==='costo' ? c.ivaCosto : c.ivaCliente) + '</div></div>'
-     +   '<div><div class="d-label">Total</div><div class="d-valor" style="font-size:19px">' + dineroCent(lado==='costo' ? c.totalCosto : c.totalCliente) + '</div></div>'
+     +   '<div><div class="d-label">Subtotal</div><div class="d-valor">' + dinero(lado==='costo' ? c.subtotalCosto : c.subtotalCliente) + '</div></div>'
+     +   '<div><div class="d-label">IVA 16%</div><div class="d-valor">' + dinero(lado==='costo' ? c.ivaCosto : c.ivaCliente) + '</div></div>'
+     +   '<div><div class="d-label">Total</div><div class="d-valor" style="font-size:19px">' + dinero(lado==='costo' ? c.totalCosto : c.totalCliente) + '</div></div>'
      + '</div>'
      + '</div>';
 
@@ -13598,7 +13592,7 @@ function modalActivo(id){
     + '<div class="campo"><label>Fecha de compra</label>'
     +   '<input type="date" id="actFechaCompra" value="' + esc(a ? a.fechaCompra : '') + '"></div>'
     + '<div class="campo"><label>Costo de compra</label>'
-    +   '<input type="number" id="actCostoCompra" min="0" step="0.01" value="' + (a && a.costoCompra ? a.costoCompra : '') + '"></div>'
+    +   '<input type="number" id="actCostoCompra" min="0" step="1" value="' + (a && a.costoCompra ? a.costoCompra : '') + '"></div>'
     + '<div class="campo"><label>Garantía hasta</label>'
     +   '<input type="date" id="actGarantiaHasta" value="' + esc(a ? a.garantiaHasta : '') + '"></div>'
     + '<div class="fila2">'
@@ -13833,7 +13827,7 @@ function modalHistorialActivo(id){
       '<div class="campo"><label>Qué se hizo *</label>'
     +   '<textarea id="ahTexto" placeholder="Ej. Se le dio mantenimiento preventivo, se cambió de sitio, se limpió a fondo…"></textarea></div>'
     + '<div class="campo"><label>Costo (opcional)</label>'
-    +   '<input type="number" id="ahCosto" min="0" step="0.01" placeholder="0"></div>';
+    +   '<input type="number" id="ahCosto" min="0" step="1" placeholder="0"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">Agregar</button>';
@@ -13864,7 +13858,7 @@ function modalMantenimientoActivo(id){
       '<div class="campo"><label>Qué se hizo *</label>'
     +   '<textarea id="amTexto" placeholder="Ej. Cambio de aceite y filtros, limpieza general, revisión eléctrica…"></textarea></div>'
     + '<div class="campo"><label>Costo (opcional)</label>'
-    +   '<input type="number" id="amCosto" min="0" step="0.01" placeholder="0"></div>'
+    +   '<input type="number" id="amCosto" min="0" step="1" placeholder="0"></div>'
     +   (a.mantenimientoFrecuenciaDias
         ? '<div class="pista">Con la frecuencia capturada (cada ' + numero(a.mantenimientoFrecuenciaDias) + ' ' + plural(a.mantenimientoFrecuenciaDias,'día','días') + '), el siguiente mantenimiento se reprograma solo para el ' + fmtFecha(sumarDias(hoyISO(), a.mantenimientoFrecuenciaDias)) + '.</div>'
         : '<div class="pista">Este activo no tiene una frecuencia capturada, así que solo queda la nota en el historial — edítalo para programar avisos futuros.</div>');
@@ -14024,10 +14018,10 @@ function tarjetaGastoProveedor(g, i){
        +   '</div>'
        +   '<div class="t-chips">' + chips + '</div>'
        +   '<div class="t-datos">'
-       +     '<div class="t-dato"><div class="d-label">Monto</div><div class="d-valor">' + dineroCent(g.monto) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Monto</div><div class="d-valor">' + dinero(g.monto) + '</div></div>'
        +     '<div class="t-dato"><div class="d-label">' + (c.pagado ? 'Pagado' : 'Saldo pendiente') + '</div>'
        +       '<div class="d-valor" style="color:' + (c.pagado ? 'var(--ok)' : (c.vencido ? 'var(--error)' : 'var(--ink)')) + '">'
-       +         dineroCent(c.pagado ? g.monto : c.saldo) + '</div></div>'
+       +         dinero(c.pagado ? g.monto : c.saldo) + '</div></div>'
        +     '<div class="t-dato"><div class="d-label">Vencimiento</div><div class="d-valor chico">' + (g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : 'Sin fecha') + '</div></div>'
        +   '</div>'
        +   '<div class="t-pie"><span class="pista">' + fmtFecha(g.fecha) + '</span><span class="espacio"></span>'
@@ -14047,8 +14041,8 @@ function tablaGastosProveedor(lista){
                 +   '<td>' + esc(g.concepto || '—') + '</td>'
                 +   '<td>' + esc(g.folio || '—') + '</td>'
                 +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></td>'
-                +   '<td>' + dineroCent(g.monto) + '</td>'
-                +   '<td>' + (c.pagado ? '—' : dineroCent(c.saldo)) + '</td>'
+                +   '<td>' + dinero(g.monto) + '</td>'
+                +   '<td>' + (c.pagado ? '—' : dinero(c.saldo)) + '</td>'
                 +   '<td>' + (g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : '—') + '</td>'
                 + '</tr>';
          }).join('')
@@ -14157,9 +14151,9 @@ function vistaGastoProveedor(){
      + '</div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Monto', dineroCent(g.monto), fmtFecha(g.fecha))
-     + tarjetaKpi('Abonado', dineroCent(c.totalAbonado), g.abonos.length + ' ' + plural(g.abonos.length,'abono','abonos'))
-     + tarjetaKpi('Saldo', dineroCent(c.saldo), c.pagado ? 'Liquidado' : 'Pendiente')
+     + tarjetaKpi('Monto', dinero(g.monto), fmtFecha(g.fecha))
+     + tarjetaKpi('Abonado', dinero(c.totalAbonado), g.abonos.length + ' ' + plural(g.abonos.length,'abono','abonos'))
+     + tarjetaKpi('Saldo', dinero(c.saldo), c.pagado ? 'Liquidado' : 'Pendiente')
      + tarjetaKpi('Vencimiento', g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : 'Sin fecha', '')
      + '</div>';
 
@@ -14182,7 +14176,7 @@ function vistaGastoProveedor(){
      + '</div>'
      +   (g.abonos.length
           ? '<div class="lista-seguimiento">' + g.abonos.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha)).map(a=>
-              '<div class="seguimiento-item"><b>' + dineroCent(a.monto) + '</b> '
+              '<div class="seguimiento-item"><b>' + dinero(a.monto) + '</b> '
               + '<span class="pista">' + fmtFecha(a.fecha) + (a.metodo ? ' · ' + esc(a.metodo) : '') + (a.referencia ? ' · ' + esc(a.referencia) : '') + '</span>'
               +   (puede ? '<button type="button" class="btn btn-suave btn-mini" style="margin-left:8px" data-accion="quitar-abono-proveedor" data-abono="' + esc(a.id) + '">' + ICONO.basura + '</button>' : '')
               + '</div>'
@@ -14404,7 +14398,7 @@ function tarjetaRefaccion(r, i){
        +   '</div>'
        +   '<div class="t-chips">' + chips + '</div>'
        +   '<div class="t-datos">'
-       +     '<div class="t-dato"><div class="d-label">Costo</div><div class="d-valor">' + dineroCent(r.costo) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Costo</div><div class="d-valor">' + dinero(r.costo) + '</div></div>'
        +     '<div class="t-dato"><div class="d-label">Valor en existencia</div><div class="d-valor">' + dinero(c.existencia * r.costo) + '</div></div>'
        +   '</div>'
        +   '<div class="t-pie"><span class="pista">' + esc(r.unidad) + (r.departamento ? ' · ' + esc(r.departamento) : '') + '</span><span class="espacio"></span>'
@@ -14424,7 +14418,7 @@ function tablaRefacciones(lista){
                 +   '<td>' + esc(r.descripcion || '—') + (r.activo ? '' : ' <span class="pista">(inactiva)</span>') + '</td>'
                 +   '<td>' + esc(r.proveedorNombre || '—') + '</td>'
                 +   '<td>' + esc(r.unidad) + '</td>'
-                +   '<td>' + dineroCent(r.costo) + '</td>'
+                +   '<td>' + dinero(r.costo) + '</td>'
                 +   '<td' + (c.existencia <= 0 ? ' style="color:var(--error)"' : '') + '>' + numero(c.existencia) + '</td>'
                 +   '<td>' + dinero(c.existencia * r.costo) + '</td>'
                 + '</tr>';
@@ -14614,7 +14608,7 @@ function vistaRefaccion(){
 
   h += '<div class="kpis">'
      + tarjetaKpi('Existencia', numero(c.existencia), r.unidad, agotada ? 'k-alerta' : '')
-     + tarjetaKpi('Costo unitario', dineroCent(r.costo), '')
+     + tarjetaKpi('Costo unitario', dinero(r.costo), '')
      + tarjetaKpi('Valor en existencia', dinero(c.existencia * r.costo), '')
      + tarjetaKpi('Movimientos', numero(r.movimientos.length), c.entradas + ' entradas · ' + c.salidas + ' salidas')
      + '</div>';
@@ -14641,7 +14635,7 @@ function vistaRefaccion(){
               +   '<span class="insignia i-' + (m.tipo === 'entrada' ? 'ok' : 'neutro') + '">' + esc(ETIQUETA_TIPO_MOVIMIENTO_REFACCION[m.tipo]) + '</span> '
               +   '<b>' + (m.tipo === 'entrada' ? '+' : '−') + numero(m.cantidad) + '</b> '
               +   '<span class="pista">' + fmtFecha(m.fecha)
-              +     (m.tipo === 'entrada' && m.costoUnitario ? ' · ' + dineroCent(m.costoUnitario) + ' c/u' : '')
+              +     (m.tipo === 'entrada' && m.costoUnitario ? ' · ' + dinero(m.costoUnitario) + ' c/u' : '')
               +     (m.tipo === 'salida' && m.destino ? ' · ' + esc(m.destino) : '')
               +     (m.quien ? ' · ' + esc(m.quien) : '')
               +     (m.notas ? ' · ' + esc(m.notas) : '')
@@ -14688,7 +14682,7 @@ function modalRefaccion(id, proveedorPresetId){
     +   '<input type="text" id="rfDescripcion" placeholder="Ej. Aceite 3 en 1" value="' + esc(r ? r.descripcion : '') + '"></div>'
     + '<div class="fila2">'
     +   '<div class="campo"><label>Costo *</label>'
-    +     '<input type="number" id="rfCosto" min="0" step="0.01" value="' + (r && r.costo ? r.costo : '') + '"></div>'
+    +     '<input type="number" id="rfCosto" min="0" step="1" value="' + (r && r.costo ? r.costo : '') + '"></div>'
     +   '<div class="campo"><label>Existencia inicial</label>'
     +     '<input type="number" id="rfExistenciaInicial" min="0" step="1" value="' + (r ? r.existenciaInicial : 0) + '"></div>'
     + '</div>'
@@ -14757,7 +14751,7 @@ function modalMovimientoRefaccion(refaccionId, tipo, fechaSugerida){
     + (esEntrada
        ? '<div class="fila2">'
        +   '<div class="campo"><label>Costo unitario</label>'
-       +     '<input type="number" id="mvCosto" min="0" step="0.01" value="' + (r.costo || '') + '"></div>'
+       +     '<input type="number" id="mvCosto" min="0" step="1" value="' + (r.costo || '') + '"></div>'
        +   '<div class="campo"><label>Gasto/factura ligada (opcional)</label><select id="mvGasto">'
        +     '<option value="">— Ninguno —</option>'
        +     gastosDelProveedor.map(g => '<option value="' + esc(g.id) + '">' + esc(g.folio || g.concepto || 'Sin folio') + ' — ' + fmtFecha(g.fecha) + '</option>').join('')
@@ -14878,7 +14872,7 @@ function modalGastoProveedor(id, proveedorPresetId){
     +   '<div class="campo"><label>Folio (del proveedor)</label>'
     +     '<input type="text" id="gpFolio" placeholder="Número de factura o cotización" value="' + esc(g ? g.folio : '') + '"></div>'
     +   '<div class="campo"><label>Monto *</label>'
-    +     '<input type="number" id="gpMonto" min="0" step="0.01" value="' + (g && g.monto ? g.monto : '') + '"></div>'
+    +     '<input type="number" id="gpMonto" min="0" step="1" value="' + (g && g.monto ? g.monto : '') + '"></div>'
     + '</div>'
     + '<div class="fila2">'
     +   '<div class="campo"><label>Fecha *</label>'
@@ -14942,10 +14936,10 @@ function modalAbonoProveedor(gastoId){
   const c = calcularGastoProveedor(g);
 
   const cuerpo =
-      '<p class="pista" style="margin-top:0">Saldo pendiente: <b>' + dineroCent(c.saldo) + '</b> de ' + dineroCent(g.monto) + '.</p>'
+      '<p class="pista" style="margin-top:0">Saldo pendiente: <b>' + dinero(c.saldo) + '</b> de ' + dinero(g.monto) + '.</p>'
     + '<div class="fila2">'
     +   '<div class="campo"><label>Monto *</label>'
-    +     '<input type="number" id="abMonto" min="0.01" step="0.01" value="' + (c.saldo > 0 ? c.saldo : '') + '"></div>'
+    +     '<input type="number" id="abMonto" min="1" step="1" value="' + (c.saldo > 0 ? c.saldo : '') + '"></div>'
     +   '<div class="campo"><label>Fecha *</label>'
     +     '<input type="date" id="abFecha" value="' + hoyISO() + '"></div>'
     + '</div>'
@@ -14970,7 +14964,7 @@ function modalAbonoProveedor(gastoId){
     }));
     const reg = normalizarGastoProveedor(g);
     Object.assign(g, reg);
-    guardarGastoProveedor(g, 'registró un abono de', dineroCent(monto) + ' a ' + (g.concepto || 'un gasto'));
+    guardarGastoProveedor(g, 'registró un abono de', dinero(monto) + ' a ' + (g.concepto || 'un gasto'));
     cerrarModal();
     render();
     aviso('Abono registrado.');
@@ -16059,7 +16053,7 @@ function vistaCocinas(){
          f.total.levantados && f.total.tasaResolucion < 0.6 ? 'k-alerta' : '')
      + tarjetaKpi('Tiempo de resolución', f.total.diasPromedio != null ? f.total.diasPromedio.toFixed(1) + ' días' : '—',
          'Promedio, de levantado a cerrado')
-     + tarjetaKpi('Cotizado', dineroCent(f.total.cotizado),
+     + tarjetaKpi('Cotizado', dinero(f.total.cotizado),
          f.total.numCotizados ? numero(f.total.numCotizados) + ' ' + plural(f.total.numCotizados, 'reporte cotizado', 'reportes cotizados') : 'Ningún reporte generó cotización')
      + '</div>';
 
@@ -16098,7 +16092,7 @@ function vistaCocinas(){
            + '<td>' + numero(x.levantados) + '</td>'
            + '<td>' + numero(x.resueltos) + ' <span class="pista">(' + Math.round(x.tasaResolucion * 100) + '%)</span></td>'
            + '<td>' + (x.diasPromedio != null ? x.diasPromedio.toFixed(1) + ' d' : '—') + '</td>'
-           + '<td>' + dineroCent(x.cotizado) + '</td>'
+           + '<td>' + dinero(x.cotizado) + '</td>'
            + '<td><span class="insignia i-' + t.tono + '">' + x.score + ' · ' + t.texto + '</span></td>'
            + (nivel === 'sitio'
               ? '<td><button type="button" class="btn btn-suave btn-mini" data-accion="ver-reportes-de" data-texto="' + esc(x.nombre) + '">Ver reportes</button></td>'
@@ -17563,7 +17557,7 @@ function vistaProyectosImagen(){
           + '<td>' + esc(p.clienteNombre || 'Prospecto') + '</td>'
           + '<td>' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</td>'
           + '<td><span class="insignia i-' + TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus] + '">' + esc(ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus]) + '</span></td>'
-          + '<td>' + dineroCent(totalConceptosProyecto(p)) + '</td></tr>').join('')
+          + '<td>' + dinero(totalConceptosProyecto(p)) + '</td></tr>').join('')
       + '</tbody></table></div>';
     return h;
   }
@@ -17583,7 +17577,7 @@ function vistaProyectosImagen(){
          +     '<span class="insignia i-neutro">' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</span>'
          +   '</div>'
          +   '<div class="t-datos">'
-         +     '<div class="t-dato"><div class="d-label">Inversión total</div><div class="d-valor chico">' + dineroCent(total) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Inversión total</div><div class="d-valor chico">' + dinero(total) + '</div></div>'
          +     '<div class="t-dato"><div class="d-label">Imágenes</div><div class="d-valor chico">' + numero(p.imagenes.length) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + esc(p.sitioNombre || 'Sin sitio') + '</span></div>'
@@ -17634,9 +17628,9 @@ function vistaProyectoImagen(){
      + tarjetaKpi('Sitio / ubicación', esc(p.sitioNombre || 'Sin especificar'), '', 'k-texto')
      + tarjetaKpi('Fecha de apertura', p.fechaObjetivo ? fmtFecha(p.fechaObjetivo) : 'Sin definir', '')
      + tarjetaKpi('Cronograma de obra', cronoValor, cronoPie)
-     + tarjetaKpi('Monto de inversión total', dineroCent(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
-     + tarjetaKpi('Costo de materiales', dineroCent(desglose.materiales), '')
-     + tarjetaKpi('Costo de mano de obra', dineroCent(desglose.manoObra), '')
+     + tarjetaKpi('Monto de inversión total', dinero(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
+     + tarjetaKpi('Costo de materiales', dinero(desglose.materiales), '')
+     + tarjetaKpi('Costo de mano de obra', dinero(desglose.manoObra), '')
      + '</div>';
   h += '<p class="pista" style="margin:-10px 0 16px">Es un gasto informativo para el estado de resultados: '
      + 'se muestra aparte y no afecta la utilidad.</p>';
@@ -17664,13 +17658,13 @@ function vistaProyectoImagen(){
        ve por partes, como cualquier lista larga del resto de la app. */
     h += '<div class="rodillo' + (p.conceptos.length > 12 ? ' rodillo-alto' : '') + '"><table class="tabla"><thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
        + p.conceptos.map(c => '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
-           + '<td>' + dineroCent(c.precioUnitario) + '</td><td><b>' + dineroCent(c.cantidad * c.precioUnitario) + '</b></td></tr>').join('')
+           + '<td>' + dinero(c.precioUnitario) + '</td><td><b>' + dinero(c.cantidad * c.precioUnitario) + '</b></td></tr>').join('')
        + '</tbody></table></div>'
        + '<div class="resumen" style="margin-top:10px">'
-       +   '<div class="r-fila"><span>Costo de materiales</span><span>' + dineroCent(desglose.materiales) + '</span></div>'
-       +   '<div class="r-fila"><span>Costo de mano de obra</span><span>' + dineroCent(desglose.manoObra) + '</span></div>'
+       +   '<div class="r-fila"><span>Costo de materiales</span><span>' + dinero(desglose.materiales) + '</span></div>'
+       +   '<div class="r-fila"><span>Costo de mano de obra</span><span>' + dinero(desglose.manoObra) + '</span></div>'
        +   '<div class="r-fila r-total"><span>Monto de inversión total</span>'
-       +     '<span style="font-size:18px; font-weight:800">' + dineroCent(total) + '</span></div></div>';
+       +     '<span style="font-size:18px; font-weight:800">' + dinero(total) + '</span></div></div>';
   }
   h += '</div>';
 
@@ -17922,8 +17916,8 @@ function modalProyectoImagen(id, datosImportados){
      mano de obra, cualquier otro (o vacío) es material. */
   function pintarResumenConceptosPI(){
     const d = desgloseConceptosProyecto({ conceptos: conceptosTmp });
-    $('resumenConceptosPI').innerHTML = '<b>Monto de inversión total: ' + dineroCent(d.total) + '</b>'
-      + '<div class="pista">Costo de materiales: ' + dineroCent(d.materiales) + ' · Costo de mano de obra: ' + dineroCent(d.manoObra) + '</div>';
+    $('resumenConceptosPI').innerHTML = '<b>Monto de inversión total: ' + dinero(d.total) + '</b>'
+      + '<div class="pista">Costo de materiales: ' + dinero(d.materiales) + ' · Costo de mano de obra: ' + dinero(d.manoObra) + '</div>';
   }
   pintarConceptosPI();
   $('listaConceptosPI').addEventListener('input', ev=>{
@@ -18138,14 +18132,14 @@ function vistaPoliza(){
      + '</div></div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Precio anual', dineroCent(c.precioAnual), p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos'))
-     + tarjetaKpi('Precio mensual', dineroCent(c.precioMensual), 'Anual ÷ ' + MESES_POLIZA)
+     + tarjetaKpi('Precio anual', dinero(c.precioAnual), p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos'))
+     + tarjetaKpi('Precio mensual', dinero(c.precioMensual), 'Anual ÷ ' + MESES_POLIZA)
      /* Tarjeta extra, solo si hay algo que absorber: así el número más
         buscado —"¿y si nos quedamos con todo?"— se ve de inmediato junto
         a Precio anual/mensual, en vez de tener que bajar hasta Análisis de
         margen para encontrarlo. */
      +   (c.separadoCant
-         ? tarjetaKpi('Precio completo posible', dineroCent(c.precioAnualCompleto),
+         ? tarjetaKpi('Precio completo posible', dinero(c.precioAnualCompleto),
              'Con ' + c.separadoCant + ' ' + plural(c.separadoCant,'equipo','equipos') + ' del cliente incluido' + (c.separadoCant === 1 ? '' : 's'), 'k-ok')
          : '')
      + tarjetaKpi('Servicios', c.hechos + ' de ' + c.programados,
@@ -18223,10 +18217,10 @@ function vistaPoliza(){
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Análisis de margen</h3>'
      +   '<p>Costo real de dar el servicio contra lo que se cobra por esta póliza.</p></div></div>'
      +   '<div class="resumen-datos">'
-     +     '<div><div class="d-label">Precio anual</div><div class="d-valor">' + dineroCent(c.precioAnual) + '</div></div>'
-     +     '<div><div class="d-label">Costo anual</div><div class="d-valor">' + dineroCent(c.costoAnual) + '</div></div>'
+     +     '<div><div class="d-label">Precio anual</div><div class="d-valor">' + dinero(c.precioAnual) + '</div></div>'
+     +     '<div><div class="d-label">Costo anual</div><div class="d-valor">' + dinero(c.costoAnual) + '</div></div>'
      +     '<div><div class="d-label">Margen</div><div class="d-valor" style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
-     +       dineroCent(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
+     +       dinero(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
      +   '</div>'
      +   (sinCosto
          ? '<p class="pista" style="margin-top:10px; color:var(--alerta)">' + sinCosto + ' ' + plural(sinCosto,'renglón','renglones')
@@ -18234,9 +18228,9 @@ function vistaPoliza(){
          : '')
      +   (c.separadoCant
          ? '<p class="pista" style="margin-top:10px">' + c.separadoCant + ' ' + plural(c.separadoCant,'equipo','equipos')
-           + ' — ' + esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA.cliente).toLowerCase() + ' — por ' + dineroCent(c.separadoAnual)
+           + ' — ' + esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA.cliente).toLowerCase() + ' — por ' + dinero(c.separadoAnual)
            + ' al año: no está incluido en el Precio anual ni en el Costo anual de arriba. '
-           + 'Con eso incluido, el precio anual completo sería de ' + dineroCent(c.precioAnualCompleto)
+           + 'Con eso incluido, el precio anual completo sería de ' + dinero(c.precioAnualCompleto)
            + ' — ver la tarjeta <b>Precio completo posible</b> arriba.</p>'
          : '')
      + '</div>';
@@ -18324,13 +18318,13 @@ function vistaPoliza(){
            +     esc(ETIQUETA_ALCANCE_PARTIDA_POLIZA[x.alcance]) + '</span></div></td>'
            + '<td>' + esc(x.marca || '—') + '</td>'
            + '<td>' + numero(x.cantidad) + '</td>'
-           + '<td>' + dineroCent(x.precioUnitario)
-             + (difPrecio ? '<div class="pista" style="color:var(--alerta)">Grupo: ' + dineroCent(ov.precioUnitario) + '</div>' + botonHomologar : '') + '</td>'
-           + '<td>' + (x.costoUnitario ? dineroCent(x.costoUnitario) : '<span class="pista">sin costo</span>')
-             + (difCosto ? '<div class="pista" style="color:var(--alerta)">Grupo: ' + dineroCent(ov.costoUnitario) + '</div>' + (difPrecio ? '' : botonHomologar) : '') + '</td>'
+           + '<td>' + dinero(x.precioUnitario)
+             + (difPrecio ? '<div class="pista" style="color:var(--alerta)">Grupo: ' + dinero(ov.precioUnitario) + '</div>' + botonHomologar : '') + '</td>'
+           + '<td>' + (x.costoUnitario ? dinero(x.costoUnitario) : '<span class="pista">sin costo</span>')
+             + (difCosto ? '<div class="pista" style="color:var(--alerta)">Grupo: ' + dinero(ov.costoUnitario) + '</div>' + (difPrecio ? '' : botonHomologar) : '') + '</td>'
            + '<td>' + x.frecuencia + (cuadraFrecuencia(x) ? '' : ' <b style="color:var(--error)">≠' + x.mesesServicio.length + '</b>') + '</td>'
            + '<td>' + meses + '</td>'
-           + '<td><b>' + dineroCent(c.totales[i]) + '</b></td>'
+           + '<td><b>' + dinero(c.totales[i]) + '</b></td>'
            + '</tr>';
        }).join('')
      + '</tbody></table></div>'
@@ -18341,21 +18335,21 @@ function vistaPoliza(){
         interviene), por eso el texto lo aclara. */
      + (c.descuento
          ? '<div class="c-fila" style="margin-top:12px"><span>' + esc(c.etiquetaBase)
-             + (c.esInterno ? ' — suma de costos, no de precios de venta' : ' — suma de los renglones') + '</span><b>' + dineroCent(c.base) + '</b></div>'
+             + (c.esInterno ? ' — suma de costos, no de precios de venta' : ' — suma de los renglones') + '</span><b>' + dinero(c.base) + '</b></div>'
            + '<div class="c-fila"><span>' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>'
-           +   '<b style="color:' + (c.esAumento ? 'var(--ok)' : 'var(--error)') + '">' + (c.esAumento ? '+' : '−') + dineroCent(c.montoDescuentoAbs) + '</b></div>'
-           + '<div class="c-fila"><span>Precio anual — ya con ' + (c.esAumento ? 'el aumento' : 'el descuento') + '</span><b>' + dineroCent(c.precioAnual) + '</b></div>'
-         : '<div class="c-fila" style="margin-top:12px"><span>Precio anual — suma de los renglones</span><b>' + dineroCent(c.precioAnual) + '</b></div>')
-     + '<div class="c-fila"><span>Precio mensual — anual ÷ ' + MESES_POLIZA + '</span><b>' + dineroCent(c.precioMensual) + '</b></div>'
+           +   '<b style="color:' + (c.esAumento ? 'var(--ok)' : 'var(--error)') + '">' + (c.esAumento ? '+' : '−') + dinero(c.montoDescuentoAbs) + '</b></div>'
+           + '<div class="c-fila"><span>Precio anual — ya con ' + (c.esAumento ? 'el aumento' : 'el descuento') + '</span><b>' + dinero(c.precioAnual) + '</b></div>'
+         : '<div class="c-fila" style="margin-top:12px"><span>Precio anual — suma de los renglones</span><b>' + dinero(c.precioAnual) + '</b></div>')
+     + '<div class="c-fila"><span>Precio mensual — anual ÷ ' + MESES_POLIZA + '</span><b>' + dinero(c.precioMensual) + '</b></div>'
      + '</div>';
 
   /* --- Cobranza --- */
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cobranza</h3>'
      + '<p>' + (p.facturacion === 'mensual'
-         ? 'Doce cobros. El último lleva el residuo del reparto para que la suma dé el anual al centavo.'
+         ? 'Doce cobros. El último lleva el residuo del reparto para que la suma dé exactamente el anual.'
          : 'Un solo cobro al inicio de la vigencia.') + '</p></div></div>'
-     + '<div class="c-fila"><span>Cobrado</span><b>' + dineroCent(c.cobrado) + ' de ' + dineroCent(c.precioAnual) + '</b></div>'
-     + '<div class="c-fila"><span>Vencido sin cobrar</span><b' + (c.adeudo ? ' style="color:var(--error)"' : '') + '>' + dineroCent(c.adeudo) + '</b></div>'
+     + '<div class="c-fila"><span>Cobrado</span><b>' + dinero(c.cobrado) + ' de ' + dinero(c.precioAnual) + '</b></div>'
+     + '<div class="c-fila"><span>Vencido sin cobrar</span><b' + (c.adeudo ? ' style="color:var(--error)"' : '') + '>' + dinero(c.adeudo) + '</b></div>'
      + '<div class="c-fila"><span>Casillas</span><b>' + c.cobrados + ' de ' + p.cobros.length + ' pagadas</b></div>'
      + '<div class="meses" style="margin-top:10px">'
      /* Las casillas se VEN siempre —el estado de cobranza es lectura— pero solo
@@ -18363,7 +18357,7 @@ function vistaPoliza(){
         «tu cuenta no puede hacer cambios». Mismo criterio que los chips de mes. */
      + p.cobros.map((ok,i)=>{
          const clase = 'mes' + (ok ? ' pagado' : (i < c.debidos ? ' debido' : ''));
-         const tip = 'Cobro ' + (i+1) + ' · ' + dineroCent(c.montos[i])
+         const tip = 'Cobro ' + (i+1) + ' · ' + dinero(c.montos[i])
              + (p.facturacion === 'mensual' ? ' · ' + fmtFecha(sumarMeses(p.fechaInicio, i)) : '')
              + (ok ? ' · pagado' + (p.cobrosDetalle[i].oc ? ' con OC ' + p.cobrosDetalle[i].oc : '')
                    : (i < c.debidos ? ' · vencido' : ' · por venir'))
@@ -18386,7 +18380,7 @@ function vistaPoliza(){
            + p.cobros.map((ok,i)=>{
                if(!ok) return '';
                const d = p.cobrosDetalle[i];
-               return '<tr><td>' + (i+1) + '</td><td>' + dineroCent(c.montos[i]) + '</td>'
+               return '<tr><td>' + (i+1) + '</td><td>' + dinero(c.montos[i]) + '</td>'
                  + '<td><b>' + esc(d.oc || '—') + '</b></td><td>' + esc(d.quien || '—') + '</td>'
                  + '<td>' + esc(d.cuando ? fechaHora(d.cuando) : '—') + '</td>'
                  /* Cargo interno no se factura — decirlo tal cual, en vez de
@@ -18494,12 +18488,12 @@ function vistaPrecios(){
            : (e.categoria
                ? '<span class="chip-zona ' + COLOR_CATEGORIA_EQUIPO[e.categoria] + '">' + esc(ETIQUETA_CATEGORIA_EQUIPO[e.categoria]) + '</span>'
                : '<span class="pista">— sin categoría —</span>')) + '</td>'
-       + '<td>' + (costo ? dineroCent(costo) : '<span class="pista">sin costo</span>') + '</td>'
-       + '<td' + (e.precio ? '' : ' style="color:var(--error)"') + '>' + (e.precio ? dineroCent(e.precio) : 'sin precio') + '</td>'
+       + '<td>' + (costo ? dinero(costo) : '<span class="pista">sin costo</span>') + '</td>'
+       + '<td' + (e.precio ? '' : ' style="color:var(--error)"') + '>' + (e.precio ? dinero(e.precio) : 'sin precio') + '</td>'
        + '<td' + (e.precio && costo
            ? ' style="color:' + (margen >= 0 ? 'var(--ok)' : 'var(--error)') + '"'
            : '') + '>'
-         + (e.precio && costo ? dineroCent(margen) + ' <span class="pista" style="display:inline">(' + margenPct.toFixed(0) + '%)</span>' : '<span class="pista">—</span>')
+         + (e.precio && costo ? dinero(margen) + ' <span class="pista" style="display:inline">(' + margenPct.toFixed(0) + '%)</span>' : '<span class="pista">—</span>')
        + '</td>'
        + '<td>' + e.frecuencia + ' · cada ' + (MESES_POLIZA / e.frecuencia % 1 === 0 ? (MESES_POLIZA/e.frecuencia) + ' ' + plural(MESES_POLIZA/e.frecuencia,'mes','meses') : 'irregular') + '</td>'
        + '<td><span class="pista" title="' + esc(ETIQUETA_PONDERACION[e.ponderacion]) + '">' + e.ponderacion + ' · ' + esc(ETIQUETA_PONDERACION[e.ponderacion]) + '</span></td>'
@@ -18615,8 +18609,8 @@ function modalEquipo(id, duplicarDe){
     const manoObra = aNumero($('eqCostoManoObra').value);
     const precio = aNumero($('eqPrecio').value);
     const costo = costoTotalEquipo({ costoInsumos: insumos, costoManoObra: manoObra });
-    let texto = 'Costo total con ' + COSTO_INDIRECTO_PCT + '% de indirectos: ' + dineroCent(costo) + '.';
-    if(precio && costo) texto += ' Margen: ' + dineroCent(precio - costo) + ' (' + ((precio-costo)/precio*100).toFixed(0) + '%).';
+    let texto = 'Costo total con ' + COSTO_INDIRECTO_PCT + '% de indirectos: ' + dinero(costo) + '.';
+    if(precio && costo) texto += ' Margen: ' + dinero(precio - costo) + ' (' + ((precio-costo)/precio*100).toFixed(0) + '%).';
     $('eqCostoResumen').textContent = texto;
   }
   $('eqFrecuencia').addEventListener('input', pintarIntervalo);
@@ -18643,7 +18637,7 @@ function modalEquipo(id, duplicarDe){
     if(!datos.catalogo.length) datos.catalogo = CATALOGO_SEMILLA.map(normalizarEquipo);
     const i = datos.catalogo.findIndex(x => x.id === nuevo.id);
     if(i === -1) datos.catalogo.push(nuevo); else datos.catalogo[i] = nuevo;
-    guardarCatalogo((e ? 'editó ' : (origen ? 'duplicó ' : 'agregó ')) + concepto + ' · ' + dineroCent(nuevo.precio));
+    guardarCatalogo((e ? 'editó ' : (origen ? 'duplicó ' : 'agregó ')) + concepto + ' · ' + dinero(nuevo.precio));
     cerrarModal(); render();
     aviso(e ? 'Equipo actualizado.' : 'Equipo agregado.');
   };
@@ -18684,10 +18678,10 @@ function modalPreciosGrupo(clienteId){
         const ov = c.preciosGrupo[e.id] || null;
         return '<tr data-fila-precio-grupo="' + esc(e.id) + '">'
           + '<td><b>' + esc(e.concepto) + '</b></td>'
-          + '<td>' + (e.precio ? dineroCent(e.precio) : '<span class="pista">sin precio</span>') + '</td>'
+          + '<td>' + (e.precio ? dinero(e.precio) : '<span class="pista">sin precio</span>') + '</td>'
           + '<td><input type="text" inputmode="decimal" class="pg-precio" placeholder="= estándar" '
             +   'value="' + (ov && ov.precioUnitario ? numero(ov.precioUnitario) : '') + '"></td>'
-          + '<td>' + (costoTotalEquipo(e) ? dineroCent(costoTotalEquipo(e)) : '<span class="pista">sin costo</span>') + '</td>'
+          + '<td>' + (costoTotalEquipo(e) ? dinero(costoTotalEquipo(e)) : '<span class="pista">sin costo</span>') + '</td>'
           + '<td><input type="text" inputmode="decimal" class="pg-costo" placeholder="= estándar" '
             +   'value="' + (ov && ov.costoUnitario ? numero(ov.costoUnitario) : '') + '"></td>'
           + '</tr>';
@@ -21430,7 +21424,7 @@ function modalSitio(clienteId, sitioId){
    Mismo molde que la captura de mensualidades de Forpass: la OC es obligatoria,
    queda quién la capturó y cuándo, y un cobro ya capturado se puede reabrir para
    corregirlo. Lo único distinto es que el monto sale de montos[], que reparte el
-   anual en centavos enteros.
+   anual en pesos enteros.
    ------------------------------------------------------------------ */
 function deshacerCobro(polizaId, idx){
   const p = polizaPorId(polizaId);
@@ -21470,7 +21464,7 @@ function modalCobroPoliza(polizaId, idx){
         : '<div class="r-fila"><span>Inicio de la vigencia</span><span>' + fmtFecha(p.fechaInicio) + '</span></div>')
     +   (idx === p.cobros.length - 1 && p.cobros.length > 1 && c.montos[idx] !== c.montos[0]
         ? '<div class="r-fila"><span>Ojo</span><span>Lleva el residuo del reparto</span></div>' : '')
-    +   '<div class="r-fila r-total"><span>Monto de este cobro</span><span>' + dineroCent(c.montos[idx]) + '</span></div>'
+    +   '<div class="r-fila r-total"><span>Monto de este cobro</span><span>' + dinero(c.montos[idx]) + '</span></div>'
     + '</div>'
 
     + '<div class="campo"><label>Nombre de quien captura *</label>'
@@ -21523,7 +21517,7 @@ function modalCobroPoliza(polizaId, idx){
     if(!conCuenta) recordarCapturador(quien);
 
     guardarPoliza(p, yaCobrado ? 'corrigió el cobro de' : 'capturó el cobro de',
-      'cobro ' + (idx+1) + ' de ' + p.cobros.length + ' · ' + dineroCent(c.montos[idx]) + ' · '
+      'cobro ' + (idx+1) + ' de ' + p.cobros.length + ' · ' + dinero(c.montos[idx]) + ' · '
       + (esInterno ? 'cargo interno' : 'OC ' + oc + ' · ' + (facturado ? 'facturado' : 'sin facturar')) + ' · capturó ' + quien);
     cerrarModal();
     render();
@@ -22825,7 +22819,7 @@ function modalPoliza(id, origenLevantamiento){
       if(!x) return;
       const lim = normalizarPartida(x);
       const t = nodo.querySelector('[data-total]');
-      if(t) t.value = dineroCent(totalRenglon(lim));
+      if(t) t.value = dinero(totalRenglon(lim));
       const cuadra = cuadraFrecuencia(lim);
       const fr = nodo.querySelector('[data-campo="frecuencia"]');
       /* No se regaña antes de que el usuario escriba nada: un renglón recién
@@ -22862,7 +22856,7 @@ function modalPoliza(id, origenLevantamiento){
     const f = leerForm();
     const prov = normalizarPoliza(Object.assign({}, f, { partidas: partidasTmp, id:'tmp' }));
     const c = calcularPoliza(prov);
-    if($('pieAnual'))   $('pieAnual').textContent   = dineroCent(c.precioAnual);
+    if($('pieAnual'))   $('pieAnual').textContent   = dinero(c.precioAnual);
     /* El descuento en vivo mientras se captura: se teclea 5 y el pie ya enseña
        cuánto son y cuánto queda. Sin esto habría que guardar para saberlo. */
     if($('pieBloqueDesc')){
@@ -22871,13 +22865,13 @@ function modalPoliza(id, origenLevantamiento){
       $('pieBloqueDesc2').style.display = hay ? '' : 'none';
       if(hay){
         $('pieSubtotalEtiqueta').textContent = c.etiquetaBase;
-        $('pieSubtotal').textContent = dineroCent(c.base);
+        $('pieSubtotal').textContent = dinero(c.base);
         $('pieDescEtiqueta').textContent = (c.esAumento ? 'Aumento ' : 'Descuento ') + c.descuentoAbs + '%';
-        $('pieDescuento').textContent = (c.esAumento ? '+' : '−') + dineroCent(c.montoDescuentoAbs);
+        $('pieDescuento').textContent = (c.esAumento ? '+' : '−') + dinero(c.montoDescuentoAbs);
         $('pieDescuento').style.color = c.esAumento ? 'var(--ok)' : 'var(--error)';
       }
     }
-    if($('pieMensual')) $('pieMensual').textContent = dineroCent(c.precioMensual);
+    if($('pieMensual')) $('pieMensual').textContent = dinero(c.precioMensual);
 
     const nCobros = prov.cobros.length;
     /* Se CUENTAN los iguales en vez de dar por hecho "11 y uno": cuando el anual
@@ -22895,14 +22889,14 @@ function modalPoliza(id, origenLevantamiento){
       + (prov.facturacion === 'mensual'
           ? '<div class="r-fila"><span>Cobros</span><span>'
             + (iguales === nCobros
-                ? nCobros + ' de ' + dineroCent(c.montos[0])
-                : iguales + ' de ' + dineroCent(c.montos[0]) + ' y uno de ' + dineroCent(ultimo))
+                ? nCobros + ' de ' + dinero(c.montos[0])
+                : iguales + ' de ' + dinero(c.montos[0]) + ' y uno de ' + dinero(ultimo))
             + '</span></div>'
           : '<div class="r-fila"><span>Cobros</span><span>uno solo, al inicio</span></div>')
-      + '<div class="r-fila r-total"><span>Precio anual</span><span>' + dineroCent(c.precioAnual) + '</span></div>'
-      + '<div class="r-fila"><span>Costo anual</span><span>' + dineroCent(c.costoAnual) + '</span></div>'
+      + '<div class="r-fila r-total"><span>Precio anual</span><span>' + dinero(c.precioAnual) + '</span></div>'
+      + '<div class="r-fila"><span>Costo anual</span><span>' + dinero(c.costoAnual) + '</span></div>'
       + '<div class="r-fila r-total"><span>Margen</span><span style="color:' + (c.utilidadAnual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
-      +   dineroCent(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</span></div>';
+      +   dinero(c.utilidadAnual) + ' (' + c.margenPct.toFixed(1) + '%)</span></div>';
   }
 
   /* Orden alfabético por nombre de equipo (insensible a mayúsculas/acentos).
@@ -23129,7 +23123,7 @@ function modalPoliza(id, origenLevantamiento){
     const orden = activos.slice().sort((a,b)=> (cuenta[b.id]||0) - (cuenta[a.id]||0) || a.concepto.localeCompare(b.concepto,'es'));
     caja.innerHTML = orden.slice(0, 12).map(e =>
       '<button type="button" class="chip-eq" data-chip="' + esc(e.id) + '" '
-      + 'title="' + esc(e.concepto + (e.precio ? ' · ' + dineroCent(e.precio) : ' · sin precio')
+      + 'title="' + esc(e.concepto + (e.precio ? ' · ' + dinero(e.precio) : ' · sin precio')
           + ' · ' + e.frecuencia + ' al año') + '">'
       + esc(e.concepto) + '<span class="mas">+</span></button>').join('');
   }
@@ -23308,7 +23302,7 @@ function modalPoliza(id, origenLevantamiento){
        alguien corrige una póliza activa después, este renglón sigue diciendo con
        cuánto se cerró. */
     guardarPoliza(p || limpio, accion,
-      limpio.partidas.length + ' ' + plural(limpio.partidas.length,'equipo','equipos') + ' · ' + dineroCent(c.precioAnual) + ' al año');
+      limpio.partidas.length + ' ' + plural(limpio.partidas.length,'equipo','equipos') + ' · ' + dinero(c.precioAnual) + ' al año');
 
     cerrarModal();
     estado.modulo = 'polizas'; guardarModulo();
@@ -23617,10 +23611,10 @@ function modalCotizacion(id, origenReporte){
     const previo = normalizarCotizacion(Object.assign({}, cab, { id: q ? q.id : 'tmp', partidas: partidasTmp }));
     const c = calcularCotizacion(previo);
     $('resumenCotizacion').innerHTML =
-        '<div><div class="d-label">Subtotal costo</div><div class="d-valor chico">' + dineroCent(c.subtotalCosto) + '</div></div>'
-      + '<div><div class="d-label">Total costo</div><div class="d-valor">' + dineroCent(c.totalCosto) + '</div></div>'
-      + '<div><div class="d-label">Subtotal cliente</div><div class="d-valor chico">' + dineroCent(c.subtotalCliente) + '</div></div>'
-      + '<div><div class="d-label">Total cliente</div><div class="d-valor" style="color:var(--ok)">' + dineroCent(c.totalCliente) + '</div></div>';
+        '<div><div class="d-label">Subtotal costo</div><div class="d-valor chico">' + dinero(c.subtotalCosto) + '</div></div>'
+      + '<div><div class="d-label">Total costo</div><div class="d-valor">' + dinero(c.totalCosto) + '</div></div>'
+      + '<div><div class="d-label">Subtotal cliente</div><div class="d-valor chico">' + dinero(c.subtotalCliente) + '</div></div>'
+      + '<div><div class="d-label">Total cliente</div><div class="d-valor" style="color:var(--ok)">' + dinero(c.totalCliente) + '</div></div>';
   }
 
   /* Listeners delegados en #listaPartidasCot: van UNA SOLA VEZ, fuera de
@@ -23792,7 +23786,7 @@ function modalCotizacion(id, origenReporte){
 
     const c = calcularCotizacion(limpio);
     guardarCotizacion(q || limpio, q ? 'editó' : 'creó',
-      limpio.partidas.length + ' ' + plural(limpio.partidas.length,'concepto','conceptos') + ' · ' + dineroCent(c.totalCliente) + ' al cliente');
+      limpio.partidas.length + ' ' + plural(limpio.partidas.length,'concepto','conceptos') + ' · ' + dinero(c.totalCliente) + ' al cliente');
 
     /* La liga hacia adelante: el reporte que originó esta cotización se
        entera de su folio, solo la primera vez (si ya tenía una liga, no se
@@ -24018,8 +24012,8 @@ function modalImportar(lecturas){
          + '<td>' + esc(r.nombreCliente) + (r.cli ? '' : ' <span class="insignia i-info">nuevo</span>') + '</td>'
          + '<td style="text-align:right">' + r.poliza.partidas.length + '</td>'
          + '<td style="text-align:right">' + numero(r.poliza.partidas.reduce((t,x)=> t + x.cantidad, 0)) + '</td>'
-         + '<td style="text-align:right"><b>' + dineroCent(c.precioAnual) + '</b></td>'
-         + '<td style="text-align:right">' + dineroCent(c.precioMensual) + '</td>'
+         + '<td style="text-align:right"><b>' + dinero(c.precioAnual) + '</b></td>'
+         + '<td style="text-align:right">' + dinero(c.precioMensual) + '</td>'
          + '<td style="white-space:nowrap">' + fmtFecha(r.poliza.fechaInicio) + ' → ' + fmtFecha(c.fin) + '</td>'
          + '</tr>'
          + (notas.length
@@ -24047,7 +24041,7 @@ function modalImportar(lecturas){
     $('impResumen').innerHTML =
         '<span>' + escogidas.length + ' de ' + lecturas.length + ' ' + plural(lecturas.length,'archivo','archivos')
       + (porCrear ? ' · ' + porCrear + ' ' + plural(porCrear,'cliente nuevo','clientes nuevos') : '')
-      + '</span><b>' + dineroCent(deCentavos(total)) + ' al año</b>';
+      + '</span><b>' + dinero(deEnteros(total)) + ' al año</b>';
     $('btnImportar').disabled = !escogidas.length;
   };
   resumir();
@@ -24091,7 +24085,7 @@ function confirmarImportacion(escogidas){
     const c = calcularPoliza(r.poliza);
     guardarPoliza(r.poliza, 'importó',
       r.poliza.partidas.length + ' ' + plural(r.poliza.partidas.length,'equipo','equipos')
-      + ' · ' + dineroCent(c.precioAnual) + ' al año · ' + r.archivo);
+      + ' · ' + dinero(c.precioAnual) + ' al año · ' + r.archivo);
   });
 
   estado.modulo = 'polizas'; guardarModulo();
@@ -25426,7 +25420,7 @@ $('vista').addEventListener('click', ev=>{
     const antes = x.precioUnitario;
     if(ov.precioUnitario) x.precioUnitario = ov.precioUnitario;
     if(ov.costoUnitario) x.costoUnitario = ov.costoUnitario;
-    guardarPoliza(pol, 'homologó precio de grupo en', x.concepto + ': ' + dineroCent(antes) + ' → ' + dineroCent(x.precioUnitario));
+    guardarPoliza(pol, 'homologó precio de grupo en', x.concepto + ': ' + dinero(antes) + ' → ' + dinero(x.precioUnitario));
     render();
     aviso(x.concepto + ' actualizado al precio de grupo.');
     return;
@@ -25445,14 +25439,14 @@ $('vista').addEventListener('click', ev=>{
     const c = calcularPoliza(pol);
     confirmar('Eliminar póliza',
       'Se va a eliminar la póliza de <b>' + esc(pol.sitioNombre || pol.folio || 'sin nombre') + '</b>'
-      + ' — ' + esc(dineroCent(c.precioAnual)) + ' al año, ' + pol.partidas.length + ' '
+      + ' — ' + esc(dinero(c.precioAnual)) + ' al año, ' + pol.partidas.length + ' '
       + plural(pol.partidas.length,'equipo','equipos') + '.'
       + (c.hechos ? ' Se borran también sus <b>' + c.hechos + ' ' + plural(c.hechos,'servicio registrado','servicios registrados') + '</b>.' : '')
       + ' Esta acción no se puede deshacer.',
       'Sí, eliminar', ()=>{
         datos.polizas = datos.polizas.filter(x => x.id !== pol.id);
         borrarRegistro('polizas', pol.id);
-        anotar('eliminó', 'póliza', pol.sitioNombre || pol.folio || 'sin nombre', dineroCent(c.precioAnual) + ' al año');
+        anotar('eliminó', 'póliza', pol.sitioNombre || pol.folio || 'sin nombre', dinero(c.precioAnual) + ' al año');
         if(estado.polizaId === pol.id){ estado.vista = 'polizas'; estado.polizaId = null; }
         render(); aviso('Póliza eliminada.');
       });
