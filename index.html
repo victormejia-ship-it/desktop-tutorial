@@ -214,8 +214,27 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .btn:disabled{opacity:.5; cursor:not-allowed;}
 
 /* ---------- Tarjetas de indicadores ---------- */
-.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:12px; margin-bottom:22px;}
-.kpi{background:#fff; border:1px solid var(--line); border-radius:14px; padding:15px 16px; position:relative; overflow:hidden; box-shadow:var(--sombra-suave);}
+/* Antes era grid con auto-fit: en cuanto las tarjetas no cabían todas en el
+   ancho disponible, las que sobraban brincaban a un segundo renglón —y si
+   sobraba nada más UNA (como "Vigencia" en una póliza con 7 tarjetas),
+   quedaba sola, desfasada, sin nada contra qué emparejar su alto. Pedido
+   explícito de Victor (15-sep-2026): que nunca se partan en dos filas.
+   Mismo criterio que ya usa el selector de módulo del encabezado
+   (#selectorModulo): en vez de envolver, la fila hace su propio scroll
+   horizontal —con la barra escondida— y cada tarjeta conserva su ancho
+   mínimo en vez de aplastarse. */
+.kpis{display:flex; flex-wrap:nowrap; overflow-x:auto; gap:12px; margin-bottom:22px;
+      -ms-overflow-style:none; scrollbar-width:none;}
+.kpis::-webkit-scrollbar{display:none;}
+/* flex-shrink:0 es lo que de verdad evita el envolvido: con shrink normal
+   (1), el navegador aplasta las tarjetas para que quepan ANTES de dejar
+   que el renglón desborde y scrollee —lo mismo se busca evitar. Con 0
+   nunca bajan de 168px, así que la fila desborda y scrollea en vez de
+   apachurrarse o partirse en dos. flex-grow:1 sigue dejando que se
+   repartan el ancho sobrante cuando sí caben todas (igual que el
+   minmax(...,1fr) de antes). */
+.kpi{background:#fff; border:1px solid var(--line); border-radius:14px; padding:15px 16px; position:relative; overflow:hidden; box-shadow:var(--sombra-suave);
+     flex:1 0 168px; min-width:168px;}
 .kpi::before{content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--accent);}
 .kpi.k-ok::before{background:var(--ok);} .kpi.k-alerta::before{background:var(--alerta);} .kpi.k-error::before{background:var(--error);}
 /* Reserva dos renglones para el título aunque quepa en uno: así los números
