@@ -985,8 +985,18 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .cal-gantt-leyenda{display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--gray); margin-bottom:10px;}
 .cal-gantt-leyenda span{display:inline-flex; align-items:center; gap:5px;}
 .cal-gantt-leyenda i{width:11px; height:11px; border-radius:3px; display:inline-block; flex:0 0 auto;}
-.cal-gantt{width:100%; border-collapse:collapse; table-layout:fixed;}
-.cal-gantt th{font-size:10px; font-weight:600; color:var(--gray); padding:4px 2px; text-align:center; white-space:nowrap; text-transform:capitalize; border-bottom:1.5px solid var(--line);}
+/* min-width es lo que de verdad arregla lo angosto: sin él, table-layout:fixed
+   reparte el 100% del ANCHO DISPONIBLE entre Equipo + 12 meses sin importar
+   qué tan angosto sea ese ancho —en un celular las columnas se encogen hasta
+   que "feb 26" ya no cabe y se encima con la columna de al lado—, y el
+   overflow-x:auto de .rodillo (ver más abajo) nunca se activa porque la tabla
+   nunca deja de "caber". Con un mínimo real, en pantallas angostas la tabla
+   se sale de su caja y .rodillo pasa a scroll horizontal de verdad: cada
+   columna de mes se queda con aire (~44px) para su etiqueta completa, sin
+   encimarse, igual que ya se resuelve en el resto de las tablas anchas de la
+   app (ver rodillo-ancho / tabla-renglones). */
+.cal-gantt{width:100%; min-width:700px; border-collapse:collapse; table-layout:fixed;}
+.cal-gantt th{font-size:10px; font-weight:600; color:var(--gray); padding:4px 2px; text-align:center; white-space:nowrap; text-transform:capitalize; border-bottom:1.5px solid var(--line); overflow:hidden;}
 .cal-gantt th.gantt-eq-h{text-align:left; padding-left:6px; width:26%;}
 .cal-gantt th.ahora{color:var(--navy); background:var(--alerta-suave); border-radius:6px 6px 0 0;}
 .cal-gantt td{border-bottom:1px solid var(--line); height:26px; padding:0; text-align:center;}
