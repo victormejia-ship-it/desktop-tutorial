@@ -4346,14 +4346,16 @@ function tonoCotizacion(cot){
 }
 
 /* El folio por omisión al crear una cotización nueva: SERV-DDMMAA-NN, donde NN
-   es su lugar dentro de las que ya llevan ese mismo día. Es solo una
+   es su lugar dentro de las que ya llevan ese mismo día —empieza en 01 cada
+   día, no es un contador que solo crece para siempre—. Es solo una
    sugerencia — el campo sigue siendo texto libre, por si hace falta otra
-   convención o corregirlo a mano. */
-/* Folio por default: SERV-ddmmaa-NN. El consecutivo es GLOBAL — cuántas
-   cotizaciones ya existen, no cuántas del mismo día — a pedido explícito de
-   Victor (21-ago-2026): "conforme a las cotizaciones creadas". Sigue siendo
-   solo una sugerencia inicial: el campo del formulario es texto libre y se
-   puede corregir a mano. */
+   convención o corregirlo a mano.
+   Antes (21-ago-2026) el consecutivo era GLOBAL —cuántas cotizaciones ya
+   existían en toda la vida de la cuenta, no cuántas del mismo día—, a
+   pedido explícito de Victor. Se revierte a por-día (pedido explícito,
+   15-sep-2026): con miles de cotizaciones ya creadas, ese conteo global
+   dejó de leerse como "NN" de dos dígitos y empezó a salir como
+   "SERV-150926-3636", rompiendo el formato que se quería mantener. */
 /* Quién capturó la última cotización, para no volver a teclearlo cada vez.
    En modo servidor manda el nombre de la sesión —siempre correcto y no hace
    falta recordar nada—; en modo local no hay cuentas, así que es lo único
@@ -4373,7 +4375,8 @@ function recordarRealizo(nombre){
 function generarFolioCotizacion(fechaISO){
   const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
   const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
-  return 'SERV-' + ddmmaa + '-' + String(datos.cotizaciones.length + 1).padStart(2,'0');
+  const delMismoDia = datos.cotizaciones.filter(q => q.fecha === f).length;
+  return 'SERV-' + ddmmaa + '-' + String(delMismoDia + 1).padStart(2,'0');
 }
 
 /* Folio por default al crear una póliza nueva: POL-NNN. Consecutivo GLOBAL
