@@ -577,76 +577,49 @@ const CLASE_ALCANCE = { forguard: 'alcance-forguard', cliente: 'alcance-cliente'
 
 function pagePoliza(){
   /* Alcance en DOS TABLAS separadas — pedido explícito de Victor (15-sep-2026,
-     ampliado el mismo día): no una sola tabla con un renglón divisor, sino
-     dos tablas de verdad, cada una con su propio encabezado de columnas y su
-     propia numeración (#) empezando en 1. Forguard primero, cliente después.
-     Como ya NO comparten numeración con el Calendario (que sigue usando
-     POLIZA.renglones tal cual), cada renglón impreso aquí lleva un número
-     LOCAL a su tabla (nTabla) — a propósito distinto del que ese mismo
-     equipo trae en el Calendario.
+     ampliado el mismo día dos veces): no una sola tabla con un renglón
+     divisor, sino dos tablas de verdad, cada una con su propio encabezado de
+     columnas y su propia numeración (#) empezando en 1 — y cada una en sus
+     PROPIAS hojas, sin compartir página con la otra aunque quepan juntas:
+     Forguard cierra su listado (con salto de hoja incluido si le sobra
+     media hoja en blanco) y el de cliente arranca siempre en una hoja nueva.
+     Forguard primero, cliente después. Como ya NO comparten numeración con
+     el Calendario (que sigue usando POLIZA.renglones tal cual), cada
+     renglón impreso aquí lleva un número LOCAL a su tabla (nTabla) — a
+     propósito distinto del que ese mismo equipo trae en el Calendario. */
+  const bloques = [
+    { tono:'forguard', filas: POLIZA.renglones.filter(r => r.alcance !== 'cliente') },
+    { tono:'cliente', filas: POLIZA.renglones.filter(r => r.alcance === 'cliente') }
+  ].filter(b => b.filas.length)
+   .map(b => ({ ...b, filas: b.filas.map((r,i) => ({ ...r, nTabla: i + 1 })) }))
+   .map(b => ({ ...b, hojas: partirEnHojas(b.filas, FILAS_POR_HOJA) }));
 
-     La paginación se sigue calculando en UNA sola lista combinada (igual
-     que antes), no una por tabla: así, si el listado de Forguard termina a
-     media hoja, el de cliente puede seguir arrancando en esa misma hoja en
-     vez de forzar un salto de página que dejaría casi en blanco la mitad
-     de la anterior. Dentro de cada hoja ya pintada, pintarCorridas() junta
-     las filas contiguas del mismo alcance en su propia <table> — a lo más
-     dos corridas por hoja, porque forguardRows siempre va completo antes
-     que clienteRows en la lista. */
-  const forguardRows = POLIZA.renglones.filter(r => r.alcance !== 'cliente')
-    .map((r,i) => ({ ...r, tono:'forguard', nTabla: i + 1 }));
-  const clienteRows = POLIZA.renglones.filter(r => r.alcance === 'cliente')
-    .map((r,i) => ({ ...r, tono:'cliente', nTabla: i + 1 }));
-  const totalPorTono = { forguard: forguardRows.length, cliente: clienteRows.length };
-  const hayCliente = clienteRows.length > 0;
-  const hojas = partirEnHojas([...forguardRows, ...clienteRows], FILAS_POR_HOJA);
+  const totalHojas = bloques.reduce((t,b) => t + b.hojas.length, 0);
+  const hayCliente = bloques.some(b => b.tono === 'cliente');
+  let contador = 0;
 
-  return hojas.map((grupo, h) => {
-    const ultima = h === hojas.length - 1;
-    /* Agrupa el grupo de la hoja en corridas contiguas del mismo alcance —
-       cada corrida se imprime como su propia <table>, con su propio
-       encabezado de columnas y su propio título de sección. */
-    const corridas = [];
-    for(const r of grupo){
-      const actual = corridas[corridas.length - 1];
-      if(actual && actual.tono === r.tono) actual.filas.push(r);
-      else corridas.push({ tono: r.tono, filas: [r] });
-    }
-    const tablasHTML = corridas.map(corr => {
-      /* Fondo de fila vía CSS en el <tr>, no texto — no puede desbordar
-         nada, y print-color-adjust:exact (ver más arriba) ya garantiza que
-         se imprima igual que se ve en pantalla. Total y Total Mtto se
-         apagan a rayita en la tabla del cliente: son precio de venta, y
-         esos renglones no tienen — ver "eso se separa" en calcularPoliza(). */
-      const fuera = corr.tono === 'cliente';
-      const filas = corr.filas.map(r => `<tr${fuera ? ' class="fuera-alcance"' : ''}>
-        <td class="ix">${r.nTabla}</td>
-        <td class="cpt">${esc(r.concepto)}${r.marca?`<span class="marca"> — ${esc(r.marca)}</span>`:""}</td>
-        <td class="c">${esc(r.cantidad)}</td>
-        <td class="c">${esc(r.precioUnitario)}</td>
-        <td class="c">${fuera ? '—' : esc(r.total)}</td>
-        <td class="c">${esc(r.frecuencia)}</td>
-        <td class="c">${fuera ? '—' : esc(r.totalMtto)}</td>
-      </tr>`).join("");
-      return `<div class="bloque-tabla">
-          <div class="tit-bloque ${corr.tono}">${esc(TITULO_ALCANCE[corr.tono])}</div>
-          <table class="grid ${CLASE_ALCANCE[corr.tono]}" data-filas="${corr.filas.length}">
-            <colgroup>
-              <col style="width:22.6pt"><col style="width:126.6pt"><col style="width:51.2pt">
-              <col style="width:63.2pt"><col style="width:59pt"><col style="width:59.2pt">
-              <col style="width:54.8pt">
-            </colgroup>
-            <thead><tr>
-              <th class="ix">#</th><th class="cpt">Concepto</th>
-              <th class="c">Cantidad</th><th class="c">Precio Unitario</th>
-              <th class="c">Total</th><th class="c">Frecuencia</th><th class="c">Total Mtto</th>
-            </tr></thead>
-            <tbody>${filas}</tbody>
-          </table>
-        </div>`;
-    }).join("");
-    /* El cierre solo en la última: en una intermedia sobraría, y en la primera
-       diría un total que todavía no se ha terminado de listar. */
+  return bloques.map(bloque => bloque.hojas.map((grupo, h) => {
+    contador++;
+    /* El cierre solo en la última hoja de TODO el documento (la de
+       Forguard si no hay renglones de cliente, la del cliente si sí los
+       hay): en cualquier hoja intermedia sobraría, o diría un total que
+       todavía no se ha terminado de listar. */
+    const ultima = contador === totalHojas;
+    /* Fondo de fila vía CSS en el <tr>, no texto — no puede desbordar
+       nada, y print-color-adjust:exact (ver más arriba) ya garantiza que
+       se imprima igual que se ve en pantalla. Total y Total Mtto se
+       apagan a rayita en la tabla del cliente: son precio de venta, y
+       esos renglones no tienen — ver "eso se separa" en calcularPoliza(). */
+    const fuera = bloque.tono === 'cliente';
+    const filas = grupo.map(r => `<tr${fuera ? ' class="fuera-alcance"' : ''}>
+      <td class="ix">${r.nTabla}</td>
+      <td class="cpt">${esc(r.concepto)}${r.marca?`<span class="marca"> — ${esc(r.marca)}</span>`:""}</td>
+      <td class="c">${esc(r.cantidad)}</td>
+      <td class="c">${esc(r.precioUnitario)}</td>
+      <td class="c">${fuera ? '—' : esc(r.total)}</td>
+      <td class="c">${esc(r.frecuencia)}</td>
+      <td class="c">${fuera ? '—' : esc(r.totalMtto)}</td>
+    </tr>`).join("");
     const cierre = ultima ? `
         <table class="totals">
           ${POLIZA.totales.descuento ? `
@@ -682,22 +655,37 @@ function pagePoliza(){
       ${sheetHead("Póliza de Mantenimiento")}
       <div class="body">
         ${avisoExclusion}
-        ${tablasHTML}${cierre}
+        <div class="bloque-tabla">
+          <div class="tit-bloque ${bloque.tono}">${esc(TITULO_ALCANCE[bloque.tono])}</div>
+          <table class="grid ${CLASE_ALCANCE[bloque.tono]}" data-filas="${grupo.length}">
+            <colgroup>
+              <col style="width:22.6pt"><col style="width:126.6pt"><col style="width:51.2pt">
+              <col style="width:63.2pt"><col style="width:59pt"><col style="width:59.2pt">
+              <col style="width:54.8pt">
+            </colgroup>
+            <thead><tr>
+              <th class="ix">#</th><th class="cpt">Concepto</th>
+              <th class="c">Cantidad</th><th class="c">Precio Unitario</th>
+              <th class="c">Total</th><th class="c">Frecuencia</th><th class="c">Total Mtto</th>
+            </tr></thead>
+            <tbody>${filas}</tbody>
+          </table>
+        </div>${cierre}
       </div>
     </div>
     ${(() => {
-      /* Rango "Equipos X–Y de N" para el pie: uno por corrida presente en
-         esta hoja (puede haber dos, si aquí conviven el final de Forguard
-         y el arranque de cliente) — N es el total de ESA tabla, no del
-         documento completo, porque cada tabla ya tiene su propia
-         numeración independiente. */
-      const rango = hojas.length > 1
-        ? corridas.map(c => `Equipos ${c.filas[0].nTabla}–${c.filas[c.filas.length-1].nTabla} de ${totalPorTono[c.tono]}`).join(' · ')
-        : '';
+      /* Rango "Equipos X–Y de N" para el pie: N es el total de ESA tabla
+         (bloque.filas.length), no del documento completo — cada tabla ya
+         tiene su propia numeración independiente. Se recalcula después
+         desde el DOM ya estable (ver actualizarPiesDePoliza), así que esto
+         solo es el valor de arranque antes de que evitarTraslapeConPie()
+         corra. */
+      const rango = bloque.hojas.length > 1 && grupo.length
+        ? `Equipos ${grupo[0].nTabla}–${grupo[grupo.length-1].nTabla} de ${bloque.filas.length}` : '';
       return sheetFoot(rango);
     })()}
   </section>`;
-  }).join("");
+  }).join("")).join("");
 }
 
 /* ================== DESCRIPCIÓN DE TRABAJOS ==================
@@ -976,15 +964,6 @@ function nuevaHojaComo(hoja, selTabla, selTb){
   /* Clona la hoja, le vacía la tabla y le quita el bloque de cierre —Precio
      Anual y las notas van SOLO en la última—; después se le devuelve. */
   const nueva = hoja.cloneNode(true);
-  /* En pagePoliza() una misma hoja puede traer DOS tablas (el final de
-     Forguard y el arranque de cliente conviviendo en la misma página, ver
-     esa función) — cloneNode(true) copia la hoja ENTERA, así que sin este
-     filtro la hoja nueva para "cliente" traería pegada una copia duplicada
-     de la tabla "Forguard" que ya se imprimió en la hoja anterior. Se
-     conserva solo el bloque de la tabla que se está continuando. */
-  nueva.querySelectorAll('.bloque-tabla').forEach(bloque => {
-    if(!bloque.querySelector(selTabla)) bloque.remove();
-  });
   nueva.querySelector(selTb).innerHTML = '';
   const cierre = nueva.querySelectorAll('.totals, .note');
   cierre.forEach(c => c.remove());
@@ -1005,35 +984,15 @@ function evitarTraslapeConPie(){
         if(!pie) continue;
         const techo = pie.getBoundingClientRect().top - 4;
         const filas = [...cuerpo.children];
-        /* Nunca se deja una TABLA (y su hoja) totalmente vacía cuando es lo
-           ÚNICO que trae esa hoja: si ni una fila cabe ahí, el problema es de
-           otro tamaño y lo va a gritar la aserción. Pero en pagePoliza() una
-           hoja puede traer DOS tablas (el final de Forguard conviviendo con
-           el arranque de cliente, ver esa función) — ahí sí es válido mover
-           la única fila que le queda a una de las dos, porque la hoja NO se
-           queda vacía: la otra tabla sigue teniendo contenido. */
-        if(!filas.length) continue;
-        if(filas.length < 2){
-          const bloquePropio = cuerpo.closest('.bloque-tabla');
-          const hayOtraTablaConFilas = [...hoja.querySelectorAll('.bloque-tabla')]
-            .some(bt => bt !== bloquePropio && bt.querySelector('tbody')?.children.length > 0);
-          if(!hayOtraTablaConFilas) continue;
-        }
+        /* Nunca se deja una hoja sin ninguna fila: si ni una cabe, el problema
+           es de otro tamaño y lo va a gritar la aserción. */
+        if(filas.length < 2) continue;
         const ultima = filas[filas.length - 1];
         if(ultima.getBoundingClientRect().bottom <= techo) continue;
 
         /* Se encima: a la hoja siguiente del mismo tipo, o a una nueva. */
         const siguiente = cuerpos[i + 1] || nuevaHojaComo(hoja, tabla, tb).querySelector(tb);
         siguiente.insertBefore(ultima, siguiente.firstChild);
-        /* Si esa era la ÚLTIMA fila que le quedaba (el caso de arriba: dos
-           tablas en una misma hoja, y a esta se le vació la suya), el título
-           y el encabezado de columnas se quedan colgando SIN ninguna fila
-           debajo — y como su posición ya estaba pegada al pie (por eso se
-           movió la fila), ese título+encabezado vacío se queda encimado con
-           el pie aunque la fila en sí ya se fue. Se quita el bloque entero:
-           una tabla sin filas no dice nada, y ya se repite completo en la
-           hoja siguiente junto con sus filas. */
-        if(!cuerpo.children.length) cuerpo.closest('.bloque-tabla')?.remove();
         hubo = true;
       }
     }
@@ -1063,20 +1022,8 @@ function evitarTraslapeConPie(){
            cierre no cabe ni con una fila el problema es de otro tamaño — lo va
            a gritar la aserción, que ahora sí cuenta el cierre. */
         if(filas.length >= 2){
-          /* 'table.grid:not(.desc)' por sí solo ya no basta para nombrar UNA
-             tabla: matchea tanto .alcance-forguard como .alcance-cliente (son
-             dos tablas reales, ver pagePoliza()). Sin este paso, nuevaHojaComo()
-             no sabría cuál de las dos NO borrar, y querySelector() dentro de
-             ella tomaría la PRIMERA que encuentre —Forguard— aunque la fila
-             que se está moviendo sea del cliente, mezclando un renglón de una
-             tabla dentro de la otra. Se detecta la clase real de la tabla a la
-             que pertenece `ultimo` y se usa ESA, no la genérica. */
-          const tablaUltimo = ultimo.closest('table');
-          const claseAlcance = tablaUltimo.classList.contains('alcance-cliente') ? 'alcance-cliente' : 'alcance-forguard';
-          const selTablaUltimo = 'table.grid.' + claseAlcance;
-          const selTbUltimo = selTablaUltimo + ' tbody';
-          const nueva = nuevaHojaComo(hojaDe(ultimo), selTablaUltimo, selTbUltimo);
-          nueva.querySelector(selTbUltimo).appendChild(filas[filas.length - 1]);
+          const nueva = nuevaHojaComo(hojaDe(ultimo), 'table.grid:not(.desc)', 'table.grid:not(.desc) tbody');
+          nueva.querySelector('table.grid:not(.desc) tbody').appendChild(filas[filas.length - 1]);
           hubo = true;
         }
       }
@@ -1104,17 +1051,18 @@ function reubicarCierre(){
 }
 
 /* El pie "Equipos X–Y de N" de cada hoja se escribe en el HTML ANTES de que
-   evitarTraslapeConPie() reacomode filas entre hojas. Con la tabla de
-   equipos ya dividida en dos (Forguard/cliente, ver pagePoliza()), una
-   misma hoja puede cargar el título+encabezado de AMBAS tablas además de
-   sus filas — más overhead por hoja que antes, cuando solo había una tabla
-   continua — así que el reacomodo dinámico entra en juego más seguido. Sin
-   este repaso, el pie de una hoja podría seguir anunciando un rango de
-   equipos que ya no es el que esa hoja imprime de verdad, una vez que el
-   corrector terminó de mover filas. Se recalcula desde el DOM ya estable,
-   por hoja y por tabla de alcance — sin tocar sheetFoot() (la usan también
-   Calendario, Descripción y el resto de los documentos, que no tienen este
-   problema porque su tabla nunca se les divide a media hoja). */
+   evitarTraslapeConPie() reacomode filas entre hojas. Forguard y cliente ya
+   siempre arrancan en su propia hoja (ver pagePoliza()), pero cada tabla
+   puede SEGUIR ocupando varias hojas por sí sola, y el título+encabezado de
+   columnas de esa tabla cuenta como overhead extra en la primera hoja de
+   cada una — así que el reacomodo dinámico puede correr renglones entre
+   esas hojas igual que antes. Sin este repaso, el pie de una hoja podría
+   seguir anunciando un rango de equipos que ya no es el que esa hoja
+   imprime de verdad, una vez que el corrector terminó de mover filas. Se
+   recalcula desde el DOM ya estable, por hoja y por tabla de alcance — sin
+   tocar sheetFoot() (la usan también Calendario, Descripción y el resto de
+   los documentos, que no tienen este problema porque su tabla nunca se
+   divide en dos). */
 function actualizarPiesDePoliza(){
   const paginasConTabla = [...document.querySelectorAll('.page')].filter(pg => pg.querySelector('.bloque-tabla'));
   if(!paginasConTabla.length) return;
@@ -1122,16 +1070,22 @@ function actualizarPiesDePoliza(){
     forguard: POLIZA.renglones.filter(r => r.alcance !== 'cliente').length,
     cliente: POLIZA.renglones.filter(r => r.alcance === 'cliente').length
   };
+  const tonoDe = pg => pg.querySelector('table.alcance-cliente') ? 'cliente' : 'forguard';
+  /* El rango solo tiene sentido si ESA tabla (no el documento completo)
+     necesitó más de una hoja: si Forguard cupo entera en una sola hoja, no
+     hay "resto" que anunciar solo porque la tabla del cliente haya caído
+     en otra hoja aparte. */
+  const paginasPorTono = { forguard: 0, cliente: 0 };
+  paginasConTabla.forEach(pg => paginasPorTono[tonoDe(pg)]++);
+
   paginasConTabla.forEach(pg => {
     const tag = pg.querySelector('.footwrap .tag');
     if(!tag) return;
+    const tono = tonoDe(pg);
     let rango = '';
-    if(paginasConTabla.length > 1){
-      rango = [...pg.querySelectorAll('.bloque-tabla')].map(bloque => {
-        const tono = bloque.querySelector('table.alcance-cliente') ? 'cliente' : 'forguard';
-        const nums = [...bloque.querySelectorAll('tbody tr td.ix')].map(td => td.textContent.trim());
-        return nums.length ? `Equipos ${nums[0]}–${nums[nums.length-1]} de ${totalPorTono[tono]}` : null;
-      }).filter(Boolean).join(' · ');
+    if(paginasPorTono[tono] > 1){
+      const nums = [...pg.querySelectorAll('tbody tr td.ix')].map(td => td.textContent.trim());
+      if(nums.length) rango = `Equipos ${nums[0]}–${nums[nums.length-1]} de ${totalPorTono[tono]}`;
     }
     tag.innerHTML = (rango ? `<div style="color:#5C6673;font-size:8px;text-align:right;padding-bottom:6px">${esc(rango)}</div>` : '') + 'Sostenemos a los que sostienen todo.';
   });
