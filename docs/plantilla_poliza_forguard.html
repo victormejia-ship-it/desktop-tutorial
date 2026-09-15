@@ -268,8 +268,22 @@
      tabla (si el listado no cabe en una sola), nunca solo en la última. */
   .aviso-exclusion-tabla{margin-top:10px;background:#FDF4E5;border:1.5px solid #E8B74C;
     border-radius:4px;padding:9px 12px;font-size:12.5px;font-weight:600;
-    line-height:1.4;color:#5C3B00;}
+    line-height:1.4;color:#5C3B00;text-align:center;}
   .aviso-exclusion-tabla b{color:#3A2600;text-transform:uppercase;letter-spacing:.2px;}
+
+  /* Encabezado de sección DENTRO de la tabla de equipos (Alcance Forguard /
+     Alcance del cliente) — pedido explícito de Victor (15-sep-2026): que se
+     enliste primero lo que Forguard ofrece y después lo del cliente, en dos
+     secciones bien diferenciadas en vez de solo un "†" disperso entre
+     renglones. Misma altura de fila que las demás (21.53pt) para no
+     desalinear el paso medido de la tabla — el corrector dinámico
+     (evitarTraslapeConPie) se encarga solo de mover lo que no quepa. */
+  table.grid:not(.desc) tbody tr.tr-seccion{height:21.53pt;}
+  table.grid:not(.desc) tbody tr.tr-seccion td.tit-seccion{
+    font-size:7.6pt;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+    text-align:center;padding:0;}
+  table.grid:not(.desc) tbody tr.tr-seccion.forguard td.tit-seccion{background:#E9F0FB;color:var(--brand-navy);}
+  table.grid:not(.desc) tbody tr.tr-seccion.cliente td.tit-seccion{background:#FDF4E5;color:#5C3B00;}
 
   /* ---- Totales ---- */
   .totals{margin-top:16px;width:100%;}
@@ -552,27 +566,53 @@ function partirEnHojas(items, porHoja){
    pero entonces no cabe Cantidad, y una tabla sin Cantidad es exactamente de
    donde salieron las cantidades escondidas que hubo que deducir de los totales. */
 function pagePoliza(){
-  const hojas = partirEnHojas(POLIZA.renglones, FILAS_POR_HOJA);
+  /* Alcance dividido en dos secciones — pedido explícito de Victor
+     (15-sep-2026): que se enliste PRIMERO lo que Forguard ofrece/cubre y
+     DESPUÉS lo que es responsabilidad del cliente, para que la diferencia
+     salte a la vista en vez de quedar solo en el tinte de la fila y un "†"
+     disperso entre renglones intercalados.
+
+     Los números de renglón (#) NO se reacomodan: cada equipo conserva el
+     mismo número que trae en el Calendario (misma POLIZA.renglones, mismo
+     orden ahí) — así se puede seguir cruzando referencias entre las dos
+     tablas sin ambigüedad, aunque en la lista de precios ya no salgan en
+     ese mismo orden numérico.
+
+     Los encabezados de sección viajan MEZCLADOS en la lista que se manda a
+     partirEnHojas(), como si fueran un renglón más: así la paginación (y el
+     corrector dinámico evitarTraslapeConPie(), que mide lo YA DIBUJADO) los
+     trata igual que a cualquier fila, sin tener que recalcular a mano en
+     qué hoja cae la división. verificarRenglonesImpresos() los excluye del
+     conteo (ver tr:not(.tr-seccion) ahí) porque no son equipos: son solo
+     divisores. */
+  const forguardRows = POLIZA.renglones.filter(r => r.alcance !== 'cliente');
+  const clienteRows  = POLIZA.renglones.filter(r => r.alcance === 'cliente');
+  const conSecciones = [
+    ...(forguardRows.length ? [{ esSeccion:true, tono:'forguard',
+        titulo:'Alcance Forguard — equipos incluidos en esta póliza' }] : []),
+    ...forguardRows,
+    ...(clienteRows.length ? [{ esSeccion:true, tono:'cliente',
+        titulo:'Alcance del cliente — fuera de esta póliza, bajo su responsabilidad' }] : []),
+    ...clienteRows
+  ];
+  const hojas = partirEnHojas(conSecciones, FILAS_POR_HOJA);
   return hojas.map((grupo, h) => {
     const ultima = h === hojas.length - 1;
-    /* Alcance por renglón (Forguard / responsabilidad del cliente): se marca
-       DENTRO de la fila sin arriesgar su alto medido —"paso entre filas
-       MEDIDO: 21.53 pt" más abajo—. Dos recursos que no mueven ni una letra
-       de tamaño ni agregan una línea:
-         · el "†" pegado al número de fila, en la misma celda y el mismo
-           cuerpo que el número — la columna # tiene sobra de sobra (22.6 pt
-           para cuando mucho 3 dígitos) a diferencia de Concepto, que va al
-           límite.
-         · el fondo de la fila entera, vía CSS en el <tr> — no es texto, así
-           que no puede desbordar nada, y print-color-adjust:exact (ver más
-           arriba) ya garantiza que se imprima igual que se ve en pantalla.
-       Total y Total Mtto se apagan a rayita: son precio de venta, y un
-       renglón "responsabilidad del cliente" no tiene — ver "eso se separa"
-       en calcularPoliza(). */
+    /* El fondo de fila (Forguard/cliente) vía CSS en el <tr>, no texto — no
+       puede desbordar nada, y print-color-adjust:exact (ver más arriba) ya
+       garantiza que se imprima igual que se ve en pantalla. Total y Total
+       Mtto se apagan a rayita: son precio de venta, y un renglón
+       "responsabilidad del cliente" no tiene — ver "eso se separa" en
+       calcularPoliza(). El "†" que antes iba pegado al número ya no hace
+       falta: la sección + el tinte ya dicen lo mismo, sin depender de un
+       símbolo disperso. */
     const filas = grupo.map(r=>{
+      if(r.esSeccion){
+        return `<tr class="tr-seccion ${r.tono}"><td class="tit-seccion" colspan="7">${esc(r.titulo)}</td></tr>`;
+      }
       const fuera = r.alcance === 'cliente';
       return `<tr${fuera ? ' class="fuera-alcance"' : ''}>
-      <td class="ix">${r.n}${fuera ? '†' : ''}</td>
+      <td class="ix">${r.n}</td>
       <td class="cpt">${esc(r.concepto)}${r.marca?`<span class="marca"> — ${esc(r.marca)}</span>`:""}</td>
       <td class="c">${esc(r.cantidad)}</td>
       <td class="c">${esc(r.precioUnitario)}</td>
@@ -583,7 +623,6 @@ function pagePoliza(){
     }).join("");
     /* El cierre solo en la última: en una intermedia sobraría, y en la primera
        diría un total que todavía no se ha terminado de listar. */
-    const fueraDeAlcance = POLIZA.renglones.filter(r => r.alcance === 'cliente');
     const cierre = ultima ? `
         <table class="totals">
           ${POLIZA.totales.descuento ? `
@@ -596,7 +635,7 @@ function pagePoliza(){
           <li>${esc(POLIZA.pie.iva)}</li>
           <li>Vigencia: del ${esc(POLIZA.fechas.vigenciaInicio)} al ${esc(POLIZA.fechas.vigenciaFin)}.</li>
           <li>La póliza se contrata y se presta por un periodo anual de doce (12) meses, independientemente de que la facturación se realice de forma anual o mensual.</li>
-          ${fueraDeAlcance.length ? `<li>† Responsabilidad del cliente, fuera del alcance de este mantenimiento preventivo — no incluido en el Precio Anual ni en el Precio Mensual de arriba: ${fueraDeAlcance.map(r => `#${r.n} ${esc(r.concepto)}`).join(', ')}.</li>` : ''}
+          ${clienteRows.length ? `<li>Los equipos bajo "Alcance del cliente" (ver arriba) son responsabilidad del cliente y no están incluidos en el Precio Anual ni en el Precio Mensual de esta póliza.</li>` : ''}
         </ul>` : '';
     /* Va ANTES de la tabla, en CADA hoja del listado (no solo en la que trae el
        cierre) — el pedido fue que se note "en el listado de los conceptos" en
@@ -634,7 +673,16 @@ function pagePoliza(){
         </table>${cierre}
       </div>
     </div>
-    ${sheetFoot(hojas.length > 1 ? `Equipos ${grupo[0].n}–${grupo[grupo.length-1].n} de ${POLIZA.renglones.length}` : '')}
+    ${(() => {
+      /* Rango "Equipos X–Y de N" para el pie: excluye los encabezados de
+         sección del propio grupo (no son equipos, no tienen .n) — si una
+         hoja cae justo en la división, el rango sigue diciendo los equipos
+         reales que trae, no "undefined–undefined". */
+      const reales = grupo.filter(r => !r.esSeccion);
+      const rango = hojas.length > 1 && reales.length
+        ? `Equipos ${reales[0].n}–${reales[reales.length-1].n} de ${POLIZA.renglones.length}` : '';
+      return sheetFoot(rango);
+    })()}
   </section>`;
   }).join("");
 }
@@ -1003,8 +1051,12 @@ function reubicarCierre(){
    se imprime también en el papel. Vale mil veces más un documento que se ve roto
    que uno que se ve bien y le faltan nueve equipos. */
 function verificarRenglonesImpresos(){
+  /* tr.tr-seccion (Alcance Forguard / Alcance del cliente, ver pagePoliza())
+     se excluye del conteo: son divisores de sección, no equipos — contarlos
+     haría que esta aserción dispare la banda roja en un documento que en
+     realidad está completo. */
   const cuenta = sel => [...document.querySelectorAll(sel)]
-    .reduce((t, tb) => t + tb.querySelectorAll('tr').length, 0);
+    .reduce((t, tb) => t + tb.querySelectorAll('tr:not(.tr-seccion)').length, 0);
   const pruebas = [
     { que:'renglones de la tabla',      impreso: cuenta('table.grid:not(.desc) tbody'), esperado: POLIZA.renglones.length },
     { que:'renglones del calendario',   impreso: cuenta('table.cal tbody'),             esperado: POLIZA.renglones.length },

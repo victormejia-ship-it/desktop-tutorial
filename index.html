@@ -8623,10 +8623,14 @@ function armarPayloadPoliza(p){
            de un dato. */
         marca: x.marca || '',
         cantidad: String(x.cantidad),
-        precioUnitario: dineroCent(x.precioUnitario),
-        total:          dineroCent(total),
+        /* Pedido explícito de Victor (15-sep-2026): todo el dinero del
+           documento impreso de pólizas en pesos redondos, sin centavos —
+           dinero() en vez de dineroCent(). Ningún otro documento (cotizaciones,
+           Resultados, etc.) se toca: siguen con centavos como siempre. */
+        precioUnitario: dinero(x.precioUnitario),
+        total:          dinero(total),
         frecuencia: String(x.frecuencia),
-        totalMtto:      dineroCent(c.totales[i]),
+        totalMtto:      dinero(c.totales[i]),
         alcance: x.alcance,
         alcanceEtiqueta: ETIQUETA_ALCANCE_PARTIDA_POLIZA[x.alcance],
         /* YA son índices de columna. mesesServicio son DESFASES desde
@@ -8671,22 +8675,22 @@ function armarPayloadPoliza(p){
        positivo), y va vacío si no hay: la plantilla decide si pinta el
        bloque, no si calcula. `etiquetaDescuento`/`signoDescuento` son lo que
        cambia entre uno y otro — ver esAumento en calcularPoliza(). */
-    totales: { anual:   dineroCent(c.precioAnual),
-               mensual: dineroCent(c.precioMensual),
+    totales: { anual:   dinero(c.precioAnual),
+               mensual: dinero(c.precioMensual),
                /* Para 'interno' la base es el costo anual, no el precio de
                   venta — ver base/etiquetaBase en calcularPoliza(). */
-               subtotal: c.descuento ? dineroCent(c.base) : '',
+               subtotal: c.descuento ? dinero(c.base) : '',
                etiquetaSubtotal: c.etiquetaBase,
                etiquetaDescuento: c.esAumento ? 'Aumento' : 'Descuento',
                signoDescuento: c.esAumento ? '+' : '−',
                descuento: c.descuento ? c.descuentoAbs + '%' : '',
-               montoDescuento: c.descuento ? dineroCent(c.montoDescuentoAbs) : '',
+               montoDescuento: c.descuento ? dinero(c.montoDescuentoAbs) : '',
                /* Lo que quedó fuera del precio por ser responsabilidad del
                   cliente (ver ALCANCE_PARTIDA_POLIZA) — nunca se suma a
                   "anual" ni a "mensual" de arriba. Vacío si no aplica, para
                   que la plantilla decida si pinta el aviso. */
                separadoCant: c.separadoCant || 0,
-               separado: c.separadoCant ? dineroCent(c.separadoAnual) : '',
+               separado: c.separadoCant ? dinero(c.separadoAnual) : '',
                crudo:   { anual: c.precioAnual, mensual: c.precioMensual,
                           subtotal: c.base, descuento: c.descuento,
                           montoDescuento: c.montoDescuentoAbs, separado: c.separadoAnual } },
